@@ -14,6 +14,7 @@
         <h1>まなびポケット 学校設定 一括変更 Operator Console</h1>
       </div>
       <div class="header-meta">
+        <a href="/guide.html" target="_blank" class="guide-nav-link" title="操作マニュアル・画面の見方を開く">📖 利用ガイド</a>
         <span id="jobStateBadge" class="badge badge-idle">IDLE</span>
         <span id="toolVersionLabel" class="tool-version">Tool: 1.0.0</span>
       </div>
@@ -26,20 +27,83 @@
       <button id="tabSetupBtn" class="tab-btn active" onclick="switchTab('setup')">1. Setup & Validation</button>
       <button id="tabProgressBtn" class="tab-btn" onclick="switchTab('progress')">2. Preflight Progress</button>
       <button id="tabResultsBtn" class="tab-btn" onclick="switchTab('results')">3. Results & Distribution</button>
+      <button id="tabApplyBtn" class="tab-btn" onclick="switchTab('apply')" disabled>4. Production Apply</button>
     </nav>
 
     <!-- Screen 1: Setup & Static Validation -->
     <section id="screenSetup" class="screen-section active">
       <div class="card">
-        <h2>入力設定 & 検証 (Setup & Validation)</h2>
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+          <h2>入力設定 & 検証 (Setup & Validation)</h2>
+          <a href="/guide.html" target="_blank" style="font-size: 0.85rem; color: var(--primary); text-decoration: none; font-weight: 600;">📖 画面の見方・操作ガイド &rarr;</a>
+        </div>
         <p class="section-desc">実行対象の学校一覧、認証情報解決状況、および適用予定プロファイルを確認・検証します。</p>
 
-        <div class="grid-2col">
+        <!-- アップロードゾーン (CSV インポート 1本化) -->
+        <div id="uploadContainer" class="upload-container mt-3">
+          <div class="notice-box mb-2">
+            <span class="icon">ℹ️</span>
+            <span>※ Excel で「<strong>CSV UTF-8（コンマ区切り）（*.csv）</strong>」として保存した .csv ファイルをご利用ください（.xlsx は対象外）。</span>
+          </div>
+          <div id="dropZone" class="drop-zone" onclick="document.getElementById('schoolsFileInput').click()">
+            <div class="drop-zone-icon">📁</div>
+            <div class="drop-zone-text">CSV ファイルをドラッグ＆ドロップ、またはクリックして選択</div>
+            <div class="drop-zone-hint">フォーマット: <code>schoolCode,schoolName,userId,password[,enabled]</code> (最大 5MB)</div>
+            <input type="file" id="schoolsFileInput" accept=".csv" style="display: none;" onchange="onFileSelected(this.files)">
+          </div>
+
+          <!-- アップロードされたファイル情報 & 安全 Preview (秘密情報ゼロ) -->
+          <div id="uploadFileInfo" class="upload-file-info mt-3" style="display: none;">
+            <div class="info-row">
+              <span class="label">アップロードファイル:</span>
+              <span class="value font-bold" id="uploadFileNameVal">-</span>
+              <span class="value text-muted" id="uploadFileSizeVal">(-)</span>
+            </div>
+            <div class="info-row">
+              <span class="label">解析結果:</span>
+              <span class="value" id="uploadParsedStatsVal">-</span>
+            </div>
+
+            <div class="mt-2">
+              <span class="label font-bold">学校リスト Preview（先頭最大20校 / 秘密情報非表示）:</span>
+              <div class="table-scroll-container mt-1">
+                <table class="data-table data-table-sm">
+                  <thead>
+                    <tr><th>#</th><th>学校コード</th><th>学校名</th><th>認証情報</th></tr>
+                  </thead>
+                  <tbody id="uploadPreviewBody">
+                    <tr><td colspan="4" class="text-center text-muted">CSV 未選択</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 安全 Gate: 想定有効学校数入力欄 (指示10) -->
+        <div class="gate-card mt-3">
+          <div class="grid-2col" style="align-items: center;">
+            <div>
+              <h3>想定有効学校数 (Safety Gate)</h3>
+              <p class="help-text">処理対象として想定している「有効学校数」を入力してください。CSV内の有効数と一致しない場合、Preflight の開始は安全のためブロックされます。</p>
+            </div>
+            <div style="display: flex; gap: 10px; align-items: center; justify-content: flex-end;">
+              <input type="number" id="inputExpectedSchoolCount" class="input-number" min="1" placeholder="例: 3 または 400" oninput="onExpectedCountInput()">
+              <span id="expectedMatchBadge" class="badge badge-idle">未入力</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid-2col mt-3">
           <div class="info-group">
-            <h3>対象学校 (Schools CSV)</h3>
+            <h3>現在の対象学校 (Schools CSV)</h3>
+            <div class="info-row">
+              <span class="label">入力ソース:</span>
+              <span class="value font-bold text-primary" id="currentSourceVal">ローカル既定ファイル</span>
+            </div>
             <div class="info-row">
               <span class="label">ファイル:</span>
-              <span class="value" id="schoolsFileVal">config/schools-live.csv</span>
+              <span class="value" id="schoolsFileVal">config/schools.live.csv</span>
             </div>
             <div class="info-row">
               <span class="label">有効学校数 (Enabled):</span>
@@ -65,22 +129,44 @@
           </div>
         </div>
 
+        <!-- Profile Editor & Presets (SSOT) -->
         <div class="info-group mt-4">
-          <h3>適用予定プロファイル (Production Profile: Read-only)</h3>
-          <div class="info-row">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+            <div>
+              <h3>適用プロファイル設定 (Profile Editor)</h3>
+              <p class="help-text">各項目の設定値を直接指定できます。「UNMANAGED (変更なし)」を選択した項目は、現在の学校設定を維持します。</p>
+            </div>
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+              <button type="button" class="btn btn-outline btn-sm" onclick="applyPreset('RECOMMENDED')">推奨設定</button>
+              <button type="button" class="btn btn-outline btn-sm" onclick="applyPreset('UNMANAGED_ALL')">全項目維持</button>
+              <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('profileJsonInput').click()">JSON インポート</button>
+              <button type="button" class="btn btn-outline btn-sm" onclick="exportProfileJson()">JSON エクスポート</button>
+              <input type="file" id="profileJsonInput" accept=".json" style="display: none;" onchange="onProfileJsonSelected(this.files)">
+            </div>
+          </div>
+
+          <!-- 破壊的変更リスクリアルタイム警告バナー (指示1) -->
+          <div id="editorDestructiveWarning" class="alert-box alert-warning mt-2" style="display: none;">
+            <span class="font-bold">⚠️ 予約投稿削除リスクを伴う変更が含まれています:</span>
+            <span id="editorDestructiveFieldsList"></span>
+          </div>
+
+          <div class="info-row mt-2">
             <span class="label">Profile Hash:</span>
             <span class="value font-mono" id="profileHashVal">-</span>
+            <span class="value text-muted" id="profileSnapshotIdVal" style="font-size: 0.8rem; margin-left: 0.5rem;"></span>
           </div>
+
           <table class="data-table mt-2">
             <thead>
               <tr>
-                <th>設定項目</th>
-                <th>管理状態</th>
-                <th>設定予定値</th>
+                <th style="width: 25%;">設定項目</th>
+                <th style="width: 30%;">設定値の指定</th>
+                <th style="width: 45%;">ステータス / リスク・依存関係</th>
               </tr>
             </thead>
-            <tbody id="profileItemsBody">
-              <tr><td colspan="3" class="text-center text-muted">「入力を検証」を実行すると表示されます</td></tr>
+            <tbody id="profileEditorTableBody">
+              <tr><td colspan="3" class="text-center text-muted">設定項目を読み込み中...</td></tr>
             </tbody>
           </table>
         </div>
@@ -169,11 +255,24 @@
           </div>
         </div>
 
-        <!-- 破壊的変更警告 (アラート) -->
+        <!-- RESULTS_STALE 警告 (アラート) -->
+        <div id="resultsStaleAlertBox" class="alert-box alert-warning mt-3" style="display: none;">
+          <h3 class="alert-title">⚠️ RESULTS_STALE: これは現在選択中のCSVの結果ではありません</h3>
+          <p id="resultsStaleAlertMsg">現在選択中の入力ソースと過去の実行レポートのハッシュが一致していません。現在の入力に対する結果を確認するには、再度「入力を検証」を行ってから Preflight を実行してください。</p>
+        </div>
+
+        <!-- 破壊的変更警告 (アラート) (指示1) -->
         <div id="destructiveAlertBox" class="alert-box alert-danger mt-3" style="display: none;">
-          <h3 class="alert-title">⚠️ 破壊的変更リスク警告 (SCHEDULED_POSTS_MAY_BE_DELETED)</h3>
-          <p id="destructiveAlertMsg">予約投稿が削除されるリスクのある学校が存在します。</p>
+          <h3 class="alert-title">⚠️ 予約投稿削除リスク警告 (DESTRUCTIVE_CHANGE_RISK)</h3>
+          <p id="destructiveAlertMsg">予約投稿削除リスクを伴う設定変更計画を持つ学校（destructiveChangeSchools）が存在します。</p>
           <div id="destructiveSchoolsTableContainer" class="mt-2"></div>
+        </div>
+
+        <!-- 未契約機能の有効化要求警告 (アラート) -->
+        <div id="uncontractedAlertBox" class="alert-box alert-warning mt-3" style="display: none;">
+          <h3 class="alert-title">⚠️ 未契約機能の有効化要求警告 (CONTRACT_NOT_AVAILABLE)</h3>
+          <p id="uncontractedAlertMsg"></p>
+          <div id="uncontractedSchoolsTableContainer" class="mt-2"></div>
         </div>
 
         <!-- 総合集計指標 -->
@@ -261,6 +360,141 @@
         </div>
       </div>
     </section>
+
+    <!-- Screen 4: Production Apply (非破壊本番適用) -->
+    <section id="screenApply" class="screen-section">
+      <div class="card">
+        <div class="results-header">
+          <h2>4. 本番適用 (Production Apply v1)</h2>
+          <div class="results-actions">
+            <span id="applyGateBadge" class="badge badge-warning">Gate 未検証</span>
+          </div>
+        </div>
+        <p class="section-desc">事前検証 (Preflight) の結果に基づき、<strong>非破壊変更のみ</strong>を本番環境へ安全に書き込みます。</p>
+
+        <!-- Global Gate 検証結果カード -->
+        <div id="applyGateCard" class="notice-box mt-3">
+          <span class="icon" id="applyGateIcon">⏳</span>
+          <div id="applyGateContent">
+            <strong>Global Gate 状態:</strong> <span id="applyGateSummary">Preflight 実行結果を確認中...</span>
+          </div>
+        </div>
+
+        <!-- マニフェスト概要カード -->
+        <div id="manifestSummaryBox" class="info-group mt-4" style="display: none;">
+          <h3>適用計画マニフェスト (Target Manifest)</h3>
+          <div class="metrics-grid mt-2">
+            <div class="metric-card">
+              <div class="metric-label">適用対象校 (非破壊のみ)</div>
+              <div class="metric-value text-success font-bold" id="applyTargetCountVal">0</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">破壊的変更スキップ (自動除外)</div>
+              <div class="metric-value text-danger font-bold" id="applySkippedDestructiveVal">0</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label">設定変更不要校 (維持)</div>
+              <div class="metric-value text-muted font-bold" id="applyAlreadyConfiguredVal">0</div>
+            </div>
+          </div>
+          <div class="info-row mt-2">
+            <span class="label">applyTargetHash:</span>
+            <span class="value font-mono" id="applyTargetHashVal">-</span>
+          </div>
+        </div>
+
+        <!-- 本番適用 実行トリガー -->
+        <div class="action-bar mt-4">
+          <button id="btnPrepareApply" class="btn btn-primary" onclick="prepareProductionApply()" disabled>
+            本番適用を確認する (Prepare)
+          </button>
+        </div>
+
+        <div id="applyAlert" class="alert-box mt-3" style="display: none;"></div>
+
+        <!-- リアルタイム適用進捗 (Apply Progress) -->
+        <div id="applyProgressSection" class="mt-4" style="display: none;">
+          <h3>本番適用 進行状況</h3>
+          <div class="progress-box mt-2">
+            <div class="progress-header">
+              <span class="progress-count" id="applyProgressCountLabel">0 / 0</span>
+              <span class="progress-percent" id="applyProgressPercentLabel">0%</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div class="progress-bar-fill" id="applyProgressBarFill" style="width: 0%;"></div>
+            </div>
+          </div>
+
+          <div class="action-bar mt-3">
+            <button id="btnStopApply" class="btn btn-danger" onclick="stopPreflight()" disabled>
+              安全に停止 (Graceful Shutdown)
+            </button>
+          </div>
+
+          <div class="log-box mt-4">
+            <h3>本番適用 実行ログ (Live Logs)</h3>
+            <pre id="applyLogConsole" class="log-console"></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Production Apply Confirmation Modal -->
+    <div id="applyConfirmModal" class="modal-overlay" style="display: none;">
+      <div class="modal-content card">
+        <div class="modal-header">
+          <h3>⚠️ 本番適用（Production Apply）の最終確認</h3>
+          <button class="modal-close-btn" onclick="closeApplyModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="notice-box notice-warning mb-3">
+            <span class="icon">⚠️</span>
+            <span>実環境への設定変更を書き込みます。<strong>破壊的変更（予約投稿削除リスク）を伴う学校は自動的にスキップ</strong>され、非破壊変更のみが適用されます。</span>
+          </div>
+
+          <div class="info-group">
+            <h4>適用対象マニフェスト概要 (Apply Manifest)</h4>
+            <div class="metrics-grid mt-2 mb-3">
+              <div class="metric-card">
+                <div class="metric-label">本番適用対象 (Non-destructive)</div>
+                <div class="metric-value text-success font-bold" id="modalTargetCount">0 校</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-label">破壊的変更スキップ (Skipped)</div>
+                <div class="metric-value text-danger font-bold" id="modalSkippedDestructive">0 校</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-label">設定変更不要 (Already Configured)</div>
+                <div class="metric-value text-muted font-bold" id="modalAlreadyConfigured">0 校</div>
+              </div>
+            </div>
+            <div class="info-row">
+              <span class="label">applyTargetHash:</span>
+              <span class="value font-mono" id="modalApplyTargetHashVal">-</span>
+            </div>
+            <div class="info-row">
+              <span class="label">profileHash:</span>
+              <span class="value font-mono" id="modalProfileHashVal">-</span>
+            </div>
+          </div>
+
+          <div class="form-check mt-3" style="padding: 1rem; background: var(--bg-hover, #f8f9fa); border-radius: 4px; border: 1px solid var(--border);">
+            <label style="cursor: pointer; display: flex; align-items: center; gap: 0.5rem; font-weight: bold;">
+              <input type="checkbox" id="modalConfirmCheckbox" onchange="onModalCheckboxChanged(this.checked)">
+              <span>上記の適用対象校数および非破壊設定変更の内容を確認しました</span>
+            </label>
+          </div>
+
+          <div id="modalAlert" class="alert-box mt-3" style="display: none;"></div>
+        </div>
+        <div class="modal-footer action-bar mt-3" style="justify-content: flex-end; gap: 1rem;">
+          <button class="btn btn-outline" onclick="closeApplyModal()">キャンセル</button>
+          <button id="btnExecuteApply" class="btn btn-danger" onclick="executeProductionApply()" disabled>
+            非破壊変更を本番適用する
+          </button>
+        </div>
+      </div>
+    </div>
   </main>
 
   <footer class="footer">

@@ -32,54 +32,13 @@ export interface BatchRunOptions {
   validateOnly?: boolean;
   schoolTimeoutMs?: number;
   cleanupTimeoutMs?: number;
+  profileSnapshotId?: string;
 }
 
+import { parseAndSeparateSchoolsCsv } from './csvParser';
+
 export function parseSchoolsCsv(content: string): BatchSchoolItem[] {
-  const normalizedContent = content.startsWith('\uFEFF')
-    ? content.slice(1)
-    : content;
-
-  const lines = normalizedContent
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0 && !l.startsWith('#'));
-
-  if (lines.length === 0) {
-    throw new AutomationError('CONFIG_INVALID', '学校CSVファイルが空です');
-  }
-
-  const header = lines[0].split(',').map((h) => h.trim());
-  const codeIdx = header.indexOf('schoolCode');
-  const nameIdx = header.indexOf('schoolName');
-  const credIdx = header.indexOf('credentialRef');
-  const enabledIdx = header.indexOf('enabled');
-
-  if (codeIdx === -1 || nameIdx === -1 || credIdx === -1) {
-    throw new AutomationError(
-      'CONFIG_INVALID',
-      `学校CSVヘッダーに必須項目が含まれていません (schoolCode, schoolName, credentialRef が必要です): 見つかった項目=[${header.join(',')}]`
-    );
-  }
-
-  const schools: BatchSchoolItem[] = [];
-  for (let i = 1; i < lines.length; i++) {
-    const cols = lines[i].split(',').map((c) => c.trim());
-    if (cols.length < 3) continue;
-
-    const schoolCode = cols[codeIdx];
-    const schoolName = cols[nameIdx];
-    const credentialRef = cols[credIdx];
-    const enabled = enabledIdx !== -1 ? cols[enabledIdx].toLowerCase() === 'true' || cols[enabledIdx] === '1' : true;
-
-    schools.push({
-      schoolCode,
-      schoolName,
-      credentialRef,
-      enabled
-    });
-  }
-
-  return schools;
+  return parseAndSeparateSchoolsCsv(content).schools;
 }
 
 export function validateBatchSchools(schools: BatchSchoolItem[]): void {
@@ -193,7 +152,8 @@ export async function runBatch(options: BatchRunOptions): Promise<BatchSummaryRe
     clearStaleLock = false,
     deploymentId: customDeploymentId,
     pacingDelayMs = 1500,
-    expectedSchoolCount
+    expectedSchoolCount,
+    profileSnapshotId
   } = options;
 
   logger.info('\n================================================================');
@@ -319,6 +279,7 @@ export async function runBatch(options: BatchRunOptions): Promise<BatchSummaryRe
   const isBatchApply = executionOptions.batchApply;
 
   let mode: 'PREFLIGHT_DRY_RUN' | 'PRODUCTION_WRITE';
+  let loadedPreflightReport: PreflightReport | null = null;
 
   if (isApply) {
     // 書き込みモード: 4重Gateチェック必須
@@ -338,6 +299,7 @@ export async function runBatch(options: BatchRunOptions): Promise<BatchSummaryRe
         throw new AutomationError('CONFIG_INVALID', `指定されたPreflight Reportが見つかりません: ${resolvedPfPath}`);
       }
       const pfReport: PreflightReport = JSON.parse(fs.readFileSync(resolvedPfPath, 'utf-8'));
+      loadedPreflightReport = pfReport;
 
       if (pfReport.profileHash !== profileHash) {
         throw new AutomationError(
@@ -397,6 +359,7 @@ export async function runBatch(options: BatchRunOptions): Promise<BatchSummaryRe
     runId,
     mode,
     profileHash,
+    profileSnapshotId,
     schoolsHash,
     toolVersion,
     toolFingerprint
@@ -448,7 +411,26 @@ export async function runBatch(options: BatchRunOptions): Promise<BatchSummaryRe
       if (resume) {
         const entry = checkpoint.getEntry(s.schoolCode);
         if (entry) {
-          if (entry.status === 'SUCCESS' || entry.status === 'SUCCESS_ALREADY_CONFIGURED') {
+          // SUCCESS系、SKIPPED_DESTRUCTIVE、PREFLIGHT_STATE_CHANGED はスキップ
+          if (
+            entry.status === 'SUCCESS' ||
+            entry.status === 'SUCCESS_RECOVERED' ||
+            entry.status === 'SUCCESS_ALREADY_CONFIGURED' ||
+            entry.status === 'SKIPPED_DESTRUCTIVE' ||
+            entry.status === 'PREFLIGHT_STATE_CHANGED'
+          ) {
+            skippedCount++;
+            continue;
+          }
+          // SAVE_OUTCOME_UNKNOWN は絶対に再実行禁止 (人手確認必須)
+          if (entry.status === 'SAVE_OUTCOME_UNKNOWN' || entry.executionStatus === 'SAVE_OUTCOME_UNKNOWN') {
+            logger.warn(`[${s.schoolCode}] SAVE_OUTCOME_UNKNOWN のため再実行対象外としてスキップします (人手確認必須)`);
+            skippedCount++;
+            continue;
+          }
+          // SAVE_FAILED_KNOWN は自動retryしない
+          if (entry.status === 'SAVE_FAILED_KNOWN' || entry.executionStatus === 'SAVE_FAILED_KNOWN') {
+            logger.warn(`[${s.schoolCode}] SAVE_FAILED_KNOWN のため再実行対象外としてスキップします`);
             skippedCount++;
             continue;
           }
@@ -473,6 +455,10 @@ export async function runBatch(options: BatchRunOptions): Promise<BatchSummaryRe
     const batchStartTime = Date.now();
     let batchSuccessCount = 0;
     let batchFailedCount = 0;
+
+    // Phase 5B.4: Preflight Report がある場合は学校別制約マップを生成
+    const pfSchoolMap: Map<string, import('../types/batch').PreflightSchoolResult> | null =
+      loadedPreflightReport ? new Map(loadedPreflightReport.schools.map((s) => [s.schoolCode, s])) : null;
 
     logger.info(`実行予定: ${schoolsToProcess.length} 校 (除外・スキップ・保留: ${skippedCount} 校) [タイムアウト: ${schoolTimeoutMs}ms/校, クリーンアップ待機上限: ${cleanupTimeoutMs}ms]`);
 
@@ -501,6 +487,73 @@ export async function runBatch(options: BatchRunOptions): Promise<BatchSummaryRe
       logger.info(`\n----------------------------------------------------------------`);
       logger.info(`[${idx + 1}/${schoolsToProcess.length}] 学校処理開始: ${school.schoolName} (${school.schoolCode})`);
       logger.info(`----------------------------------------------------------------`);
+
+      // Phase 5B.4: Production Write 実行時の Manifest 制約事前判定 (ブラウザ起動前に安全スキップ)
+      let expectedBaselineHash: string | undefined;
+      if (mode === 'PRODUCTION_WRITE' && pfSchoolMap) {
+        const pfSchool = pfSchoolMap.get(school.schoolCode);
+
+        // Preflight Report に存在しない学校は安全のため除外
+        if (!pfSchool) {
+          logger.warn(`[${school.schoolCode}] Preflight レポートに対象学校が存在しないためスキップします`);
+          skippedCount++;
+          continue;
+        }
+
+        // 破壊的変更リスク校: SKIPPED_DESTRUCTIVE (書き込み実行せずスキップ, Save POST = 0)
+        if (pfSchool.hasDestructiveChanges) {
+          logger.warn(`[${school.schoolCode}] 破壊的変更リスクを伴う設定計画のため本番書き込みから除外します (SKIPPED_DESTRUCTIVE)`);
+          checkpoint.startSchool(school.schoolCode);
+          checkpoint.finishSchool({
+            schoolCode: school.schoolCode,
+            status: 'SKIPPED_DESTRUCTIVE',
+            executionStatus: 'SKIPPED_DESTRUCTIVE',
+            actionsCount: pfSchool.actionsCount,
+            hasDestructiveChanges: true,
+            planExecutable: false,
+            error: '破壊的変更リスクのためスキップ (予約投稿削除リスク)'
+          });
+          summaryReporter.addSchoolResult({
+            schoolCode: school.schoolCode,
+            schoolName: school.schoolName,
+            status: 'SKIPPED_DESTRUCTIVE',
+            executionStatus: 'SKIPPED_DESTRUCTIVE',
+            planExecutable: false,
+            hasDestructiveChanges: true,
+            actionsCount: pfSchool.actionsCount,
+            error: '破壊的変更リスクのためスキップ (予約投稿削除リスク)'
+          });
+          continue;
+        }
+
+        // 変更不要校: SUCCESS_ALREADY_CONFIGURED (書き込み実行せずスキップ, Save POST = 0)
+        if (pfSchool.actionsCount === 0 || pfSchool.hasChanges === false) {
+          logger.info(`[${school.schoolCode}] 変更不要校のため書き込みをスキップします (SUCCESS_ALREADY_CONFIGURED)`);
+          checkpoint.startSchool(school.schoolCode);
+          checkpoint.finishSchool({
+            schoolCode: school.schoolCode,
+            status: 'SUCCESS_ALREADY_CONFIGURED',
+            executionStatus: 'SUCCESS_ALREADY_CONFIGURED',
+            actionsCount: 0,
+            hasDestructiveChanges: false,
+            planExecutable: true
+          });
+          summaryReporter.addSchoolResult({
+            schoolCode: school.schoolCode,
+            schoolName: school.schoolName,
+            status: 'SUCCESS_ALREADY_CONFIGURED',
+            executionStatus: 'SUCCESS_ALREADY_CONFIGURED',
+            planExecutable: true,
+            hasDestructiveChanges: false,
+            actionsCount: 0
+          });
+          batchSuccessCount++;
+          continue;
+        }
+
+        // 適用対象校: Preflight Baseline Hash を設定
+        expectedBaselineHash = pfSchool.baselineHash;
+      }
 
       checkpoint.startSchool(school.schoolCode);
 
@@ -532,7 +585,8 @@ export async function runBatch(options: BatchRunOptions): Promise<BatchSummaryRe
           executionOptions,
           envConfig,
           isBatchMode: true,
-          signal: abortController.signal
+          signal: abortController.signal,
+          expectedBaselineHash
         });
 
         let result: ExecutionResult;
@@ -575,33 +629,33 @@ export async function runBatch(options: BatchRunOptions): Promise<BatchSummaryRe
           cpStatus = 'INTERRUPTED';
           effectiveExecutionStatus = 'INTERRUPTED';
           effectiveError = 'Operator Stop';
-        } else if (result.status === 'SUCCESS' || result.status === 'SUCCESS_RECOVERED') {
+        } else if (result.status === 'SAVE_OUTCOME_UNKNOWN') {
+          cpStatus = 'SAVE_OUTCOME_UNKNOWN';
+          effectiveExecutionStatus = 'SAVE_OUTCOME_UNKNOWN';
+          batchFailedCount++;
+        } else if (result.status === 'SAVE_FAILED_KNOWN') {
+          cpStatus = 'SAVE_FAILED_KNOWN';
+          effectiveExecutionStatus = 'SAVE_FAILED_KNOWN';
+          batchFailedCount++;
+        } else if (result.status === 'SUCCESS_RECOVERED') {
+          cpStatus = 'SUCCESS_RECOVERED';
+          effectiveExecutionStatus = 'SUCCESS_RECOVERED';
+          batchSuccessCount++;
+        } else if (result.status === 'SUCCESS') {
           cpStatus = 'SUCCESS';
           batchSuccessCount++;
         } else if (result.status === 'SUCCESS_ALREADY_CONFIGURED') {
           cpStatus = 'SUCCESS_ALREADY_CONFIGURED';
           batchSuccessCount++;
+        } else if (result.status === 'PREFLIGHT_STATE_CHANGED') {
+          cpStatus = 'PREFLIGHT_STATE_CHANGED';
+          effectiveExecutionStatus = 'PREFLIGHT_STATE_CHANGED';
+          // Preflight後の変更検知はスキップ（Writeは行わず安全終了）
         } else if (result.status === 'DRY_RUN_COMPLETED') {
           cpStatus = (result.executionPlan?.actions.length ?? 0) === 0 ? 'SUCCESS_ALREADY_CONFIGURED' : 'SUCCESS';
           batchSuccessCount++;
         } else {
           batchFailedCount++;
-        }
-
-        // Checkpoint 記録 (Atomic Write)
-        checkpoint.finishSchool({
-          schoolCode: school.schoolCode,
-          status: cpStatus,
-          executionStatus: effectiveExecutionStatus,
-          actionsCount: result.executionPlan?.actions.length,
-          hasDestructiveChanges: result.executionPlan?.hasDestructiveChanges,
-          error: effectiveError,
-          resultLogPath: undefined
-        });
-
-        // Circuit Breaker 記録 (重大度別 - 中断時はカウントしない)
-        if (!isKillSwitchTriggered) {
-          circuitBreaker.recordResult(result.status, school.schoolCode, mode);
         }
 
         const isOk = !isKillSwitchTriggered && (
@@ -614,6 +668,30 @@ export async function runBatch(options: BatchRunOptions): Promise<BatchSummaryRe
           result.status === 'DEPENDENCY_UNSATISFIED' ||
           result.status === 'PRE_SAVE_VALIDATION_FAILED';
 
+        const beforeValues = extractObservationValues(result.beforeObservation);
+        const afterValues = extractObservationValues(result.afterObservation);
+        const planExecutable = isOk && !isPlanBlocked;
+
+        // Checkpoint 記録 (Atomic Write)
+        checkpoint.finishSchool({
+          schoolCode: school.schoolCode,
+          status: cpStatus,
+          executionStatus: effectiveExecutionStatus,
+          actionsCount: result.executionPlan?.actions.length,
+          hasDestructiveChanges: result.executionPlan?.hasDestructiveChanges,
+          planExecutable,
+          before: beforeValues,
+          requested: desiredSettings,
+          after: afterValues,
+          error: effectiveError,
+          resultLogPath: undefined
+        });
+
+        // Circuit Breaker 記録 (重大度別 - 中断時はカウントしない)
+        if (!isKillSwitchTriggered) {
+          circuitBreaker.recordResult(result.status, school.schoolCode, mode);
+        }
+
         // Summary 記録
         const summaryItem: SchoolSummaryItem = {
           schoolCode: school.schoolCode,
@@ -622,10 +700,10 @@ export async function runBatch(options: BatchRunOptions): Promise<BatchSummaryRe
           executionStatus: effectiveExecutionStatus,
           actionsCount: result.executionPlan?.actions.length,
           hasDestructiveChanges: result.executionPlan?.hasDestructiveChanges,
-          planExecutable: isOk && !isPlanBlocked,
-          before: extractObservationValues(result.beforeObservation),
+          planExecutable,
+          before: beforeValues,
           requested: desiredSettings,
-          after: extractObservationValues(result.afterObservation),
+          after: afterValues,
           error: effectiveError
         };
         summaryReporter.addSchoolResult(summaryItem);
@@ -641,15 +719,24 @@ export async function runBatch(options: BatchRunOptions): Promise<BatchSummaryRe
           break;
         }
 
+        // 指示2: SAVE_OUTCOME_UNKNOWN 発生時は Batch 即停止・次校禁止
+        if (result.status === 'SAVE_OUTCOME_UNKNOWN') {
+          logger.error(`【CRITICAL STOP: SAVE_OUTCOME_UNKNOWN】学校 ${school.schoolCode} で永続化状態未確定が発生したため、次校への処理を直ちに完全停止します`);
+          break;
+        }
+
       } catch (err: any) {
         const elapsedSec = ((Date.now() - batchStartTime) / 1000).toFixed(1);
         const remaining = schoolsToProcess.length - (idx + 1);
 
         const isInterrupted = isKillSwitchTriggered;
-        // 指示9: schoolTimeout発生時は、内部例外で上書きせず primaryStatus = TIMEOUT を維持
-        // ただし cleanupTimeout 超過時は CLEANUP_TIMEOUT へ昇格、STOP要求時は INTERRUPTED
+        // 指示2: SAVE_OUTCOME_UNKNOWN / SAVE_FAILED_KNOWN は TIMEOUT 等へ変換禁止
         const finalStatus: ExecutionStatus =
-          err.status === 'CLEANUP_TIMEOUT'
+          err.status === 'SAVE_OUTCOME_UNKNOWN'
+            ? 'SAVE_OUTCOME_UNKNOWN'
+            : err.status === 'SAVE_FAILED_KNOWN'
+            ? 'SAVE_FAILED_KNOWN'
+            : err.status === 'CLEANUP_TIMEOUT'
             ? 'CLEANUP_TIMEOUT'
             : isTimedOut
             ? 'TIMEOUT'
@@ -664,14 +751,24 @@ export async function runBatch(options: BatchRunOptions): Promise<BatchSummaryRe
         const errorMessage = isInterrupted ? 'Operator Stop' : err.message;
         logger.error(`[${school.schoolCode}] 実行中断/エラー (${finalStatus}): ${errorMessage}`);
         logger.error(
-          `[${idx + 1}/${schoolsToProcess.length}] ${school.schoolCode} - ${isInterrupted ? 'INTERRUPTED' : 'FAILED'} [${finalStatus}] (経過: ${elapsedSec}s, 成功: ${batchSuccessCount}, 失敗: ${batchFailedCount}, 残り: ${remaining})`
+          `[${idx + 1}/${schoolsToProcess.length}] ${school.schoolCode} - ${isInterrupted ? 'INTERRUPTED' : finalStatus} [${finalStatus}] (経過: ${elapsedSec}s, 成功: ${batchSuccessCount}, 失敗: ${batchFailedCount}, 残り: ${remaining})`
         );
+
+        const errorCpStatus: CheckpointStatus =
+          finalStatus === 'SAVE_OUTCOME_UNKNOWN'
+            ? 'SAVE_OUTCOME_UNKNOWN'
+            : finalStatus === 'SAVE_FAILED_KNOWN'
+            ? 'SAVE_FAILED_KNOWN'
+            : isInterrupted
+            ? 'INTERRUPTED'
+            : 'FAILED';
 
         if (finalStatus !== 'CHECKPOINT_IO_ERROR') {
           checkpoint.finishSchool({
             schoolCode: school.schoolCode,
-            status: isInterrupted ? 'INTERRUPTED' : 'FAILED',
+            status: errorCpStatus,
             executionStatus: finalStatus,
+            planExecutable: false,
             error: errorMessage
           });
         }
@@ -681,14 +778,19 @@ export async function runBatch(options: BatchRunOptions): Promise<BatchSummaryRe
         summaryReporter.addSchoolResult({
           schoolCode: school.schoolCode,
           schoolName: school.schoolName,
-          status: isInterrupted ? 'INTERRUPTED' : 'FAILED',
+          status: errorCpStatus,
           executionStatus: finalStatus,
           planExecutable: false,
           error: errorMessage
         });
 
-        // 指示7, 8 & Phase 5A.1: CLEANUP_TIMEOUT または CHECKPOINT_IO_ERROR または STOP時は即座にループ脱出・次校禁止
-        if (finalStatus === 'CLEANUP_TIMEOUT' || finalStatus === 'CHECKPOINT_IO_ERROR' || isInterrupted) {
+        // 指示7, 8 & Phase 5A.1 & 5B.2: CLEANUP_TIMEOUT, CHECKPOINT_IO_ERROR, SAVE_OUTCOME_UNKNOWN または STOP時は即座にループ脱出・次校禁止
+        if (
+          finalStatus === 'CLEANUP_TIMEOUT' ||
+          finalStatus === 'CHECKPOINT_IO_ERROR' ||
+          finalStatus === 'SAVE_OUTCOME_UNKNOWN' ||
+          isInterrupted
+        ) {
           logger.warn(`【安全停止】${finalStatus} が発生したため、次校への処理を完全停止します`);
           break;
         }
@@ -699,6 +801,9 @@ export async function runBatch(options: BatchRunOptions): Promise<BatchSummaryRe
     if (!isKillSwitchTriggered && !circuitBreaker.shouldStop() && eligibleSchools.length <= schoolsToProcess.length) {
       checkpoint.markBatchCompleted();
     }
+
+    // Checkpointを累積SSOTとして全校の最新結果を再構成
+    summaryReporter.reconstructFromCheckpointEntries(checkpoint.getAllEntries());
 
     // 10. 集計サマリレポートの生成・出力
     const report = summaryReporter.generateReport({

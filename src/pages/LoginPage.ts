@@ -214,13 +214,14 @@ export class LoginPage extends BasePage {
    */
   private async waitForLoginSuccess(timeoutMs = 30000): Promise<void> {
     // ログイン完了判定インジケーター（実画面で確認された.v2-sidebar-current-account、.v2-header、.v2-nav-menu-header__label等）
+    // ※.school-name はログイン画面（IdP側）にも存在するため、成功インジケーターとしては除外
     const successIndicator = this.page.locator(
-      '.v2-sidebar-current-account, .v2-header, .v2-nav-menu-header__label, .v2-sidenav, [aria-label*="ユーザー"], .user-icon, .school-name'
+      '.v2-sidebar-current-account, .v2-header, .v2-nav-menu-header__label, .v2-sidenav, [aria-label*="ユーザー"], .user-icon, .dropup.v2-nav-footer__item'
     ).first();
 
     await Promise.race([
       successIndicator.waitFor({ state: 'visible', timeout: timeoutMs }),
-      this.page.waitForURL((url) => url.pathname.includes('dashboard'), { timeout: timeoutMs })
+      this.page.waitForURL((url) => !url.hostname.includes('idp') && (url.pathname.includes('home') || url.pathname.includes('dashboard') || url.pathname.includes('organization') || url.pathname === '/'), { timeout: timeoutMs })
     ]);
   }
 }

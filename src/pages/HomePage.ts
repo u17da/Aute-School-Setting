@@ -138,42 +138,78 @@ export class HomePage extends BasePage {
   }
 
   /**
-   * 左下等のユーザーアイコン/設定メニューから「学校設定」画面へ遷移する
+   * 左下等のユーザーアイコン/設定メニューまたは直接リンクから「学校設定」画面へ遷移する
    */
   async navigateToSchoolSettings(): Promise<void> {
-    logger.info('設定メニューを開いて「学校設定」へ遷移中...');
+    logger.info('「学校設定」画面への遷移を開始中...');
 
-    // 左下のアカウント/設定メニュートリガー (.v2-sidebar-current-account, .dropup)
-    const trigger = this.page.locator('.v2-sidebar-current-account, .dropup.v2-nav-footer__item').first();
-
-    try {
-      await trigger.waitFor({ state: 'attached', timeout: 10000 });
-      await trigger.click({ force: true });
-      await this.page.waitForTimeout(500); // ドロップアップメニューの描画待機
-    } catch (err: any) {
-      throw new AutomationError(
-        'SETTINGS_MENU_NOT_AVAILABLE',
-        `設定メニュートリガーが見つかりませんでした: ${err.message}`
-      );
-    }
-
-    // ドロップダウンまたはポップアップメニュー内の「学校設定」を探す
-    const schoolSettingsItem = this.page.locator(
-      'a[href*="/manage/organization/edit"], a:has-text("学校設定")'
-    ).first();
-
-    try {
-      await schoolSettingsItem.waitFor({ state: 'attached', timeout: 5000 });
+    // 候補1: 画面上に既に「学校設定」リンクが直接表示されているか確認
+    const directLink = this.page.locator('a[href*="/manage/organization/edit"], a[href*="/organization"], a:has-text("学校設定")').first();
+    const isDirectVisible = await directLink.isVisible({ timeout: 2000 }).catch(() => false);
+    if (isDirectVisible) {
+      logger.info('画面上に直接「学校設定」リンクを検出しました。クリックして遷移します');
       await Promise.all([
         this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {}),
-        schoolSettingsItem.click({ force: true })
+        directLink.click({ force: true })
       ]);
-      logger.info('「学校設定」画面への遷移を実行しました');
+      return;
+    }
+
+    // 候補2: ドロップダウン/ポップアップメニュートリガーの探索
+    const triggerSelectors = [
+      '.v2-sidebar-current-account',
+      '.dropup.v2-nav-footer__item',
+      '.v2-nav-footer__item',
+      '.v2-nav-footer',
+      '[class*="current-account"]',
+      '[class*="nav-footer"]',
+      '.sidebar-footer',
+      'button[aria-haspopup="true"]',
+      '.user-profile',
+      '.account-menu'
+    ];
+
+    let menuOpened = false;
+    for (const sel of triggerSelectors) {
+      const trigger = this.page.locator(sel).first();
+      const count = await trigger.count().catch(() => 0);
+      if (count > 0 && (await trigger.isVisible().catch(() => false))) {
+        try {
+          await trigger.click({ force: true });
+          await this.page.waitForTimeout(500);
+          menuOpened = true;
+          logger.info(`設定メニュートリガーをクリックしました: "${sel}"`);
+          break;
+        } catch {}
+      }
+    }
+
+    if (menuOpened) {
+      const schoolSettingsItem = this.page.locator(
+        'a[href*="/manage/organization/edit"], a[href*="/organization"], a:has-text("学校設定")'
+      ).first();
+      const isItemVisible = await schoolSettingsItem.isVisible({ timeout: 3000 }).catch(() => false);
+      if (isItemVisible) {
+        await Promise.all([
+          this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {}),
+          schoolSettingsItem.click({ force: true })
+        ]);
+        logger.info('メニュー内の「学校設定」をクリックして遷移しました');
+        return;
+      }
+    }
+
+    // 候補3: まなびポケット正規の学校設定画面URLへ直接ナビゲーション
+    logger.info('メニューからの検出ができなかったため、正規パス (/manage/organization/edit) へ直接遷移します');
+    try {
+      const baseUrl = process.env.MANAPOKE_BASE_URL || 'https://ed-cl.com';
+      const targetUrl = new URL('/manage/organization/edit', baseUrl).toString();
+      await this.page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      logger.info(`直接URL遷移を実行しました: ${targetUrl}`);
     } catch (err: any) {
       throw new AutomationError(
         'SETTINGS_MENU_NOT_AVAILABLE',
-        '設定メニュー内に「学校設定」項目が存在しません（学校管理者アカウントでない可能性があります）',
-        { originalError: err.message }
+        `学校設定画面への遷移に失敗しました: ${err.message}`
       );
     }
   }

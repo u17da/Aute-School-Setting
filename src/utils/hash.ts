@@ -70,6 +70,73 @@ export function generateSchoolsHash(schools: BatchSchoolItem[]): string {
   return crypto.createHash('sha256').update(jsonStr).digest('hex');
 }
 
+import { ALL_SETTING_KEYS } from '../settings/definitions';
+import { ApplyTargetItem } from '../types/batch';
+
+/**
+ * baselineHash: 各学校の全11 SettingKeyについて value と availability の両方を固定key順で canonical 化して Hash 化 (指示7)
+ */
+export function generateBaselineHash(
+  observation: Partial<Record<string, any>>
+): string {
+  const canonicalList = ALL_SETTING_KEYS.map((key) => {
+    const item = (observation as any)?.[key];
+    if (!item) {
+      return { key, value: null, availability: 'CONTRACT_NOT_AVAILABLE' };
+    }
+    if (typeof item === 'object' && ('value' in item || 'availability' in item)) {
+      return {
+        key,
+        value: item.value ?? null,
+        availability: item.availability || (item.value !== null ? 'AVAILABLE' : 'CONTRACT_NOT_AVAILABLE')
+      };
+    }
+    return {
+      key,
+      value: item,
+      availability: item !== null && item !== undefined ? 'AVAILABLE' : 'CONTRACT_NOT_AVAILABLE'
+    };
+  });
+
+  const jsonStr = JSON.stringify(canonicalList);
+  return crypto.createHash('sha256').update(jsonStr).digest('hex');
+}
+
+/**
+ * applyTargetHash: 各Apply Targetの canonical representation (schoolCode順ソート) 全体から生成する監査Hash (指示3)
+ */
+export function generateApplyTargetHash(targets: ApplyTargetItem[] | string[]): string {
+  if (targets.length === 0) {
+    return crypto.createHash('sha256').update(JSON.stringify([])).digest('hex');
+  }
+
+  // 文字列配列の場合は後方互換でソートしてハッシュ化
+  if (typeof targets[0] === 'string') {
+    const sorted = [...(targets as string[])].sort();
+    return crypto.createHash('sha256').update(JSON.stringify(sorted)).digest('hex');
+  }
+
+  // ApplyTargetItem[] の場合 (指示3 準拠)
+  const sorted = [...(targets as ApplyTargetItem[])].sort((a, b) => a.schoolCode.localeCompare(b.schoolCode));
+  const canonicalItems = sorted.map((t) => {
+    const sortedActions = [...t.plannedActions].sort((a, b) => a.settingKey.localeCompare(b.settingKey));
+    const sortedExpectedKeys = Object.keys(t.expectedFinalState).sort();
+    const sortedExpected: Record<string, string | null> = {};
+    for (const k of sortedExpectedKeys) {
+      sortedExpected[k] = t.expectedFinalState[k];
+    }
+    return {
+      schoolCode: t.schoolCode,
+      baselineHash: t.baselineHash,
+      plannedActions: sortedActions,
+      expectedFinalState: sortedExpected
+    };
+  });
+
+  const jsonStr = JSON.stringify(canonicalItems);
+  return crypto.createHash('sha256').update(jsonStr).digest('hex');
+}
+
 /**
  * 指示10: package.json から toolVersion を取得 (SSOT)
  */

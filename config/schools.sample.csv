@@ -1,4 +1,4 @@
-﻿schoolCode,schoolName,credentialRef,enabled
-PRRHC,MEXCBTデモ学校,PRRHC,true
-DEMO001,サンプル第一小学校,DEMO001,true
-DEMO002,サンプル第二中学校,DEMO002,false
+schoolCode,schoolName,userId,password,enabled
+SAMPLE001,"サンプル第一学校,分校",sample_user_001,"sample,pass_001",true
+SAMPLE002,サンプル第二学校,sample_user_002,sample_pass_002,true
+SAMPLE003,サンプル第三学校,sample_user_003,sample_pass_003,false

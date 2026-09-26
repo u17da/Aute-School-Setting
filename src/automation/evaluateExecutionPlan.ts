@@ -11,13 +11,17 @@ export function evaluateExecutionPlan(plan: ExecutionPlan): ExecutionPlanEvaluat
 
   // 1. 契約外不在設定への明示要求チェック (mentalHealth 等)
   for (const [key, item] of Object.entries(plan.items) as [SettingKey, any][]) {
-    if (item.current.availability === 'CONTRACT_NOT_AVAILABLE' && item.requested !== null) {
-      blockReasons.push({
-        code: 'SETTING_NOT_AVAILABLE',
-        message: `契約上非表示の設定「${item.label}」に対して設定変更要求(${item.requested})が指定されています`,
-        settingKey: key,
-        details: { requested: item.requested }
-      });
+    if (item.current.availability === 'CONTRACT_NOT_AVAILABLE') {
+      // 契約外の場合、OFF要求または未指定は「実質利用不可（OFF同等）」として許容（変更不要としてパス）
+      // ON等の有効化要求がある場合のみ、未契約のためブロック
+      if (item.requested !== null && item.requested !== 'OFF') {
+        blockReasons.push({
+          code: 'SETTING_NOT_AVAILABLE',
+          message: `契約上非表示の設定「${item.label}」に対して設定変更要求(${item.requested})が指定されています（未契約のため有効化できません）`,
+          settingKey: key,
+          details: { requested: item.requested, isUncontracted: true }
+        });
+      }
     }
   }
 

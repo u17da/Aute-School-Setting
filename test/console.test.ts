@@ -2,6 +2,7 @@ import assert from 'assert';
 import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
+import { spawnSync } from 'child_process';
 import { EventEmitter, Readable, Writable } from 'stream';
 import { ConsoleServer } from '../src/console/server';
 import { BatchProcessAdapter } from '../src/console/adapter';
@@ -825,6 +826,163 @@ async function main() {
       } finally {
         await fallbackServer.stop();
       }
+    });
+
+    // Test U: node --check による app.js 構文の自動検証
+    await runTest('Test U: node --check による app.js 構文の自動検証', async () => {
+      const appJsPath = path.resolve(__dirname, '../src/console/public/app.js');
+      const checkRes = spawnSync(process.execPath, ['--check', appJsPath], { shell: false });
+      assert.strictEqual(checkRes.status, 0, `app.js に構文エラーがあります: ${checkRes.stderr?.toString()}`);
+    });
+
+    // Test V: GET /api/reports/latest による NormalizedResultsViewModel の検証
+    await runTest('Test V: GET /api/reports/latest による NormalizedResultsViewModel の検証', async () => {
+      const reportsDir = path.resolve(process.cwd(), 'reports');
+      if (!fs.existsSync(reportsDir)) fs.mkdirSync(reportsDir, { recursive: true });
+
+      const testDepId = `test-dep-${Date.now()}`;
+      const testRunId = `test-run-${Date.now()}`;
+
+      const mockSummary = {
+        deploymentId: testDepId,
+        runId: testRunId,
+        mode: 'PREFLIGHT_DRY_RUN',
+        profileHash: 'hash-profile-123',
+        schoolsHash: 'hash-schools-456',
+        toolVersion: '1.0.0',
+        toolFingerprint: 'tool-print-789',
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+        totalSchools: 2,
+        processedSchools: 2,
+        skippedSchools: 0,
+        readSuccess: 2,
+        readFailed: 0,
+        loginSuccess: 2,
+        loginFailed: 0,
+        schoolMismatch: 0,
+        uiStructureMismatch: 0,
+        planExecutable: 2,
+        planBlocked: 0,
+        alreadyConfigured: 1,
+        requiresChange: 1,
+        destructiveChangeSchools: 0,
+        destructiveChangeActions: 0,
+        writeEligibleNonDestructive: 2,
+        writeBlockedDestructive: 0,
+        configConflict: 0,
+        dependencyUnsatisfied: 0,
+        otherErrors: 0,
+        actionsDistribution: { zero: 1, one: 1, two: 0, threePlus: 0 },
+        destructiveChangeDetails: [],
+        currentStateDistribution: { storage: { '500MB': 2 } },
+        plannedChangeDistribution: { storage: { '500MB_TO_1GB': 1 } },
+        currentStateCoverage: { collected: 2, total: 2 },
+        plannedChangeCoverage: { collected: 2, total: 2 },
+        schoolResults: [
+          { schoolCode: 'SCH001', schoolName: 'School 1', status: 'SUCCESS', executionStatus: 'DRY_RUN_COMPLETED', planExecutable: true, actionsCount: 0 },
+          { schoolCode: 'SCH002', schoolName: 'School 2', status: 'SUCCESS', executionStatus: 'DRY_RUN_COMPLETED', planExecutable: true, actionsCount: 1 }
+        ]
+      };
+
+      const mockPreflight = {
+        deploymentId: testDepId,
+        runId: testRunId,
+        status: 'COMPLETE',
+        writeGateEligible: true,
+        allReadSucceeded: true,
+        allPlansExecutable: true,
+        profileHash: 'hash-profile-123',
+        schoolsHash: 'hash-schools-456',
+        toolVersion: '1.0.0',
+        toolFingerprint: 'tool-print-789',
+        completedAt: new Date().toISOString(),
+        validUntil: new Date().toISOString(),
+        total: 2,
+        processed: 2,
+        readSuccess: 2,
+        readFailed: 0,
+        planBlocked: 0,
+        notProcessed: 0,
+        alreadyConfigured: 1,
+        requiresChange: 1,
+        destructiveChangeSchools: 0,
+        currentStateCoverage: { collected: 2, total: 2 },
+        plannedChangeCoverage: { collected: 2, total: 2 },
+        summaryPath: 'reports/summary.json',
+        schools: [
+          { schoolCode: 'SCH001', schoolName: 'School 1', readStatus: 'SUCCESS', planExecutable: true, hasDestructiveChanges: false, writeEligible: true, actionsCount: 0 },
+          { schoolCode: 'SCH002', schoolName: 'School 2', readStatus: 'SUCCESS', planExecutable: true, hasDestructiveChanges: false, writeEligible: true, actionsCount: 1 }
+        ]
+      };
+
+      fs.writeFileSync(path.join(reportsDir, `summary-${testDepId}-${testRunId}.json`), JSON.stringify(mockSummary));
+      fs.writeFileSync(path.join(reportsDir, `preflight-${testDepId}.json`), JSON.stringify(mockPreflight));
+
+      const res = await httpRequest({
+        port,
+        path: '/api/reports/latest',
+        method: 'GET'
+      });
+
+      assert.strictEqual(res.statusCode, 200);
+      assert.ok(res.body.normalized, 'normalized view model が返ること');
+      assert.strictEqual(res.body.normalized.totalSchools, 2);
+      assert.strictEqual(res.body.normalized.readSuccess, 2);
+      assert.strictEqual(res.body.normalized.writeEligible, 2);
+      assert.strictEqual(res.body.normalized.actionsDistribution.zero, 1);
+      assert.strictEqual(res.body.normalized.actionsDistribution.one, 1);
+      assert.strictEqual(res.body.normalized.inconsistent, false, '整合性が正常であること');
+    });
+
+    // Test W: メタデータ不整合（RESULTS_INCONSISTENT）の Fail-visible 検証
+    await runTest('Test W: メタデータ不整合（RESULTS_INCONSISTENT）の Fail-visible 検証', async () => {
+      const reportsDir = path.resolve(process.cwd(), 'reports');
+      const testDepId = `test-dep-inconsistent-${Date.now()}`;
+      const testRunId = `test-run-${Date.now()}`;
+
+      // summary と preflight で profileHash を不一致にする
+      const mockSummary = {
+        deploymentId: testDepId,
+        runId: testRunId,
+        mode: 'PREFLIGHT_DRY_RUN',
+        profileHash: 'hash-profile-AAA',
+        schoolsHash: 'hash-schools-456',
+        toolVersion: '1.0.0',
+        totalSchools: 1,
+        processedSchools: 1,
+        readSuccess: 1,
+        readFailed: 0,
+        actionsDistribution: { zero: 1, one: 0, two: 0, threePlus: 0 }
+      };
+
+      const mockPreflight = {
+        deploymentId: testDepId,
+        runId: testRunId,
+        status: 'COMPLETE',
+        profileHash: 'hash-profile-DIFFERENT', // 不一致
+        schoolsHash: 'hash-schools-456',
+        toolVersion: '1.0.0',
+        total: 1,
+        processed: 1,
+        readSuccess: 1,
+        readFailed: 0,
+        schools: []
+      };
+
+      fs.writeFileSync(path.join(reportsDir, `summary-${testDepId}-${testRunId}.json`), JSON.stringify(mockSummary));
+      fs.writeFileSync(path.join(reportsDir, `preflight-${testDepId}.json`), JSON.stringify(mockPreflight));
+
+      const res = await httpRequest({
+        port,
+        path: '/api/reports/latest',
+        method: 'GET'
+      });
+
+      assert.strictEqual(res.statusCode, 200);
+      assert.ok(res.body.normalized);
+      assert.strictEqual(res.body.normalized.inconsistent, true, 'inconsistent が true になること');
+      assert.ok(res.body.normalized.inconsistentReason.includes('profileHash mismatch'), '不一致理由が明示されること');
     });
 
   } finally {

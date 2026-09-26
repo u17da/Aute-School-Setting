@@ -24,6 +24,7 @@ export interface CliOptions extends Phase2BOptions {
   validateOnly?: boolean;
   schoolTimeoutMs?: number;
   cleanupTimeoutMs?: number;
+  profileSnapshotId?: string;
 }
 
 export function parseCliArgs(args: string[]): CliOptions {
@@ -87,6 +88,8 @@ export function parseCliArgs(args: string[]): CliOptions {
       options.schoolTimeoutMs = parseInt(args[++i], 10);
     } else if (arg === '--cleanup-timeout-ms' && i + 1 < args.length) {
       options.cleanupTimeoutMs = parseInt(args[++i], 10);
+    } else if (arg === '--profile-snapshot-id' && i + 1 < args.length) {
+      options.profileSnapshotId = args[++i];
     } else if (arg === '--production') {
       options.phase = 'PRODUCTION';
     }
@@ -121,7 +124,8 @@ async function main() {
       expectedSchoolCount: options.expectedSchoolCount,
       validateOnly: options.validateOnly,
       schoolTimeoutMs: options.schoolTimeoutMs,
-      cleanupTimeoutMs: options.cleanupTimeoutMs
+      cleanupTimeoutMs: options.cleanupTimeoutMs,
+      profileSnapshotId: options.profileSnapshotId
     });
   } else if (options.phase === 'PRODUCTION') {
     console.log('まなびポケット 学校設定 自動化ツール [Phase 3: Single Production Run]');

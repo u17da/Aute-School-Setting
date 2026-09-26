@@ -1,0 +1,4 @@
+schoolCode,schoolName,userId,password,enabled
+RFC001,"特殊文字学校,第一分校",rfc_user_001,"rfc,pass!1",true
+RFC002,"第2""特選""学校",rfc_user_002,"p""w",true
+RFC003,通常学校,rfc_user_003,simplepass,true

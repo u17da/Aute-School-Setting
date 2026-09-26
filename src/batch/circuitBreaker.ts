@@ -10,6 +10,7 @@ export class CircuitBreaker {
 
   // 重大度別ステータスマップ
   private static readonly CRITICAL_ERRORS: ExecutionStatus[] = [
+    'SAVE_OUTCOME_UNKNOWN',
     'UNEXPECTED_SIDE_EFFECT',
     'VERIFY_MISMATCH',
     'RESTORE_FAILED',

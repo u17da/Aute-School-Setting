@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { BatchCheckpoint, SchoolCheckpointEntry, CheckpointStatus, BatchSchoolItem, BatchLockInfo } from '../types/batch';
+import { BatchCheckpoint, SchoolCheckpointEntry, CheckpointStatus, BatchSchoolItem, BatchLockInfo, CHECKPOINT_SCHEMA_VERSION } from '../types/batch';
 import { ExecutionStatus, AutomationError } from '../types/errors';
 import { logger } from '../logger/logger';
 
@@ -76,30 +76,39 @@ export class CheckpointManager {
       // ignore
     }
 
-    if (fs.existsSync(this.checkpointPath)) {
+    if (isResume) {
+      if (!fs.existsSync(this.checkpointPath)) {
+        throw new AutomationError('CHECKPOINT_MISMATCH', `再開対象のチェックポイントファイルが見つかりません: ${this.checkpointPath}`);
+      }
       // 既存チェックポイントのロード
       const raw = fs.readFileSync(this.checkpointPath, 'utf-8');
       const loaded: BatchCheckpoint = JSON.parse(raw);
 
-      if (isResume) {
-        // 指示5, 10: Resume 時の実行条件 Hash & toolFingerprint 整合性検証
-        this.verifyCheckpointIntegrity(loaded, {
-          profileHash,
-          schoolsHash,
-          toolVersion,
-          toolFingerprint,
-          authMode
-        });
-
-        logger.info(`【Checkpoint整合性OK】既存チェックポイントを正常に検証・ロードしました: ${this.checkpointPath}`);
+      // 指示2: Checkpoint Schema Version 検証
+      if (loaded.checkpointSchemaVersion !== CHECKPOINT_SCHEMA_VERSION) {
+        throw new AutomationError(
+          'CHECKPOINT_SCHEMA_MISMATCH',
+          `チェックポイントのスキーマバージョンが一致しません (期待: ${CHECKPOINT_SCHEMA_VERSION}, 実際: ${loaded.checkpointSchemaVersion || 'unknown'})`
+        );
       }
+
+      // 指示5, 10: Resume 時の実行条件 Hash & toolFingerprint 整合性検証
+      this.verifyCheckpointIntegrity(loaded, {
+        profileHash,
+        schoolsHash,
+        toolVersion,
+        toolFingerprint,
+        authMode
+      });
+
+      logger.info(`【Checkpoint整合性OK】既存チェックポイントを正常に検証・ロードしました: ${this.checkpointPath}`);
 
       loaded.runId = runId;
       this.checkpoint = loaded;
       this.sanitizeInterrupted();
       this.save();
     } else {
-      // 新規チェックポイントの作成
+      // 指示3: 通常START (isResume === false) は過去のCheckpointを再利用せず、fresh PENDING から開始
       const entries: Record<string, SchoolCheckpointEntry> = {};
       for (const s of schools) {
         entries[s.schoolCode] = {
@@ -111,6 +120,7 @@ export class CheckpointManager {
       }
 
       this.checkpoint = {
+        checkpointSchemaVersion: CHECKPOINT_SCHEMA_VERSION,
         deploymentId,
         runId,
         profileHash,
@@ -297,6 +307,10 @@ export class CheckpointManager {
     executionStatus: ExecutionStatus;
     actionsCount?: number;
     hasDestructiveChanges?: boolean;
+    planExecutable?: boolean;
+    before?: Partial<Record<string, string | null>>;
+    requested?: Partial<Record<string, string | null>>;
+    after?: Partial<Record<string, string | null>>;
     error?: string;
     resultLogPath?: string;
   }): void {
@@ -307,10 +321,18 @@ export class CheckpointManager {
       entry.executionStatus = params.executionStatus;
       entry.actionsCount = params.actionsCount;
       entry.hasDestructiveChanges = params.hasDestructiveChanges;
+      entry.planExecutable = params.planExecutable;
+      entry.before = params.before;
+      entry.requested = params.requested;
+      entry.after = params.after;
       entry.error = params.error;
       entry.resultLogPath = params.resultLogPath;
       this.save();
     }
+  }
+
+  getAllEntries(): SchoolCheckpointEntry[] {
+    return Object.values(this.checkpoint.entries);
   }
 
   markBatchCompleted(): void {

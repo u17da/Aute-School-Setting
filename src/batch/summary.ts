@@ -13,6 +13,7 @@ import {
 } from '../types/batch';
 import { ExecutionStatus } from '../types/errors';
 import { logger } from '../logger/logger';
+import { generateBaselineHash } from '../utils/hash';
 
 export interface SchoolSummaryItem {
   schoolCode: string;
@@ -33,6 +34,7 @@ export interface SummaryReporterOptions {
   runId: string;
   mode: 'PREFLIGHT_DRY_RUN' | 'PRODUCTION_WRITE';
   profileHash: string;
+  profileSnapshotId?: string;
   schoolsHash: string;
   toolVersion: string;
   toolFingerprint?: string;
@@ -43,18 +45,20 @@ export class BatchSummaryReporter {
   private runId: string;
   private mode: 'PREFLIGHT_DRY_RUN' | 'PRODUCTION_WRITE';
   private profileHash: string;
+  private profileSnapshotId?: string;
   private schoolsHash: string;
   private toolVersion: string;
   private toolFingerprint?: string;
   private startedAt: string;
   private reportsDir: string;
-  private schoolResults: SchoolSummaryItem[] = [];
+  private schoolResultsMap: Map<string, SchoolSummaryItem> = new Map();
 
   constructor(options: SummaryReporterOptions) {
     this.deploymentId = options.deploymentId;
     this.runId = options.runId;
     this.mode = options.mode;
     this.profileHash = options.profileHash;
+    this.profileSnapshotId = options.profileSnapshotId;
     this.schoolsHash = options.schoolsHash;
     this.toolVersion = options.toolVersion;
     this.toolFingerprint = options.toolFingerprint;
@@ -66,7 +70,31 @@ export class BatchSummaryReporter {
   }
 
   addSchoolResult(result: SchoolSummaryItem): void {
-    this.schoolResults.push(result);
+    this.schoolResultsMap.set(result.schoolCode, result);
+  }
+
+  /**
+   * 指示1: Checkpoint の全 entries から SchoolSummaryItem を Map / upsert 方式で再構成
+   * 累積 SSOT を Checkpoint から一元管理し、配列 append による二重カウントや古い状態残存を完全防止
+   */
+  reconstructFromCheckpointEntries(entries: import('../types/batch').SchoolCheckpointEntry[]): void {
+    for (const entry of entries) {
+      if (entry.status === 'PENDING') continue; // 未処理校は集計対象外（notProcessed としてカウント）
+      const item: SchoolSummaryItem = {
+        schoolCode: entry.schoolCode,
+        schoolName: entry.schoolName,
+        status: entry.status,
+        executionStatus: entry.executionStatus,
+        actionsCount: entry.actionsCount,
+        hasDestructiveChanges: entry.hasDestructiveChanges,
+        planExecutable: entry.planExecutable ?? (entry.status === 'SUCCESS' || entry.status === 'SUCCESS_ALREADY_CONFIGURED'),
+        before: entry.before,
+        requested: entry.requested,
+        after: entry.after,
+        error: entry.error
+      };
+      this.schoolResultsMap.set(entry.schoolCode, item);
+    }
   }
 
   generateReport(params: {
@@ -78,6 +106,7 @@ export class BatchSummaryReporter {
   }): BatchSummaryReport {
     const { totalSchools, skippedSchools, circuitBreakerTrip, isInterrupted, allSchools } = params;
     const finishedAt = new Date().toISOString();
+    const schoolResults = Array.from(this.schoolResultsMap.values());
 
     let readSuccess = 0;
     let readFailed = 0;
@@ -127,7 +156,7 @@ export class BatchSummaryReporter {
       plannedChangeDistribution[k] = {};
     }
 
-    for (const res of this.schoolResults) {
+    for (const res of schoolResults) {
       const execStatus = res.executionStatus;
 
       // 読取成否の集計（CONFIG_CONFLICT等、画面読取後にPlan評価でブロックされたものもRead自体は成功）
@@ -245,7 +274,7 @@ export class BatchSummaryReporter {
       }
     }
 
-    const processedSchools = this.schoolResults.length;
+    const processedSchools = schoolResults.length;
 
     const report: BatchSummaryReport = {
       deploymentId: this.deploymentId,
@@ -282,7 +311,9 @@ export class BatchSummaryReporter {
       destructiveChangeDetails,
       currentStateDistribution,
       plannedChangeDistribution,
-      schoolResults: this.schoolResults
+      currentStateCoverage: { collected: readSuccess, total: totalSchools },
+      plannedChangeCoverage: { collected: readSuccess, total: totalSchools },
+      schoolResults
     };
 
     const reportPath = path.join(this.reportsDir, `summary-${this.deploymentId}-${this.runId}.json`);
@@ -295,7 +326,7 @@ export class BatchSummaryReporter {
       const notProcessed = Math.max(0, totalSchools - processedSchools);
 
       let status: PreflightStatus = 'COMPLETE';
-      const hasInterruptedSchool = this.schoolResults.some((r) => r.status === 'INTERRUPTED' || r.executionStatus === 'INTERRUPTED');
+      const hasInterruptedSchool = schoolResults.some((r) => r.status === 'INTERRUPTED' || r.executionStatus === 'INTERRUPTED');
       if (isInterrupted || hasInterruptedSchool) {
         status = 'INTERRUPTED';
       } else if (circuitBreakerTrip) {
@@ -316,8 +347,8 @@ export class BatchSummaryReporter {
         destructiveChangeSchools === 0;
 
       // 指示5, 6: 学校ごとの Preflight 結果
-      const schoolResultMap = new Map(this.schoolResults.map((r) => [r.schoolCode, r]));
-      const schoolsList = allSchools && allSchools.length > 0 ? allSchools : this.schoolResults.map((r) => ({
+      const schoolResultMap = new Map(schoolResults.map((r) => [r.schoolCode, r]));
+      const schoolsList = allSchools && allSchools.length > 0 ? allSchools : schoolResults.map((r) => ({
         schoolCode: r.schoolCode,
         schoolName: r.schoolName,
         credentialRef: r.schoolCode,
@@ -359,6 +390,8 @@ export class BatchSummaryReporter {
         const planExecutable = isOk && !isPlanBlocked;
         const hasDestructiveChanges = Boolean(res.hasDestructiveChanges);
         const writeEligible = readStatus === 'SUCCESS' && planExecutable === true && !hasDestructiveChanges;
+        const baselineHash = res.before ? generateBaselineHash(res.before) : undefined;
+        const hasChanges = (res.actionsCount ?? 0) > 0;
 
         return {
           schoolCode: s.schoolCode,
@@ -367,17 +400,21 @@ export class BatchSummaryReporter {
           planExecutable,
           hasDestructiveChanges,
           writeEligible,
-          actionsCount: res.actionsCount ?? 0
+          actionsCount: res.actionsCount ?? 0,
+          baselineHash,
+          hasChanges
         };
       });
 
       const preflightReport: PreflightReport = {
         deploymentId: this.deploymentId,
+        runId: this.runId,
         status,
         writeGateEligible,
         allReadSucceeded,
         allPlansExecutable,
         profileHash: this.profileHash,
+        profileSnapshotId: this.profileSnapshotId,
         schoolsHash: this.schoolsHash,
         toolVersion: this.toolVersion,
         toolFingerprint: this.toolFingerprint,
@@ -392,6 +429,8 @@ export class BatchSummaryReporter {
         alreadyConfigured,
         requiresChange,
         destructiveChangeSchools,
+        currentStateCoverage: { collected: readSuccess, total: totalSchools },
+        plannedChangeCoverage: { collected: readSuccess, total: totalSchools },
         summaryPath: reportPath,
         schools
       };

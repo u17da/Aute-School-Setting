@@ -7,11 +7,17 @@ import {
   ValidateRequestSchema,
   EmptyActionRequestSchema,
   FORBIDDEN_WRITE_FIELDS,
-  ConsoleJobState
+  ConsoleJobState,
+  ActiveUploadedBatch
 } from './types';
 import { sanitizeObject } from './sanitizer';
 import { SETTING_DEFINITIONS } from '../settings/definitions';
 import { SettingKey } from '../types/settings';
+import { NormalizedResultsViewModel, NormalizedSchoolResult } from '../types/batch';
+import { parseAndSeparateSchoolsCsv } from '../batch/csvParser';
+import { AutomationError } from '../types/errors';
+import { RequestedSettingsSchema } from '../config/schema';
+import { generateSettingsHash, getToolVersion } from '../utils/hash';
 
 export interface ConsoleServerOptions {
   port?: number;
@@ -38,6 +44,10 @@ export class ConsoleServer {
 
   getAdapter(): BatchProcessAdapter {
     return this.adapter;
+  }
+
+  getPort(): number {
+    return this.port;
   }
 
   getCsrfToken(): string {
@@ -173,6 +183,30 @@ export class ConsoleServer {
     });
   }
 
+  private async parseCsvBody(req: http.IncomingMessage, maxBytes = 5 * 1024 * 1024): Promise<string> {
+    return new Promise((resolve, reject) => {
+      let body = '';
+      let receivedBytes = 0;
+      let exceeded = false;
+      req.on('data', (chunk) => {
+        receivedBytes += chunk.length;
+        if (receivedBytes > maxBytes) {
+          exceeded = true;
+          return;
+        }
+        body += chunk.toString('utf-8');
+      });
+      req.on('end', () => {
+        if (exceeded) {
+          reject(new AutomationError('CONFIG_INVALID', 'CSVファイルサイズが上限 (5MB) を超過しています'));
+        } else {
+          resolve(body);
+        }
+      });
+      req.on('error', reject);
+    });
+  }
+
   private sendJson(res: http.ServerResponse, statusCode: number, data: any): void {
     const sanitized = sanitizeObject(data);
     res.writeHead(statusCode, {
@@ -186,11 +220,11 @@ export class ConsoleServer {
     if (!fs.existsSync(filePath)) {
       res.writeHead(404, { 'Content-Type': 'text/plain' });
       res.end('Not Found');
-      return;
+    } else {
+      const content = fs.readFileSync(filePath);
+      res.writeHead(200, { 'Content-Type': contentType });
+      res.end(content);
     }
-    const content = fs.readFileSync(filePath);
-    res.writeHead(200, { 'Content-Type': contentType });
-    res.end(content);
   }
 
   private async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
@@ -210,6 +244,10 @@ export class ConsoleServer {
         this.sendFile(res, path.join(publicDir, 'index.html'), 'text/html; charset=utf-8');
         return;
       }
+      if (pathname === '/guide.html') {
+        this.sendFile(res, path.join(publicDir, 'guide.html'), 'text/html; charset=utf-8');
+        return;
+      }
       if (pathname === '/styles.css') {
         this.sendFile(res, path.join(publicDir, 'styles.css'), 'text/css; charset=utf-8');
         return;
@@ -218,23 +256,238 @@ export class ConsoleServer {
         this.sendFile(res, path.join(publicDir, 'app.js'), 'application/javascript; charset=utf-8');
         return;
       }
+      if (pathname === '/favicon.ico') {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
     }
 
-    // 2. GET /api/status (指示4, 5, 7)
+    // 2. GET /api/status (指示4, 5, 7, 8)
     if (method === 'GET' && pathname === '/api/status') {
       const state = this.adapter.getJobState();
       const snapshot = this.adapter.getSnapshot();
+      const activeUpload = this.adapter.getActiveUpload();
       this.sendJson(res, 200, {
         jobState: state,
         csrfToken: this.csrfToken,
         snapshot,
-        currentJob: state === 'RUNNING' || state === 'STOPPING' ? {
-          runId: this.adapter.getCurrentRunId(),
-          startedAt: this.adapter.getStartedAt(),
-          mode: 'PREFLIGHT_DRY_RUN'
-        } : undefined,
+        activeProfileSnapshot: this.adapter.getActiveProfileSnapshot(),
+        inputSource: this.adapter.getInputSource(),
+        activeUpload: activeUpload
+          ? {
+              uploadId: activeUpload.uploadId,
+              originalFileName: activeUpload.originalFileName,
+              fileSize: activeUpload.fileSize,
+              totalSchools: activeUpload.schools.length,
+              enabledSchools: activeUpload.schools.filter((s) => s.enabled).length
+            }
+          : null,
+        currentJob:
+          state === 'RUNNING' || state === 'STOPPING'
+            ? {
+                runId: this.adapter.getCurrentRunId(),
+                startedAt: this.adapter.getStartedAt(),
+                mode: 'PREFLIGHT_DRY_RUN'
+              }
+            : undefined,
         recentLogs: this.adapter.getRecentLogs()
       });
+      return;
+    }
+
+    // 2.0A GET /api/profile/definitions (SSOT: Setting Definitions & 依存情報)
+    if (method === 'GET' && pathname === '/api/profile/definitions') {
+      const defs = (Object.keys(SETTING_DEFINITIONS) as SettingKey[]).map((key) => {
+        const def = SETTING_DEFINITIONS[key];
+        return {
+          key: def.key,
+          label: def.label,
+          options: def.options,
+          defaultValue: def.defaultValue,
+          destructiveWhenOff: Boolean(def.destructiveWhenOff),
+          isOptionalInContract: Boolean(def.isOptionalInContract)
+        };
+      });
+      this.sendJson(res, 200, { definitions: defs });
+      return;
+    }
+
+    // 2.0B GET /api/profile/presets (v1: 推奨設定 & 全項目維持)
+    if (method === 'GET' && pathname === '/api/profile/presets') {
+      const recommended: Record<string, string> = {
+        storage: 'ON',
+        timelineChannel: 'ON',
+        directMessage: 'STUDENT_TO_STUDENT_DISABLED',
+        parentDirectMessage: 'ON',
+        allChannel: 'ON',
+        parentChannel: 'ON',
+        attendance: 'ON',
+        contactBook: 'ON',
+        mentalHealth: 'OFF',
+        otherSchoolLog: 'ALLOW',
+        studentPasswordChange: 'HIDE'
+      };
+      const unmanagedAll: Record<string, null> = {};
+      for (const k of Object.keys(SETTING_DEFINITIONS)) {
+        unmanagedAll[k] = null;
+      }
+
+      this.sendJson(res, 200, {
+        presets: [
+          {
+            id: 'RECOMMENDED',
+            name: '推奨設定',
+            description: '標準推奨構成（個別メッセージは生徒同士不可、心の健康OFF、パスワード変更非表示など）',
+            settings: recommended
+          },
+          {
+            id: 'UNMANAGED_ALL',
+            name: '全項目維持',
+            description: '全11項目を変更せず現状維持（UNMANAGED）にします',
+            settings: unmanagedAll
+          }
+        ]
+      });
+      return;
+    }
+
+    // 2.0C POST /api/profile/invalidate (Editor変更・Preset適用・Import時の即時無効化)
+    if (method === 'POST' && pathname === '/api/profile/invalidate') {
+      this.adapter.invalidateValidation('PROFILE_CHANGED');
+      this.sendJson(res, 200, { success: true });
+      return;
+    }
+
+    // 2.0D POST /api/profile/export (strict検証 & 認証情報を含まない安全エクスポート)
+    if (method === 'POST' && pathname === '/api/profile/export') {
+      let body: any;
+      try {
+        body = await this.parseJsonBody(req);
+      } catch {
+        body = {};
+      }
+      let settingsToExport = body.profile;
+      if (!settingsToExport) {
+        const snap = this.adapter.getActiveProfileSnapshot();
+        if (snap) {
+          settingsToExport = snap.requestedSettings;
+        } else {
+          this.sendJson(res, 400, { error: 'NO_PROFILE', message: 'エクスポート可能な設定が存在しません' });
+          return;
+        }
+      }
+      const parsed = RequestedSettingsSchema.strict().safeParse(settingsToExport);
+      if (!parsed.success) {
+        this.sendJson(res, 400, { error: 'INVALID_PROFILE', message: '設定内容の形式が不正です' });
+        return;
+      }
+      const profileHash = generateSettingsHash(parsed.data);
+      const toolVersion = getToolVersion();
+      this.sendJson(res, 200, {
+        requestedSettings: parsed.data,
+        profileHash,
+        exportedAt: new Date().toISOString(),
+        toolVersion
+      });
+      return;
+    }
+
+    // 2.1 POST /api/source/select (指示7: 入力ソース明示切り替え)
+    if (method === 'POST' && pathname === '/api/source/select') {
+      const state = this.adapter.getJobState();
+      if (state === 'RUNNING' || state === 'STOPPING') {
+        this.sendJson(res, 409, { error: 'JOB_CONFLICT', message: '実行中は入力ソースを変更できません' });
+        return;
+      }
+
+      let body: any;
+      try {
+        body = await this.parseJsonBody(req);
+      } catch (err: any) {
+        this.sendJson(res, 400, { error: 'INVALID_JSON', message: err.message });
+        return;
+      }
+
+      const source = body.source;
+      if (source !== 'UPLOAD' && source !== 'LOCAL_DEFAULT') {
+        this.sendJson(res, 400, { error: 'INVALID_SOURCE', message: 'source は UPLOAD または LOCAL_DEFAULT を指定してください' });
+        return;
+      }
+
+      try {
+        this.adapter.setInputSource(source);
+        this.sendJson(res, 200, { success: true, source });
+      } catch (err: any) {
+        this.sendJson(res, 400, { error: 'INVALID_REQUEST', message: err.message });
+      }
+      return;
+    }
+
+    // 2.2 POST /api/schools/upload (指示11: CSV直接アップロード & RFC 4180 パース & 秘密分離)
+    if (method === 'POST' && pathname === '/api/schools/upload') {
+      const state = this.adapter.getJobState();
+      if (state === 'RUNNING' || state === 'STOPPING') {
+        this.sendJson(res, 409, { error: 'JOB_CONFLICT', message: 'バッチ実行中は新しいCSVをアップロードできません' });
+        return;
+      }
+
+      let csvText: string;
+      try {
+        csvText = await this.parseCsvBody(req);
+      } catch (err: any) {
+        const status = err.message?.includes('上限') ? 413 : 400;
+        this.sendJson(res, status, { error: 'UPLOAD_FAILED', message: err.message });
+        return;
+      }
+
+      // クライアントファイル名取得 (安全にサニタイズ、パス記号除去)
+      const rawHeaderName = req.headers['x-filename'] as string | undefined;
+      let safeFileName = 'uploaded_schools.csv';
+      if (rawHeaderName) {
+        try {
+          const decoded = decodeURIComponent(rawHeaderName);
+          const base = path.basename(decoded).replace(/[^a-zA-Z0-9_\-\.\u3000-\u303f\u3040-\u309f\u30a0-\u30ff\uff00-\uff9f\u4e00-\u9faf]/g, '_');
+          if (base.toLowerCase().endsWith('.csv')) {
+            safeFileName = base;
+          }
+        } catch {
+          // ignore fallback
+        }
+      }
+
+      try {
+        // RFC 4180 パース & Public / Secret 分離
+        const parsed = parseAndSeparateSchoolsCsv(csvText);
+
+        const uploadId = `upload-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+        const batch: ActiveUploadedBatch = {
+          uploadId,
+          originalFileName: safeFileName,
+          fileSize: Buffer.byteLength(csvText, 'utf-8'),
+          schools: parsed.schools,
+          credentials: parsed.credentials,
+          createdAt: new Date().toISOString()
+        };
+
+        this.adapter.setUploadedBatch(batch);
+
+        // 指示6: 秘密情報をレスポンスに一切返さない！ PreviewはschoolCode/schoolNameのみ最大20校
+        this.sendJson(res, 200, {
+          success: true,
+          uploadId,
+          originalFileName: safeFileName,
+          fileSize: batch.fileSize,
+          totalSchools: parsed.totalCount,
+          enabledSchools: parsed.enabledCount,
+          preview: parsed.preview
+        });
+      } catch (err: any) {
+        this.sendJson(res, 400, {
+          error: err.code || 'CONFIG_INVALID',
+          message: err.message || 'CSVの検証に失敗しました'
+        });
+      }
       return;
     }
 
@@ -289,7 +542,8 @@ export class ConsoleServer {
           snapshot: valRes.snapshot,
           profileItems,
           schoolsCount: valRes.schoolsCount,
-          enabledCount: valRes.enabledCount
+          enabledCount: valRes.enabledCount,
+          schoolsPath: valRes.schoolsPath
         });
       } catch (err: any) {
         this.sendJson(res, 200, {
@@ -391,6 +645,112 @@ export class ConsoleServer {
       return;
     }
 
+    // 11. POST /api/apply/prepare (指示5: 2段階 Confirmation Token API - 第1段階)
+    if (method === 'POST' && pathname === '/api/apply/prepare') {
+      const state = this.adapter.getJobState();
+      if (state === 'RUNNING' || state === 'STOPPING') {
+        this.sendJson(res, 409, { error: 'JOB_CONFLICT', message: 'すでに別のバッチ処理が実行中または停止処理中です' });
+        return;
+      }
+
+      let body: any = {};
+      try {
+        body = await this.parseJsonBody(req);
+      } catch (err: any) {
+        this.sendJson(res, 400, { error: 'INVALID_JSON', message: err.message });
+        return;
+      }
+
+      // Write関連の不正フィールド拒絶
+      for (const field of FORBIDDEN_WRITE_FIELDS) {
+        if (field in body) {
+          this.sendJson(res, 400, { error: 'WRITE_FORBIDDEN', message: `Write関連フィールド '${field}' は許可されていません` });
+          return;
+        }
+      }
+
+      try {
+        const result = this.adapter.prepareProductionApply();
+        this.sendJson(res, 200, {
+          status: 'PREPARED',
+          manifest: result.manifest,
+          confirmationToken: result.tokenData.token,
+          expiresAt: result.tokenData.expiresAt,
+          targetCount: result.manifest.applyTargets.length,
+          skippedDestructiveCount: result.manifest.skippedDestructiveCount,
+          alreadyConfiguredCount: result.manifest.alreadyConfiguredCount
+        });
+      } catch (err: any) {
+        const statusCode =
+          err.status === 'JOB_CONFLICT' ||
+          err.issueCode === 'CHECKPOINT_MISMATCH' ||
+          err.issueCode === 'UNSAFE_CONFIGURATION' ||
+          err.issueCode === 'CONFIG_INVALID'
+            ? 400
+            : 500;
+        this.sendJson(res, statusCode, {
+          error: err.issueCode || err.status || 'PREPARE_FAILED',
+          message: err.message
+        });
+      }
+      return;
+    }
+
+    // 12. POST /api/apply/start (Phase 5B.3: 本番非破壊書き込みプロセスの起動)
+    if (method === 'POST' && pathname === '/api/apply/start') {
+      const state = this.adapter.getJobState();
+      if (state === 'RUNNING' || state === 'STOPPING') {
+        this.sendJson(res, 409, { error: 'JOB_CONFLICT', message: 'すでに別のバッチ処理が実行中または停止処理中です' });
+        return;
+      }
+
+      let body: any = {};
+      try {
+        body = await this.parseJsonBody(req);
+      } catch (err: any) {
+        this.sendJson(res, 400, { error: 'INVALID_JSON', message: err.message });
+        return;
+      }
+
+      // Write関連の不正フィールド拒絶 (CLIフラグ注入等の脆弱性を完全排除)
+      for (const field of FORBIDDEN_WRITE_FIELDS) {
+        if (field in body) {
+          this.sendJson(res, 400, { error: 'WRITE_FORBIDDEN', message: `Write関連フィールド '${field}' は許可されていません` });
+          return;
+        }
+      }
+
+      // confirmationToken 必須検証
+      if (!body.confirmationToken || typeof body.confirmationToken !== 'string') {
+        this.sendJson(res, 400, { error: 'CONFIG_INVALID', message: '有効な confirmationToken が指定されていません' });
+        return;
+      }
+
+      try {
+        this.adapter.startProductionApplyProcess(body.confirmationToken);
+        this.sendJson(res, 200, {
+          status: 'STARTED',
+          mode: 'PRODUCTION_WRITE',
+          runId: this.adapter.getCurrentRunId(),
+          message: '非破壊本番適用プロセスを開始しました (PRODUCTION_WRITE)'
+        });
+      } catch (err: any) {
+        const statusCode =
+          err.status === 'JOB_CONFLICT' ||
+          err.issueCode === 'CHECKPOINT_MISMATCH' ||
+          err.issueCode === 'APPROVAL_AUDIT_INVALID' ||
+          err.issueCode === 'UNSAFE_CONFIGURATION' ||
+          err.issueCode === 'CONFIG_INVALID'
+            ? 400
+            : 500;
+        this.sendJson(res, statusCode, {
+          error: err.issueCode || err.status || 'APPLY_START_FAILED',
+          message: err.message
+        });
+      }
+      return;
+    }
+
     // 未知のエンドポイント
     this.sendJson(res, 404, { error: 'NOT_FOUND', message: `Endpoint not found: ${method} ${pathname}` });
   }
@@ -470,7 +830,8 @@ export class ConsoleServer {
     const result: any = {
       summary: null,
       preflight: null,
-      checkpoint: null
+      checkpoint: null,
+      normalized: null
     };
 
     if (summaryPath && fs.existsSync(summaryPath)) {
@@ -487,6 +848,167 @@ export class ConsoleServer {
       try {
         result.checkpoint = sanitizeObject(JSON.parse(fs.readFileSync(checkpointPath, 'utf-8')));
       } catch {}
+    }
+
+    // 整合性検証 (deploymentId, runId, profileHash, schoolsHash, toolFingerprint)
+    let inconsistent = false;
+    let inconsistentReason: string | undefined;
+
+    if (result.summary && result.preflight) {
+      const s = result.summary;
+      const p = result.preflight;
+      if (s.deploymentId !== p.deploymentId) {
+        inconsistent = true;
+        inconsistentReason = `deploymentId mismatch: summary=${s.deploymentId}, preflight=${p.deploymentId}`;
+      } else if (p.runId && s.runId !== p.runId) {
+        inconsistent = true;
+        inconsistentReason = `runId mismatch: summary=${s.runId}, preflight=${p.runId}`;
+      } else if (s.profileHash !== p.profileHash) {
+        inconsistent = true;
+        inconsistentReason = `profileHash mismatch: summary=${s.profileHash}, preflight=${p.profileHash}`;
+      } else if (s.schoolsHash !== p.schoolsHash) {
+        inconsistent = true;
+        inconsistentReason = `schoolsHash mismatch: summary=${s.schoolsHash}, preflight=${p.schoolsHash}`;
+      } else if (s.toolFingerprint && p.toolFingerprint && s.toolFingerprint !== p.toolFingerprint) {
+        inconsistent = true;
+        inconsistentReason = `toolFingerprint mismatch: summary=${s.toolFingerprint}, preflight=${p.toolFingerprint}`;
+      }
+    }
+
+    // 現在の選択中 Input と Latest Results の整合性検証 (指示1: RESULTS_STALE)
+    let isStale = false;
+    let staleReason: string | undefined;
+
+    if (result.preflight || result.summary) {
+      const currentHashes = this.adapter.getCurrentInputHashes();
+      if (currentHashes) {
+        const reportSchoolsHash = result.preflight?.schoolsHash || result.summary?.schoolsHash;
+        const reportProfileHash = result.preflight?.profileHash || result.summary?.profileHash;
+
+        if (reportSchoolsHash && currentHashes.schoolsHash !== reportSchoolsHash) {
+          isStale = true;
+          staleReason = `現在の入力データのハッシュ (${currentHashes.schoolsHash.slice(0, 8)}...) が過去の実行結果のハッシュ (${reportSchoolsHash.slice(0, 8)}...) と一致しません`;
+        } else if (reportProfileHash && currentHashes.profileHash !== reportProfileHash) {
+          isStale = true;
+          staleReason = `現在のプロファイルハッシュ (${currentHashes.profileHash.slice(0, 8)}...) が過去の実行結果のハッシュ (${reportProfileHash.slice(0, 8)}...) と一致しません`;
+        }
+      }
+    }
+
+    result.isStale = isStale;
+    result.staleReason = staleReason;
+
+    if (result.preflight || result.summary) {
+      const p = result.preflight;
+      const s = result.summary;
+      const cp = result.checkpoint;
+
+      const totalSchools = s?.totalSchools ?? p?.total ?? (cp ? Object.keys(cp.entries || {}).length : 0);
+      const processedSchools = s?.processedSchools ?? p?.processed ?? 0;
+      const readSuccess = s?.readSuccess ?? p?.readSuccess ?? 0;
+      const readFailed = s?.readFailed ?? p?.readFailed ?? 0;
+      const alreadyConfigured = s?.alreadyConfigured ?? p?.alreadyConfigured ?? 0;
+      const requiresChange = s?.requiresChange ?? p?.requiresChange ?? 0;
+      const planBlocked = s?.planBlocked ?? p?.planBlocked ?? 0;
+      const destructiveChangeSchools = s?.destructiveChangeSchools ?? p?.destructiveChangeSchools ?? 0;
+
+      // Safe Write Eligible は Preflight の writeEligible を優先
+      let writeEligible = 0;
+      if (p && Array.isArray(p.schools)) {
+        writeEligible = p.schools.filter((sch: any) => sch.writeEligible).length;
+      } else if (s) {
+        writeEligible = s.writeEligibleNonDestructive ?? 0;
+      }
+
+      const actionsDistribution = s?.actionsDistribution ?? { zero: 0, one: 0, two: 0, threePlus: 0 };
+      const currentStateDistribution = s?.currentStateDistribution ?? {};
+      const plannedChangeDistribution = s?.plannedChangeDistribution ?? {};
+
+      const currentStateCoverage = p?.currentStateCoverage ?? s?.currentStateCoverage ?? {
+        collected: readSuccess,
+        total: totalSchools
+      };
+      const plannedChangeCoverage = p?.plannedChangeCoverage ?? s?.plannedChangeCoverage ?? {
+        collected: readSuccess,
+        total: totalSchools
+      };
+
+      // 学校結果の統合 (Preflight + Summary / Checkpoint)
+      const schoolsMap = new Map<string, NormalizedSchoolResult>();
+
+      if (p && Array.isArray(p.schools)) {
+        for (const ps of p.schools) {
+          schoolsMap.set(ps.schoolCode, {
+            schoolCode: ps.schoolCode,
+            schoolName: ps.schoolName,
+            readStatus: ps.readStatus,
+            planExecutable: ps.planExecutable,
+            hasDestructiveChanges: ps.hasDestructiveChanges,
+            writeEligible: ps.writeEligible,
+            actionsCount: ps.actionsCount ?? 0
+          });
+        }
+      }
+
+      if (s && Array.isArray(s.schoolResults)) {
+        for (const sr of s.schoolResults) {
+          const existing = schoolsMap.get(sr.schoolCode);
+          if (existing) {
+            existing.executionStatus = sr.executionStatus;
+            existing.errorMessage = sr.error;
+            if (sr.actionsCount !== undefined && existing.actionsCount === 0) {
+              existing.actionsCount = sr.actionsCount;
+            }
+          } else {
+            const isOk =
+              sr.status === 'SUCCESS' ||
+              sr.status === 'SUCCESS_ALREADY_CONFIGURED' ||
+              sr.executionStatus === 'DRY_RUN_COMPLETED';
+            schoolsMap.set(sr.schoolCode, {
+              schoolCode: sr.schoolCode,
+              schoolName: sr.schoolName,
+              readStatus: sr.status === 'INTERRUPTED' ? 'INTERRUPTED' : (isOk ? 'SUCCESS' : 'FAILED'),
+              executionStatus: sr.executionStatus,
+              errorMessage: sr.error,
+              planExecutable: Boolean(sr.planExecutable),
+              hasDestructiveChanges: Boolean(sr.hasDestructiveChanges),
+              writeEligible: Boolean(sr.planExecutable && !sr.hasDestructiveChanges && isOk),
+              actionsCount: sr.actionsCount ?? 0
+            });
+          }
+        }
+      }
+
+      const normalized: NormalizedResultsViewModel = {
+        status: p?.status || (s?.isInterrupted ? 'INTERRUPTED' : (s ? 'COMPLETE' : 'INCOMPLETE')),
+        deploymentId: p?.deploymentId || s?.deploymentId || '',
+        runId: p?.runId || s?.runId || '',
+        totalSchools,
+        processedSchools,
+        readSuccess,
+        readFailed,
+        alreadyConfigured,
+        requiresChange,
+        planBlocked,
+        destructiveChangeSchools,
+        writeEligible,
+        writeGateEligible: Boolean(p?.writeGateEligible),
+        allReadSucceeded: Boolean(p ? p.allReadSucceeded : (s ? (s.readSuccess === s.totalSchools && s.readFailed === 0) : false)),
+        allPlansExecutable: Boolean(p ? p.allPlansExecutable : (s ? (s.planExecutable === s.totalSchools && s.planBlocked === 0) : false)),
+        actionsDistribution,
+        currentStateDistribution,
+        plannedChangeDistribution,
+        currentStateCoverage,
+        plannedChangeCoverage,
+        destructiveChangeDetails: s?.destructiveChangeDetails ?? [],
+        schools: Array.from(schoolsMap.values()),
+        inconsistent,
+        inconsistentReason,
+        isStale,
+        staleReason
+      };
+
+      result.normalized = normalized;
     }
 
     return result;

@@ -2276,6 +2276,278 @@ SCH002,第二小学校,CRED002,false`;
     );
   });
 
+  // ==========================================
+  // Phase 5A.4: Results / Resume Aggregation Tests
+  // ==========================================
+
+  // Test G: Checkpoint Schema Version 厳格チェック（CHECKPOINT_SCHEMA_MISMATCH）
+  await runTest('Phase 5A.4 Test G: 旧スキーマバージョン (v1.0) の Checkpoint を Resume しようとすると CHECKPOINT_SCHEMA_MISMATCH で拒絶されること', () => {
+    const cpDir = path.resolve(process.cwd(), 'checkpoints');
+    if (!fs.existsSync(cpDir)) fs.mkdirSync(cpDir, { recursive: true });
+
+    const depId = `legacy-ver-${Date.now()}`;
+    const legacyCp = {
+      checkpointSchemaVersion: '1.0', // 旧バージョン
+      deploymentId: depId,
+      runId: 'run-legacy',
+      mode: 'PREFLIGHT_DRY_RUN',
+      profileHash: 'phash',
+      schoolsHash: 'shash',
+      toolVersion: '1.0.0',
+      totalSchools: 1,
+      processedCount: 0,
+      successCount: 0,
+      failedCount: 0,
+      interruptedCount: 0,
+      completed: false,
+      startedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      entries: {
+        SCH01: { schoolCode: 'SCH01', schoolName: '校1', status: 'PENDING' }
+      }
+    };
+    fs.writeFileSync(path.join(cpDir, `checkpoint-${depId}.json`), JSON.stringify(legacyCp));
+
+    assert.throws(
+      () => new CheckpointManager({
+        deploymentId: depId,
+        runId: 'new-run',
+        profileHash: 'phash',
+        schoolsHash: 'shash',
+        toolVersion: '1.0.0',
+        authMode: 'A',
+        schools: [{ schoolCode: 'SCH01', schoolName: '校1', credentialRef: 'SCH01', enabled: true }],
+        isResume: true
+      }),
+      (err: any) => err instanceof AutomationError && err.status === 'CHECKPOINT_SCHEMA_MISMATCH',
+      '旧バージョン 1.0 は CHECKPOINT_SCHEMA_MISMATCH で拒絶されること'
+    );
+  });
+
+  // Test H: START と RESUME の完全分離
+  await runTest('Phase 5A.4 Test H: START (isResume=false) は過去の Checkpoint があっても fresh な全校 PENDING から開始されること', () => {
+    const cpDir = path.resolve(process.cwd(), 'checkpoints');
+    const depId = `start-fresh-${Date.now()}`;
+    const existingCp = {
+      checkpointSchemaVersion: '1.1',
+      deploymentId: depId,
+      runId: 'old-run',
+      mode: 'PREFLIGHT_DRY_RUN',
+      profileHash: 'phash',
+      schoolsHash: 'shash',
+      toolVersion: '1.0.0',
+      totalSchools: 1,
+      processedCount: 1,
+      successCount: 1,
+      failedCount: 0,
+      interruptedCount: 0,
+      completed: true,
+      startedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      entries: {
+        SCH01: { schoolCode: 'SCH01', schoolName: '校1', status: 'SUCCESS' }
+      }
+    };
+    fs.writeFileSync(path.join(cpDir, `checkpoint-${depId}.json`), JSON.stringify(existingCp));
+
+    const cpManager = new CheckpointManager({
+      deploymentId: depId,
+      runId: 'fresh-run',
+      profileHash: 'phash',
+      schoolsHash: 'shash',
+      toolVersion: '1.0.0',
+      authMode: 'A',
+      schools: [{ schoolCode: 'SCH01', schoolName: '校1', credentialRef: 'SCH01', enabled: true }],
+      isResume: false // START
+    });
+
+    const entry = cpManager.getEntry('SCH01');
+    assert.strictEqual(entry?.status, 'PENDING', 'START 時は過去の SUCCESS を引き継がず PENDING から開始されること');
+    cpManager.releaseLock();
+  });
+
+  // Test I: finishSchool による observation 値保存
+  await runTest('Phase 5A.4 Test I: finishSchool で渡した before/requested/after/planExecutable が Checkpoint に保存されること', () => {
+    const depId = `obs-save-${Date.now()}`;
+    const cpManager = new CheckpointManager({
+      deploymentId: depId,
+      runId: 'run-obs',
+      profileHash: 'phash',
+      schoolsHash: 'shash',
+      toolVersion: '1.0.0',
+      authMode: 'A',
+      schools: [{ schoolCode: 'SCH01', schoolName: '校1', credentialRef: 'SCH01', enabled: true }],
+      isResume: false
+    });
+
+    cpManager.finishSchool({
+      schoolCode: 'SCH01',
+      status: 'SUCCESS',
+      executionStatus: 'DRY_RUN_COMPLETED',
+      actionsCount: 1,
+      hasDestructiveChanges: false,
+      planExecutable: true,
+      before: { storage: '500MB' },
+      requested: { storage: '1GB' },
+      after: { storage: '1GB' }
+    });
+
+    const entries = cpManager.getAllEntries();
+    assert.strictEqual(entries.length, 1);
+    assert.strictEqual(entries[0].planExecutable, true);
+    assert.strictEqual(entries[0].before?.storage, '500MB');
+    assert.strictEqual(entries[0].requested?.storage, '1GB');
+    assert.strictEqual(entries[0].after?.storage, '1GB');
+    cpManager.releaseLock();
+  });
+
+  // Test J: reconstructFromCheckpointEntries によるサマリ累積再構成
+  await runTest('Phase 5A.4 Test J: reconstructFromCheckpointEntries により Checkpoint から全校の最新結果が再構成されること', () => {
+    const reporter = new BatchSummaryReporter({
+      deploymentId: 'dep-recon',
+      runId: 'run-recon',
+      mode: 'PREFLIGHT_DRY_RUN',
+      profileHash: 'phash',
+      schoolsHash: 'shash',
+      toolVersion: '1.0.0'
+    });
+
+    // Checkpoint entries: 2校
+    const entries: import('../src/types/batch').SchoolCheckpointEntry[] = [
+      {
+        schoolCode: 'SCH01',
+        schoolName: '学校1',
+        status: 'SUCCESS',
+        executionStatus: 'DRY_RUN_COMPLETED',
+        actionsCount: 0,
+        hasDestructiveChanges: false,
+        planExecutable: true,
+        before: { storage: '1GB' },
+        requested: { storage: '1GB' },
+        after: { storage: '1GB' },
+        updatedAt: new Date().toISOString()
+      },
+      {
+        schoolCode: 'SCH02',
+        schoolName: '学校2',
+        status: 'SUCCESS',
+        executionStatus: 'DRY_RUN_COMPLETED',
+        actionsCount: 1,
+        hasDestructiveChanges: false,
+        planExecutable: true,
+        before: { storage: '500MB' },
+        requested: { storage: '1GB' },
+        after: { storage: '1GB' },
+        updatedAt: new Date().toISOString()
+      }
+    ];
+
+    reporter.reconstructFromCheckpointEntries(entries);
+
+    const report = reporter.generateReport({
+      totalSchools: 2,
+      skippedSchools: 0
+    });
+
+    assert.strictEqual(report.totalSchools, 2);
+    assert.strictEqual(report.processedSchools, 2);
+    assert.strictEqual(report.readSuccess, 2);
+    assert.strictEqual(report.readFailed, 0);
+    assert.strictEqual(report.alreadyConfigured, 1);
+    assert.strictEqual(report.requiresChange, 1);
+    assert.strictEqual(report.actionsDistribution.zero, 1);
+    assert.strictEqual(report.actionsDistribution.one, 1);
+  });
+
+  // Test K: Resume 時の INTERRUPTED 校上書きと二重カウント防止
+  await runTest('Phase 5A.4 Test K: Resume 時に同一 schoolCode が上書きされ二重カウントが発生しないこと', () => {
+    const reporter = new BatchSummaryReporter({
+      deploymentId: 'dep-dup',
+      runId: 'run-dup',
+      mode: 'PREFLIGHT_DRY_RUN',
+      profileHash: 'phash',
+      schoolsHash: 'shash',
+      toolVersion: '1.0.0'
+    });
+
+    // 過去: SCH01 が INTERRUPTED
+    reporter.reconstructFromCheckpointEntries([
+      {
+        schoolCode: 'SCH01',
+        schoolName: '学校1',
+        status: 'INTERRUPTED',
+        executionStatus: 'INTERRUPTED',
+        planExecutable: false,
+        updatedAt: new Date().toISOString()
+      }
+    ]);
+
+    // 今回: SCH01 を SUCCESS で上書き
+    reporter.addSchoolResult({
+      schoolCode: 'SCH01',
+      schoolName: '学校1',
+      status: 'SUCCESS',
+      executionStatus: 'DRY_RUN_COMPLETED',
+      planExecutable: true,
+      actionsCount: 0
+    });
+
+    const report = reporter.generateReport({
+      totalSchools: 1,
+      skippedSchools: 0
+    });
+
+    assert.strictEqual(report.processedSchools, 1, '学校数が1校であること (二重カウントなし)');
+    assert.strictEqual(report.readSuccess, 1);
+    assert.strictEqual(report.readFailed, 0);
+    assert.strictEqual(report.schoolResults.length, 1);
+    assert.strictEqual(report.schoolResults[0].status, 'SUCCESS');
+  });
+
+  // Test L: Interrupted 発生時の Distribution Coverage
+  await runTest('Phase 5A.4 Test L: 中断発生時に Distribution Coverage が正しく収集校数 / 全校数を反映すること', () => {
+    const reporter = new BatchSummaryReporter({
+      deploymentId: 'dep-cov',
+      runId: 'run-cov',
+      mode: 'PREFLIGHT_DRY_RUN',
+      profileHash: 'phash',
+      schoolsHash: 'shash',
+      toolVersion: '1.0.0'
+    });
+
+    // 1校成功、1校中断
+    reporter.addSchoolResult({
+      schoolCode: 'SCH01',
+      schoolName: '学校1',
+      status: 'SUCCESS',
+      executionStatus: 'DRY_RUN_COMPLETED',
+      planExecutable: true,
+      actionsCount: 0,
+      before: { storage: '1GB' },
+      requested: { storage: '1GB' },
+      after: { storage: '1GB' }
+    });
+    reporter.addSchoolResult({
+      schoolCode: 'SCH02',
+      schoolName: '学校2',
+      status: 'INTERRUPTED',
+      executionStatus: 'INTERRUPTED',
+      planExecutable: false
+    });
+
+    const report = reporter.generateReport({
+      totalSchools: 2,
+      skippedSchools: 0,
+      isInterrupted: true
+    });
+
+    assert.strictEqual(report.readSuccess, 1);
+    assert.strictEqual(report.currentStateCoverage?.collected, 1);
+    assert.strictEqual(report.currentStateCoverage?.total, 2);
+    assert.strictEqual(report.plannedChangeCoverage?.collected, 1);
+    assert.strictEqual(report.plannedChangeCoverage?.total, 2);
+  });
+
   console.log(`\n=== Phase 3 テスト完了: 成功 ${passedTests} 件 / 失敗 ${failedTests} 件 ===\n`);
   if (failedTests > 0) {
     process.exit(1);

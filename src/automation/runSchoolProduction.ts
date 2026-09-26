@@ -13,6 +13,8 @@ import { buildExecutionPlan } from './buildExecutionPlan';
 import { evaluateExecutionPlan } from './evaluateExecutionPlan';
 import { screenshotManager, ScreenshotSafetyContext } from '../utils/screenshot';
 import { withRetry } from '../utils/retry';
+import { WritePhase } from '../types/batch';
+import { generateBaselineHash } from '../utils/hash';
 
 export interface ProductionSchoolRunParams {
   schoolCode: string;
@@ -27,6 +29,10 @@ export interface ProductionSchoolRunParams {
    */
   isBatchMode?: boolean;
   signal?: AbortSignal;
+  /**
+   * Phase 5B.4: Preflight時点の Baseline Hash (不一致検知時は PREFLIGHT_STATE_CHANGED で書き込みスキップ)
+   */
+  expectedBaselineHash?: string;
 }
 
 /**
@@ -46,10 +52,19 @@ export async function runSchoolProduction(params: ProductionSchoolRunParams): Pr
     pageType: 'AUTH'
   };
 
+  // 指示1, 2: Write Phase State Machine
+  let writePhase: 'BEFORE_SAVE' | 'SAVE_REQUEST_STARTED' | 'OUTCOME_RESOLUTION' | 'OUTCOME_CONFIRMED' = 'BEFORE_SAVE';
+
   const abortHandler = () => {
-    logger.warn(`[${schoolCode}] AbortSignal 検知: BrowserContext を即時強制クローズします`);
-    if (context) {
-      context.close().catch(() => {});
+    logger.warn(`[${schoolCode}] AbortSignal 検知 (Phase=${writePhase})`);
+    if (writePhase === 'BEFORE_SAVE') {
+      logger.warn(`[${schoolCode}] BEFORE_SAVE 中の中断: BrowserContext を即時クローズします`);
+      if (context) {
+        context.close().catch(() => {});
+      }
+    } else {
+      // 指示1: SAVE_REQUEST_STARTED以降は BrowserContext 即 close 禁止
+      logger.warn(`[${schoolCode}] ${writePhase} 中の中断: Save送信後のため即時Closeを禁止し、永続化結果の確定 (OUTCOME_RESOLUTION) を優先します`);
     }
   };
   if (signal) {
@@ -58,7 +73,7 @@ export async function runSchoolProduction(params: ProductionSchoolRunParams): Pr
 
   try {
     if (signal?.aborted) {
-      throw new AutomationError('TIMEOUT', `学校処理開始前にタイムアウトまたは中断シグナルを検知しました`);
+      throw new AutomationError('INTERRUPTED', `学校処理開始前にタイムアウトまたは中断シグナルを検知しました`);
     }
 
     resultManager.setExecutionOptions(executionOptions);
@@ -127,6 +142,26 @@ export async function runSchoolProduction(params: ProductionSchoolRunParams): Pr
       { retries: 2, delayMs: 1000 }
     );
     resultManager.setBeforeObservation(baselineObservation);
+
+    // Phase 5B.4: Preflight時点のBaseline Hashとの照合 (State Changed検知時はSaveボタン押下前に安全スキップ)
+    if (params.expectedBaselineHash) {
+      const currentBaselineHash = generateBaselineHash(baselineObservation);
+      if (currentBaselineHash !== params.expectedBaselineHash) {
+        logger.warn(
+          `[${schoolCode}] Preflight時の設定状態 (Hash: ${params.expectedBaselineHash}) から現在の設定状態 (Hash: ${currentBaselineHash}) へ変更されています。安全のため書き込みを中止し PREFLIGHT_STATE_CHANGED としてスキップします`
+        );
+        resultManager.setStatus('PREFLIGHT_STATE_CHANGED');
+        resultManager.setAfterObservation(baselineObservation);
+        resultManager.addIssue({
+          code: 'CHECKPOINT_MISMATCH',
+          message: `Preflight後の設定変更を検知 (Preflight: ${params.expectedBaselineHash.substring(0, 8)}, 現在: ${currentBaselineHash.substring(0, 8)})`
+        });
+        const logPath = resultManager.save();
+        logger.info(`結果ログを保存しました: ${logPath}`);
+        return resultManager.getResult();
+      }
+      logger.info(`[${schoolCode}] Preflight Baseline Hash 照合一致 (Hash: ${currentBaselineHash.substring(0, 8)})`);
+    }
 
     // 指示4: フォーム内の optimistic locking (lock_version等) の確認
     const lockFields = await page.locator('form input[type="hidden"]').evaluateAll((inputs: HTMLInputElement[]) => {
@@ -199,13 +234,16 @@ export async function runSchoolProduction(params: ProductionSchoolRunParams): Pr
     const ssBefore = await screenshotManager.captureStage(page, '01-before-write', schoolCode);
     if (ssBefore) resultManager.setScreenshotPath('01-before-write', ssBefore);
 
-    // 指示8, 9, 10: Multi-action 適用 & 保存 & 永続化検証 (Restoreは行わない)
+    // 指示8, 9, 10 & Phase 5B.2: Multi-action 適用 & 保存 & 永続化検証 (WritePhase State Machine)
     const writeResult = await schoolSettingsPage.applyAndVerifyProduction({
       plan,
       baselineObservation,
       timeoutMs: executionOptions.defaultTimeoutMs,
       exactOnly: true,
-      signal
+      signal,
+      onPhaseChange: (p: WritePhase) => {
+        writePhase = p;
+      }
     });
 
     const ssAfter = await screenshotManager.captureStage(page, '02-after-write-reload', schoolCode);
@@ -221,6 +259,7 @@ export async function runSchoolProduction(params: ProductionSchoolRunParams): Pr
     return resultManager.getResult();
   } catch (error: any) {
     logger.error(`Production Runner エラー: ${error.message}`);
+    // 指示2: SAVE_OUTCOME_UNKNOWN は絶対に他のステータスへ変換禁止
     const status = error.status || 'UNEXPECTED_ERROR';
     resultManager.setStatus(status);
     resultManager.addIssue({

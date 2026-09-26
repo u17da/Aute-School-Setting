@@ -28,7 +28,10 @@ config/credentials.*.json
 !config/credentials.sample.json
 config/schools.csv
 config/*.live.csv
+config/*.live*.csv
+config/schools.live-*.csv
 !config/schools.sample.csv
+test/inspect_pakcw.ts
 
 # Batch Checkpoints & Reports
 checkpoints/

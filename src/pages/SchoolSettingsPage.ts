@@ -7,6 +7,7 @@ import { getParentDependencyRule } from '../settings/dependencies';
 import { AutomationError } from '../types/errors';
 import { logger } from '../logger/logger';
 import { compareAllSettingsObservations, validateObservationMatchesPlan } from '../utils/comparator';
+import { WritePhase } from '../types/batch';
 
 export interface RadioInspectionDetail {
   label: string;
@@ -42,9 +43,21 @@ export class SchoolSettingsPage extends BasePage {
       await heading.waitFor({ state: 'visible', timeout: 15000 });
       logger.info('「学校設定」画面のロードを確認しました');
     } catch {
+      const currentUrl = this.page.url();
+      const pageTitle = await this.page.title().catch(() => '');
+      const bodyText = (await this.page.innerText('body').catch(() => '')).slice(0, 300).replace(/\s+/g, ' ');
+      logger.error(`[SETTINGS_PAGE_NOT_FOUND] 現在のURL="${currentUrl}", タイトル="${pageTitle}", 画面テキスト冒頭="${bodyText}"`);
+
+      // 調査用スクリーンショット保存
+      try {
+        const ssPath = `screenshots/settings_page_not_found_${Date.now()}.png`;
+        await this.page.screenshot({ path: ssPath, fullPage: true });
+        logger.info(`診断用スクリーンショット保存: ${ssPath}`);
+      } catch {}
+
       throw new AutomationError(
         'SETTINGS_PAGE_NOT_FOUND',
-        '学校設定画面の見出し（.v2-header__title / h1 / h2等）が確認できませんでした'
+        `学校設定画面の見出し（.v2-header__title / h1 / h2等）が確認できませんでした (URL: ${currentUrl}, Title: ${pageTitle}, Text: ${bodyText.slice(0, 100)})`
       );
     }
   }
@@ -669,88 +682,89 @@ export class SchoolSettingsPage extends BasePage {
     timeoutMs?: number;
     exactOnly?: boolean;
     signal?: AbortSignal;
+    onPhaseChange?: (phase: WritePhase) => void;
   }): Promise<{
     success: boolean;
     recovered: boolean;
     afterObservation: SchoolSettingsObservation;
     saveObservation: SaveObservation | null;
   }> {
-    const { plan, baselineObservation, timeoutMs = 15000, exactOnly = true, signal } = params;
+    const { plan, baselineObservation, timeoutMs = 15000, exactOnly = true, signal, onPhaseChange } = params;
 
-    // 1. Multi-action を適用
+    // 1. Multi-action を適用 (BEFORE_SAVE)
+    onPhaseChange?.('BEFORE_SAVE');
     if (signal?.aborted) {
-      throw new AutomationError('TIMEOUT', '書き込み処理開始直前にタイムアウトまたは中断シグナルを検知しました');
+      throw new AutomationError('INTERRUPTED', '書き込み処理開始直前にタイムアウトまたは中断シグナルを検知しました');
     }
     await this.applyActions(plan.actions, signal);
 
     // 2. Production Pre-Save Validation (全11項目照合: 指示1)
     if (signal?.aborted) {
-      throw new AutomationError('TIMEOUT', '保存前検証直前にタイムアウトまたは中断シグナルを検知しました');
+      throw new AutomationError('INTERRUPTED', '保存前検証直前にタイムアウトまたは中断シグナルを検知しました');
     }
     await this.validatePreSaveForPlan(plan, baselineObservation, exactOnly);
 
     // 3. 保存ボタンクリック & シグナル観測
     if (signal?.aborted) {
-      throw new AutomationError('TIMEOUT', '保存ボタン押下直前にタイムアウトまたは中断シグナルを検知しました');
+      throw new AutomationError('INTERRUPTED', '保存ボタン押下直前にタイムアウトまたは中断シグナルを検知しました');
     }
     let saveObservation: SaveObservation | null = null;
     let isRecovered = false;
 
+    // Save request 送信開始 (指示1: SAVE_REQUEST_STARTED)
+    onPhaseChange?.('SAVE_REQUEST_STARTED');
     try {
       saveObservation = await this.clickSaveAndObserveSignals(timeoutMs, exactOnly, signal);
     } catch (saveError: any) {
-      logger.warn(`保存待機中にタイムアウトまたはエラーが発生しました: ${saveError.message}。再クリックは行わずreloadして永続化状態を確認します`);
-      // タイムアウト時の既存ルール (再クリック禁止、reload復旧確認: 指示8)
-      await this.page.reload({ waitUntil: 'domcontentloaded' });
-      await this.verifyPageLoaded();
-      const { observation: reloadedObs } = await this.readAllSettingsObservation();
-
-      const reloadVal = validateObservationMatchesPlan(reloadedObs, plan, 'POST_SAVE');
-      if (reloadVal.isValid) {
-        logger.info('【SUCCESS_RECOVERED】タイムアウト後のreloadによりサーバー永続状態が期待値と一致していることを確認しました');
-        return {
-          success: true,
-          recovered: true,
-          afterObservation: reloadedObs,
-          saveObservation: null
-        };
-      } else {
-        throw new AutomationError(
-          'SAVE_FAILED',
-          `保存タイムアウト後の確認で期待値と一致しませんでした: ${reloadVal.mismatches.map((m) => m.message).join('; ')}`,
-          { mismatches: reloadVal.mismatches }
-        );
-      }
+      logger.warn(`保存待機中にタイムアウトまたは例外が発生しました: ${saveError.message}。OUTCOME_RESOLUTIONに移行して永続化状態を確定します`);
+      isRecovered = true;
     }
 
-    // 4. 保存成功の最終的な正は reload 後の Observation とする (指示9)
-    logger.info('page.reload() を実行してサーバー永続状態を再取得・厳格検証します...');
-    await this.page.reload({ waitUntil: 'domcontentloaded' });
-    await this.verifyPageLoaded();
-    const { observation: afterObservation } = await this.readAllSettingsObservation();
+    // 4. Outcome Resolution フェーズ (指示1, 2: 永続状態の確定試行)
+    onPhaseChange?.('OUTCOME_RESOLUTION');
+    logger.info('【OUTCOME_RESOLUTION】page.reload() を実行してサーバー永続状態の確定を試行します...');
+
+    let reloadedObs: SchoolSettingsObservation;
+    try {
+      await this.page.reload({ waitUntil: 'domcontentloaded', timeout: timeoutMs }).catch((e: any) => {
+        throw new Error(`reload failure: ${e.message}`);
+      });
+      await this.verifyPageLoaded().catch((e: any) => {
+        throw new Error(`verifyPageLoaded failure: ${e.message}`);
+      });
+      const res = await this.readAllSettingsObservation().catch((e: any) => {
+        throw new Error(`DOM read failure: ${e.message}`);
+      });
+      reloadedObs = res.observation;
+    } catch (resolutionError: any) {
+      // 指示2, 3: reload/read失敗、navigation失敗、DOM read失敗等は全て SAVE_OUTCOME_UNKNOWN
+      logger.error(`【SAVE_OUTCOME_UNKNOWN】Saveリクエスト送信後に永続状態を確認できませんでした: ${resolutionError.message}`);
+      throw new AutomationError(
+        'SAVE_OUTCOME_UNKNOWN',
+        `Saveリクエスト送信後に永続状態を確認できませんでした (永続状態未確定): ${resolutionError.message}`,
+        { originalError: resolutionError.message }
+      );
+    }
 
     // 5. 比較検証 (Phase 4C: POST_SAVE基準で検証)
-    const postValResult = validateObservationMatchesPlan(afterObservation, plan, 'POST_SAVE');
+    const postValResult = validateObservationMatchesPlan(reloadedObs, plan, 'POST_SAVE');
     if (!postValResult.isValid) {
-      if (postValResult.hasUnexpectedSideEffect) {
-        throw new AutomationError(
-          'UNEXPECTED_SIDE_EFFECT',
-          `保存後検証失敗: 変更対象外の項目に副作用が発生しています: ${postValResult.mismatches.map((m) => m.message).join('; ')}`,
-          { mismatches: postValResult.mismatches }
-        );
-      }
+      // 指示2: reload/read成功 + 期待状態不一致 -> SAVE_FAILED_KNOWN
+      logger.warn(`【SAVE_FAILED_KNOWN】Save後の確認で期待状態と不一致が確定しました: ${postValResult.mismatches.map((m) => m.message).join('; ')}`);
       throw new AutomationError(
-        'VERIFY_MISMATCH',
-        `保存後の検証で期待値と実測値が一致しませんでした: ${postValResult.mismatches.map((m) => m.message).join('; ')}`,
+        'SAVE_FAILED_KNOWN',
+        `保存処理後に設定値が反映されなかったことが確定しました: ${postValResult.mismatches.map((m) => m.message).join('; ')}`,
         { mismatches: postValResult.mismatches }
       );
     }
 
-    logger.info('【Production検証成功】全11項目の設定がサーバー上で計画期待値通りに永続化されたことを確認しました (Restoreは行いません)');
+    // 6. 確定完了 (OUTCOME_CONFIRMED)
+    onPhaseChange?.('OUTCOME_CONFIRMED');
+    logger.info(`【Production検証成功】全11項目の設定がサーバー上で計画期待値通りに永続化されたことを確認しました (${isRecovered ? 'SUCCESS_RECOVERED' : 'SUCCESS'})`);
     return {
       success: true,
       recovered: isRecovered,
-      afterObservation,
+      afterObservation: reloadedObs,
       saveObservation
     };
   }

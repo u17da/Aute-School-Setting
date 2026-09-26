@@ -149,7 +149,26 @@ const defaultOptions: EffectiveExecutionOptions = {
   const evaluation = evaluateExecutionPlan(plan);
   assert(evaluation.isExecutable === false, 'Should not be executable');
   assert(evaluation.blockReasons.some((r) => r.code === 'SETTING_NOT_AVAILABLE'), 'Should flag SETTING_NOT_AVAILABLE');
-  console.log('✓ Case 5: 契約外設定の要求エラー (契約外項目への明示要求をSETTING_NOT_AVAILABLEでブロック)');
+  console.log('✓ Case 5: 契約外設定のON要求エラー (契約外項目へのON要求をSETTING_NOT_AVAILABLEでブロック)');
+}
+
+// Case 5b: 契約外設定へのOFF要求の適合化 (未契約校へのOFF要求は変更不要としてパス)
+{
+  const obs = createDefaultObservation();
+  obs.mentalHealth = { value: null, availability: 'CONTRACT_NOT_AVAILABLE' };
+
+  const plan = buildExecutionPlan({
+    schoolCode: 'SCH01',
+    schoolName: '学校A',
+    currentObservation: obs,
+    requestedSettings: { mentalHealth: 'OFF' }
+  });
+
+  const evaluation = evaluateExecutionPlan(plan);
+  assert(evaluation.isExecutable === true, '未契約へのOFF要求は実行可能(適合)と判定されること');
+  assert(evaluation.blockReasons.length === 0, 'ブロック理由は0件であること');
+  assert(plan.actions.length === 0, 'アクション数は0件（変更不要）であること');
+  console.log('✓ Case 5b: 契約外設定へのOFF要求の適合化 (未契約校へのOFF要求は変更不要としてパス)');
 }
 
 // Case 6: 破壊的変更のEvaluation正常性

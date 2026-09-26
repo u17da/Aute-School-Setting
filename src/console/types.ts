@@ -11,8 +11,29 @@ export type ConsoleJobState =
   | 'COMPLETED'
   | 'FAILED';
 
+import { BatchSchoolItem, SchoolCredential } from '../types/batch';
+
+export type InputDataSource = 'UPLOAD' | 'LOCAL_DEFAULT';
+
+export interface ActiveUploadedBatch {
+  uploadId: string;
+  originalFileName: string;
+  fileSize: number;
+  schools: BatchSchoolItem[];
+  credentials: Record<string, SchoolCredential>;
+  createdAt: string;
+}
+
+export interface ProfileSnapshot {
+  snapshotId: string;
+  profileHash: string;
+  requestedSettings: RequestedSettings;
+  createdAt: string;
+}
+
 export interface ValidationSnapshot {
   profileHash: string;
+  profileSnapshotId?: string;
   schoolsHash: string;
   toolVersion: string;
   toolFingerprint: string;
@@ -21,6 +42,8 @@ export interface ValidationSnapshot {
   totalSchoolCount: number;
   resolvedCredentialsCount: number;
   validatedAt: string;
+  source?: InputDataSource;
+  sourceName?: string;
 }
 
 export interface SanitizedProfileItem {
@@ -34,10 +57,11 @@ export interface ConsoleStatusResponse {
   jobState: ConsoleJobState;
   csrfToken: string;
   snapshot: ValidationSnapshot | null;
+  activeProfileSnapshot?: ProfileSnapshot | null;
   currentJob?: {
     runId: string;
     startedAt: string;
-    mode: 'PREFLIGHT_DRY_RUN';
+    mode: 'PREFLIGHT_DRY_RUN' | 'PRODUCTION_WRITE';
     progress?: {
       processed: number;
       total: number;
@@ -65,10 +89,20 @@ export const ValidateRequestSchema = z.object({
   schoolsFilePath: z.string().optional(),
   profileFilePath: z.string().optional(),
   credentialsFilePath: z.string().optional(),
-  expectedSchoolCount: z.number().int().positive().optional()
+  expectedSchoolCount: z.number().int().positive().optional(),
+  profile: z.record(z.any()).optional(),
+  profileSnapshotId: z.string().optional()
 }).strict();
 
 export type ValidateRequest = z.infer<typeof ValidateRequestSchema>;
+
+export const ApplyStartRequestSchema = z.object({
+  preflightId: z.string().min(1),
+  profileSnapshotId: z.string().min(1),
+  confirmationToken: z.string().min(1)
+}).strict();
+
+export type ApplyStartRequest = z.infer<typeof ApplyStartRequestSchema>;
 
 export const EmptyActionRequestSchema = z.object({}).strict();
 export type EmptyActionRequest = z.infer<typeof EmptyActionRequestSchema>;
@@ -91,7 +125,12 @@ export type ConsoleErrorCode =
   | 'JOB_NOT_RUNNING'
   | 'PROCESS_SPAWN_FAILED'
   | 'INVALID_REQUEST'
-  | 'WRITE_FORBIDDEN';
+  | 'WRITE_FORBIDDEN'
+  | 'SAMPLE_DATA_BLOCKED'
+  | 'SNAPSHOT_NOT_FOUND'
+  | 'APPLY_NOT_ELIGIBLE'
+  | 'PREFLIGHT_STATE_CHANGED'
+  | 'DESTRUCTIVE_CHANGE_BLOCKED';
 
 export class ConsoleError extends Error {
   readonly code: ConsoleErrorCode;
