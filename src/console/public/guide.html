@@ -3,30 +3,36 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>利用ガイド | まなびポケット 学校設定 一括変更 Operator Console</title>
+  <title>利用ガイド | まなびポケット 学校設定 一括変更コンソール</title>
   <style>
     :root {
-      --header-bg: #2D4A6F;
-      --header-accent: #5BC0DE;
-      --primary: #008299;
-      --primary-hover: #00606D;
-      --primary-bg: #E1F7FD;
-      --success: #388E3C;
-      --success-hover: #2E7D32;
+      --primary: #2D4A6F;         /* まなびポケット ネイビー */
+      --primary-light: #3D6293;
+      --primary-bg: #EBF2FA;
+      --accent: #5BC0DE;          /* まなびポケット スカイブルー */
+      --teal: #00B4B4;            /* まなびポケット ターコイズ/ティール (CTA) */
+      --teal-hover: #009696;
+      --teal-light: #E0F7F7;
+      --success: #1E8E3E;
       --success-bg: #E6F4EA;
-      --danger: #C53F3F;
-      --danger-hover: #A7322F;
-      --danger-bg: #FCECEF;
-      --warning: #FF6B35;
-      --warning-dark: #EF6C00;
-      --warning-bg: #FEF7E0;
-      --bg-main: #F5F7F8;
+      --danger: #D93025;
+      --danger-bg: #FCE8E6;
+      --warning: #FF6B35;         /* まなびポケット アラートオレンジ */
+      --warning-bg: #FFF0EB;
+      --warning-amber: #F29900;
+      --warning-amber-bg: #FEF7E0;
+      --bg-main: #F5F5F5;         /* まなびポケット 薄いグレー背景 */
       --bg-card: #FFFFFF;
-      --text-main: #283148;
-      --text-muted: #61646C;
-      --border-color: #E9EBEC;
-      --border-focus: #008299;
-      --font-family: 'Hiragino Kaku Gothic Pro', 'ヒラギノ角ゴ Pro W3', 'Meiryo', 'メイリオ', 'Noto Sans JP', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --text-main: #202124;
+      --text-muted: #5F6368;
+      --border-color: #DADCE0;
+      --border-focus: #5BC0DE;
+      --radius-sm: 4px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --shadow-card: 0 1px 4px rgba(45, 74, 111, 0.08);
+      --shadow-header: 0 2px 6px rgba(45, 74, 111, 0.12);
+      --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
       --font-mono: SFMono-Regular, Consolas, "Liberation Mono", Menlo, Courier, monospace;
     }
 
@@ -40,24 +46,23 @@
       font-family: var(--font-family);
       background-color: var(--bg-main);
       color: var(--text-main);
-      line-height: 1.65;
-      font-size: 16px;
+      line-height: 1.7;
+      font-size: 15px;
     }
 
     /* ヘッダー */
     .guide-header {
-      background-color: var(--header-bg);
-      border-bottom: 3px solid var(--header-accent);
+      background-color: var(--primary);
+      color: #FFFFFF;
       position: sticky;
       top: 0;
       z-index: 100;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.12);
-      color: #FFFFFF;
+      box-shadow: var(--shadow-header);
     }
     .guide-header-container {
       max-width: 1200px;
       margin: 0 auto;
-      padding: 0.95rem 1.75rem;
+      padding: 0.9rem 1.5rem;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -67,45 +72,43 @@
     .guide-title-area {
       display: flex;
       align-items: center;
-      gap: 0.85rem;
+      gap: 0.75rem;
     }
     .guide-title-area h1 {
-      font-size: 1.35rem;
+      font-size: 1.25rem;
       font-weight: 700;
       color: #FFFFFF;
+      letter-spacing: 0.02em;
     }
-    .badge {
-      display: inline-block;
+    .badge-header {
+      background-color: var(--teal);
+      color: #FFFFFF;
       padding: 0.25rem 0.65rem;
-      font-size: 0.8rem;
+      font-size: 0.75rem;
       font-weight: 700;
-      border-radius: 100px;
-      letter-spacing: 0.03em;
+      border-radius: var(--radius-sm);
+      letter-spacing: 0.05em;
     }
-    .badge-primary { background-color: var(--primary-bg); color: var(--primary); }
-    .badge-success { background-color: var(--success-bg); color: var(--success); }
-    .badge-danger { background-color: var(--danger-bg); color: var(--danger); }
-    .badge-warning { background-color: var(--warning-bg); color: var(--warning-dark); }
-    .badge-gray { background-color: #EDF0F2; color: var(--text-muted); }
 
     .btn-back {
       display: inline-flex;
       align-items: center;
       gap: 0.4rem;
-      background-color: rgba(255, 255, 255, 0.15);
-      color: #FFFFFF;
-      border: 1px solid rgba(255, 255, 255, 0.3);
+      background-color: #FFFFFF;
+      color: var(--primary);
+      border: none;
       padding: 0.45rem 1rem;
-      border-radius: 6px;
+      border-radius: 20px;
       text-decoration: none;
-      font-weight: 600;
-      font-size: 0.9rem;
+      font-weight: 700;
+      font-size: 0.85rem;
       transition: all 0.2s ease;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.15);
     }
     .btn-back:hover {
-      background-color: #FFFFFF;
-      color: var(--header-bg);
-      border-color: #FFFFFF;
+      background-color: var(--primary-bg);
+      color: var(--primary-light);
+      transform: translateY(-1px);
     }
 
     /* レイアウト */
@@ -119,7 +122,7 @@
       align-items: start;
     }
 
-    @media (max-width: 890px) {
+    @media (max-width: 920px) {
       .guide-layout {
         grid-template-columns: 1fr;
       }
@@ -133,20 +136,21 @@
     .guide-toc {
       background: var(--bg-card);
       border: 1px solid var(--border-color);
-      border-radius: 8px;
+      border-radius: var(--radius-md);
       padding: 1.25rem 1rem;
       position: sticky;
       top: 5rem;
       max-height: calc(100vh - 6.5rem);
       overflow-y: auto;
+      box-shadow: var(--shadow-card);
     }
     .guide-toc h3 {
       font-size: 0.95rem;
       font-weight: 700;
       margin-bottom: 0.75rem;
       padding-bottom: 0.5rem;
-      border-bottom: 1px solid var(--border-color);
-      color: var(--text-main);
+      border-bottom: 2px solid var(--primary-bg);
+      color: var(--primary);
       display: flex;
       align-items: center;
       gap: 0.4rem;
@@ -155,15 +159,15 @@
       list-style: none;
     }
     .guide-toc li {
-      margin-bottom: 0.45rem;
+      margin-bottom: 0.35rem;
     }
     .guide-toc a {
       color: var(--text-muted);
       text-decoration: none;
-      font-size: 0.85rem;
+      font-size: 0.86rem;
       display: block;
-      padding: 0.35rem 0.5rem;
-      border-radius: 4px;
+      padding: 0.35rem 0.55rem;
+      border-radius: var(--radius-sm);
       transition: all 0.15s;
     }
     .guide-toc a:hover {
@@ -172,7 +176,7 @@
       font-weight: 600;
     }
 
-    /* メインコンテンツ */
+    /* メインカード */
     .guide-content {
       min-width: 0;
     }
@@ -180,52 +184,68 @@
     .guide-card {
       background: var(--bg-card);
       border: 1px solid var(--border-color);
-      border-radius: 8px;
-      padding: 2rem;
-      margin-bottom: 2rem;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+      border-radius: var(--radius-lg);
+      padding: 2.2rem;
+      margin-bottom: 2.2rem;
+      box-shadow: var(--shadow-card);
     }
 
     .guide-card h2 {
-      font-size: 1.35rem;
+      font-size: 1.4rem;
       color: var(--primary);
-      margin-bottom: 1rem;
-      padding-bottom: 0.6rem;
+      margin-bottom: 1.2rem;
+      padding-bottom: 0.7rem;
       border-bottom: 2px solid var(--primary-bg);
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+    .guide-card h3 {
+      font-size: 1.15rem;
+      margin: 1.8rem 0 0.85rem;
+      color: var(--primary);
       display: flex;
       align-items: center;
       gap: 0.5rem;
     }
-    .guide-card h3 {
-      font-size: 1.15rem;
-      margin: 1.6rem 0 0.75rem;
-      color: var(--text-main);
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-    }
     .guide-card h4 {
       font-size: 1rem;
-      margin: 1.25rem 0 0.5rem;
+      margin: 1.3rem 0 0.5rem;
       color: var(--text-main);
+      font-weight: 700;
     }
     .guide-card p {
-      margin-bottom: 0.85rem;
+      margin-bottom: 0.9rem;
     }
     .guide-card ul, .guide-card ol {
       margin: 0.5rem 0 1rem 1.4rem;
     }
     .guide-card li {
-      margin-bottom: 0.35rem;
+      margin-bottom: 0.4rem;
     }
+
+    /* バッジ */
+    .badge {
+      display: inline-block;
+      padding: 0.2rem 0.55rem;
+      font-size: 0.78rem;
+      font-weight: 700;
+      border-radius: var(--radius-sm);
+    }
+    .badge-primary { background-color: var(--primary-bg); color: var(--primary); }
+    .badge-success { background-color: var(--success-bg); color: var(--success); }
+    .badge-danger { background-color: var(--danger-bg); color: var(--danger); }
+    .badge-warning { background-color: var(--warning-bg); color: var(--warning); }
+    .badge-amber { background-color: var(--warning-amber-bg); color: #B06000; }
+    .badge-gray { background-color: #F1F3F4; color: var(--text-muted); }
 
     /* コールアウト / アラート */
     .callout {
-      border-left: 4px solid var(--primary);
-      background-color: #f1f7fd;
-      padding: 1rem 1.2rem;
-      margin: 1.25rem 0;
-      border-radius: 0 6px 6px 0;
+      border-left: 4px solid var(--accent);
+      background-color: #F0F8FB;
+      padding: 1rem 1.25rem;
+      margin: 1.3rem 0;
+      border-radius: 0 var(--radius-md) var(--radius-md) 0;
       font-size: 0.92rem;
     }
     .callout-success {
@@ -236,6 +256,10 @@
       border-left-color: var(--warning);
       background-color: var(--warning-bg);
     }
+    .callout-amber {
+      border-left-color: var(--warning-amber);
+      background-color: var(--warning-amber-bg);
+    }
     .callout-danger {
       border-left-color: var(--danger);
       background-color: var(--danger-bg);
@@ -245,28 +269,28 @@
       margin-bottom: 0.35rem;
       display: flex;
       align-items: center;
-      gap: 0.4rem;
+      gap: 0.45rem;
     }
 
     /* コード・フォーマット */
     code {
       font-family: var(--font-mono);
-      background-color: #eef1f5;
-      padding: 0.15rem 0.4rem;
-      border-radius: 4px;
+      background-color: #EEF1F5;
+      padding: 0.15rem 0.45rem;
+      border-radius: var(--radius-sm);
       font-size: 0.88em;
-      color: #b01030;
+      color: #9C1A2E;
     }
     pre {
-      background-color: #202124;
-      color: #f8f9fa;
-      padding: 1rem 1.25rem;
-      border-radius: 6px;
+      background-color: #2D4A6F;
+      color: #F8F9FA;
+      padding: 1.1rem 1.3rem;
+      border-radius: var(--radius-md);
       overflow-x: auto;
       font-family: var(--font-mono);
       font-size: 0.88rem;
-      line-height: 1.5;
-      margin: 0.75rem 0 1.25rem;
+      line-height: 1.55;
+      margin: 0.8rem 0 1.3rem;
     }
 
     /* テーブル */
@@ -278,77 +302,83 @@
     }
     .guide-table th, .guide-table td {
       border: 1px solid var(--border-color);
-      padding: 0.65rem 0.85rem;
+      padding: 0.7rem 0.9rem;
       text-align: left;
     }
     .guide-table th {
-      background-color: #f1f3f4;
+      background-color: var(--primary-bg);
+      color: var(--primary);
       font-weight: 700;
-      color: var(--text-main);
     }
     .guide-table tr:nth-child(even) {
-      background-color: #fafbfc;
+      background-color: #FAFBFC;
     }
 
     /* ステップカード */
     .step-card {
-      background-color: #ffffff;
+      background-color: #FFFFFF;
       border: 1px solid var(--border-color);
-      border-radius: 8px;
-      padding: 1.25rem 1.5rem;
-      margin: 1.25rem 0;
+      border-radius: var(--radius-md);
+      padding: 1.35rem 1.6rem;
+      margin: 1.35rem 0;
       position: relative;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.02);
     }
     .step-num {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 28px;
-      height: 28px;
-      background-color: var(--primary);
-      color: #fff;
+      width: 30px;
+      height: 30px;
+      background-color: var(--teal);
+      color: #FFFFFF;
       font-weight: 700;
       border-radius: 50%;
-      font-size: 0.85rem;
-      margin-right: 0.5rem;
+      font-size: 0.88rem;
+      margin-right: 0.6rem;
     }
     .step-title {
-      font-size: 1.05rem;
+      font-size: 1.1rem;
       font-weight: 700;
+      color: var(--primary);
       display: inline-flex;
       align-items: center;
-      margin-bottom: 0.75rem;
+      margin-bottom: 0.85rem;
     }
 
     /* UI モックアップ表示 */
     .ui-mockup {
-      background: #f8f9fa;
-      border: 1px solid #d2d5db;
-      border-radius: 6px;
-      padding: 1rem;
-      margin: 1rem 0;
+      background: #FAFAFA;
+      border: 1px solid #D8DCE2;
+      border-radius: var(--radius-md);
+      padding: 1.1rem 1.25rem;
+      margin: 1rem 0 1.25rem;
     }
     .mockup-header {
       font-size: 0.8rem;
       font-weight: 700;
-      color: #6c757d;
+      color: var(--primary);
       text-transform: uppercase;
       letter-spacing: 0.05em;
       margin-bottom: 0.75rem;
-      border-bottom: 1px dashed #d2d5db;
-      padding-bottom: 0.35rem;
+      border-bottom: 1px dashed #D8DCE2;
+      padding-bottom: 0.4rem;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
     }
 
     .key-badge {
       display: inline-block;
-      border: 1px solid #c0c4cc;
-      background: #fdfdfd;
-      box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-      border-radius: 3px;
-      padding: 0.1rem 0.4rem;
+      border: 1px solid #B0BEC5;
+      background: #FFFFFF;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+      border-radius: var(--radius-sm);
+      padding: 0.15rem 0.5rem;
       font-family: var(--font-mono);
       font-size: 0.82rem;
       font-weight: 600;
+      color: var(--primary);
     }
 
     /* ワークフローマップ */
@@ -358,38 +388,39 @@
       justify-content: space-between;
       flex-wrap: wrap;
       gap: 0.75rem;
-      margin: 1.5rem 0;
-      padding: 1rem;
-      background: #eef4fc;
-      border-radius: 8px;
+      margin: 1.6rem 0;
+      padding: 1.2rem;
+      background: var(--primary-bg);
+      border-radius: var(--radius-lg);
+      border: 1px solid #D5E3F5;
     }
     .workflow-step {
-      background: #ffffff;
+      background: #FFFFFF;
       border: 1px solid var(--border-color);
-      border-radius: 6px;
-      padding: 0.75rem 1rem;
+      border-radius: var(--radius-md);
+      padding: 0.85rem 1rem;
       text-align: center;
       flex: 1;
       min-width: 140px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+      box-shadow: var(--shadow-card);
     }
     .workflow-step.active {
-      border: 2px solid var(--primary);
-      background: #fff;
+      border: 2px solid var(--teal);
+      background: #FFFFFF;
     }
     .workflow-step-title {
       font-weight: 700;
-      font-size: 0.85rem;
+      font-size: 0.9rem;
       color: var(--primary);
     }
     .workflow-step-desc {
-      font-size: 0.75rem;
+      font-size: 0.76rem;
       color: var(--text-muted);
       margin-top: 0.25rem;
     }
     .workflow-arrow {
-      font-size: 1.2rem;
-      color: #8ab4f8;
+      font-size: 1.3rem;
+      color: var(--accent);
       font-weight: bold;
     }
 
@@ -398,7 +429,7 @@
       .guide-header, .guide-toc, .btn-back { display: none !important; }
       .guide-layout { grid-template-columns: 1fr; margin: 0; padding: 0; }
       .guide-card { border: none; box-shadow: none; padding: 0; margin-bottom: 2rem; page-break-inside: avoid; }
-      body { background: #fff; font-size: 12pt; }
+      body { background: #fff; font-size: 11pt; }
     }
   </style>
 </head>
@@ -408,8 +439,8 @@
   <header class="guide-header">
     <div class="guide-header-container">
       <div class="guide-title-area">
-        <span class="badge badge-primary">Operator Guide</span>
-        <h1>まなびポケット 学校設定 一括変更 Operator Console 利用ガイド</h1>
+        <span class="badge-header">MANAPOKE OPERATOR GUIDE</span>
+        <h1>まなびポケット 学校設定 一括変更コンソール 操作ガイド</h1>
       </div>
       <div>
         <a href="/" class="btn-back">
@@ -424,15 +455,14 @@
     <nav class="guide-toc">
       <h3>📑 目次</h3>
       <ul>
-        <li><a href="#sec1">1. 本ツールの概要と全体ワークフロー</a></li>
-        <li><a href="#sec2">2. 事前準備と起動方法 (Excel CSV作成)</a></li>
-        <li><a href="#sec3">3. 画面1: 設定と事前検証 (学校一覧と設定指定)</a></li>
-        <li><a href="#sec4">4. 画面2: 検証の進行状況 (進捗監視と安全停止)</a></li>
-        <li><a href="#sec5">5. 画面3: 検証結果と内訳 (結果分析とリスク判定)</a></li>
-        <li><a href="#sec6">6. 画面4: 設定の反映・適用 (安全な本番反映)</a></li>
-        <li><a href="#sec7">7. 読取失敗・中断時の再開と再試行</a></li>
-        <li><a href="#sec8">8. トラブルシューティング & よくある質問 (FAQ)</a></li>
-        <li><a href="#sec9">9. ステータスコード・エラー用語早見表</a></li>
+        <li><a href="#sec1">1. 本ツールの全体概要と安全原則</a></li>
+        <li><a href="#sec2">2. 【準備編】コンソールの起動とCSV作成</a></li>
+        <li><a href="#sec3">3. 【STEP 1】設定と事前検証（画面1）</a></li>
+        <li><a href="#sec4">4. 【STEP 2】検証の進行状況（画面2）</a></li>
+        <li><a href="#sec5">5. 【STEP 3】検証結果の確認（画面3）</a></li>
+        <li><a href="#sec6">6. 【STEP 4】設定の反映・適用（画面4）</a></li>
+        <li><a href="#sec7">7. トラブルシューティング &amp; よくある質問 (FAQ)</a></li>
+        <li><a href="#sec8">8. ステータスコード・エラー用語早見表</a></li>
       </ul>
     </nav>
 
@@ -441,82 +471,79 @@
 
       <!-- 第1章 -->
       <section id="sec1" class="guide-card">
-        <h2>1. 本ツールの概要と全体ワークフロー</h2>
+        <h2>1. 本ツールの全体概要と安全原則</h2>
         <p>
-          本ツール（<strong>Operator Console</strong>）は、まなびポケット操作マニュアル <strong>「9.2 学校設定」（p.197〜200）</strong> に記載されている11項目の設定について、対象校（最大約400校）の設定状態を自動検証し、安全に統一適用を行うための<strong>ローカル専用運用支援コンソール</strong>です。
+          本ツールは、まなびポケットの公式マニュアル <strong>「9.2 学校設定」（p.197〜200）</strong> に記載されている11項目の設定について、対象校（最大約400校）の設定状態を自動検証し、安全に統一反映を行うための<strong>運用支援Webコンソール</strong>です。
         </p>
 
         <!-- ワークフローマップ -->
         <div class="workflow-flow">
           <div class="workflow-step">
             <div class="workflow-step-title">① 設定と事前検証</div>
-            <div class="workflow-step-desc">CSV投入・設定指定・入力チェック</div>
+            <div class="workflow-step-desc">CSV選択・設定指定・入力チェック</div>
           </div>
           <div class="workflow-arrow">&rarr;</div>
           <div class="workflow-step">
             <div class="workflow-step-title">② 検証の進行状況</div>
-            <div class="workflow-step-desc">全校の現在値を安全に読取 (保存なし)</div>
+            <div class="workflow-step-desc">全校の現在値を自動読み取り</div>
           </div>
           <div class="workflow-arrow">&rarr;</div>
           <div class="workflow-step">
-            <div class="workflow-step-title">③ 検証結果と内訳</div>
-            <div class="workflow-step-desc">差分・破壊的変更・未契約の確認</div>
+            <div class="workflow-step-title">③ 検証結果</div>
+            <div class="workflow-step-desc">差分・削除リスク・契約外の確認</div>
           </div>
           <div class="workflow-arrow">&rarr;</div>
           <div class="workflow-step active">
             <div class="workflow-step-title">④ 設定の反映・適用</div>
-            <div class="workflow-step-desc">非破壊変更のみを安全に本番適用</div>
+            <div class="workflow-step-desc">安全な変更のみを本番反映</div>
           </div>
         </div>
 
         <div class="callout callout-success">
-          <div class="callout-title">🛡️ 事故を未然に防ぐ多重安全原則（Fail-Safe by Default）</div>
-          <p>
-            本ツールは、運用オペレーターが誤った操作を行っても事故が発生しないよう、以下の強固な安全防護を標準装備しています：
-          </p>
+          <div class="callout-title">🛡️ 事故を防ぐ4つの安全設計（Fail-Safe）</div>
           <ul>
-            <li><strong>二段階実行モデル:</strong> 事前読み取り（Preflight）を100%完了させない限り、本番書き込み（Production Apply）は物理的にアンロックされません。</li>
-            <li><strong>破壊的変更の自動除外（マニフェスト制約）:</strong> 「予約投稿削除リスク」を伴う学校は本番適用時に<strong>自動的にスキップ</strong>され、安全な非破壊変更のみが適用されます。</li>
-            <li><strong>秘密情報の完全非露出:</strong> パスワード等の認証情報はメモリ上でのみ安全に保持され、画面・ログ・レポートJSON・ブラウザ通信には一切表示・記録されません。</li>
-            <li><strong>故障時の自動停止（SAVE_OUTCOME_UNKNOWN 保護）:</strong> 保存処理後に通信遮断等が発生した場合、二重書き込み事故を防止するため即時停止し、自動再試行を禁止します。</li>
+            <li><strong>二段階実行モデル:</strong> 事前検証（読み取りのみ）を全校100%成功させない限り、設定の反映（書き込み）は物理的にロックされます。いきなり本番反映されることは絶対にありません。</li>
+            <li><strong>予約投稿削除リスクの自動保護:</strong> タイムラインやチャンネルを非表示にする（予約投稿が消去される）設定変更は、標準状態で<strong>自動的にスキップ</strong>され、誤消去を防ぎます。</li>
+            <li><strong>ログイン情報の完全保護:</strong> CSV内の学校管理者パスワードは、PCのメモリ上でのみ厳重に扱われ、画面表示・ログ・レポートファイルには一切残りません。</li>
+            <li><strong>通信遮断時の自動停止:</strong> 設定保存中に通信が途切れた場合、二重クリックによる事故を防ぐため自動的に処理を即時停止（Circuit Breaker）し、自動リトライを禁止します。</li>
           </ul>
         </div>
       </section>
 
       <!-- 第2章 -->
       <section id="sec2" class="guide-card">
-        <h2>2. 事前準備と起動方法 (Excel CSV作成)</h2>
+        <h2>2. 【準備編】コンソールの起動とCSV作成</h2>
 
         <h3>コンソールの起動手順</h3>
         <div class="step-card">
-          <div class="step-title"><span class="step-num">1</span>PowerShell を開き、コマンドを実行する</div>
-          <p>プロジェクトフォルダで以下のコマンドを実行します：</p>
+          <div class="step-title"><span class="step-num">1</span>ターミナル（PowerShell等）で起動コマンドを実行する</div>
+          <p>プロジェクトのフォルダで以下のコマンドを入力して実行します：</p>
           <pre>npm run console</pre>
         </div>
 
         <div class="step-card">
           <div class="step-title"><span class="step-num">2</span>ブラウザで画面を開く</div>
           <p>
-            ブラウザ（Chrome, Edge等）を開き、次のURLにアクセスします。<br>
-            <a href="http://localhost:3000" target="_blank" style="color: var(--primary); font-weight: 700;">http://localhost:3000</a>
+            ブラウザ（Google Chrome または Microsoft Edge 推奨）を開き、次のURLにアクセスします。<br>
+            <a href="http://localhost:3000" target="_blank" style="color: var(--primary); font-weight: 700; text-decoration: underline;">http://localhost:3000</a>
           </p>
-          <div class="callout callout-warning">
-            <div class="callout-title">💡 ローカルホスト専用バインド</div>
-            外部ネットワークからのアクセスはセキュリティ上遮断されており、あなたのPC（<code>127.0.0.1</code>）からのみ操作可能です。
+          <div class="callout">
+            <div class="callout-title">ℹ️ 安全なローカル専用アクセス</div>
+            本コンソールは外部インターネットからは遮断されており、お使いのパソコン内部（<code>127.0.0.1</code>）からのみ操作可能です。
           </div>
         </div>
 
-        <h3>学校一覧 CSV の作成方法（Excel対応）</h3>
+        <h3>学校一覧 CSV の作成仕様（Excel保存の注意点）</h3>
         <p>
-          学校情報と学校管理者ログイン情報を1本にまとめた CSV ファイルを準備します。
+          対象校の学校情報と管理者アカウントをまとめた CSV ファイルを1本用意します。
         </p>
         <table class="guide-table">
           <thead>
             <tr>
-              <th>カラム名（ヘッダー）</th>
-              <th>必須</th>
+              <th style="width: 20%;">列名（ヘッダー）</th>
+              <th style="width: 10%;">必須</th>
               <th>内容説明</th>
-              <th>例</th>
+              <th>記載例</th>
             </tr>
           </thead>
           <tbody>
@@ -524,19 +551,19 @@
               <td><code>schoolCode</code></td>
               <td>必須</td>
               <td>まなびポケットの学校コード（重複不可）</td>
-              <td><code>13101001</code></td>
+              <td><code>PAKCW</code></td>
             </tr>
             <tr>
               <td><code>schoolName</code></td>
               <td>必須</td>
-              <td>画面上の学校名と照合するための正確な名称</td>
-              <td><code>千代田区立第一小学校</code></td>
+              <td>ログイン後に画面上の学校名と照合するための名称</td>
+              <td><code>○○市立第一小学校</code></td>
             </tr>
             <tr>
               <td><code>userId</code></td>
               <td>必須</td>
               <td>学校管理者のログインID</td>
-              <td><code>admin_school01</code></td>
+              <td><code>admin_user01</code></td>
             </tr>
             <tr>
               <td><code>password</code></td>
@@ -553,345 +580,323 @@
           </tbody>
         </table>
 
-        <div class="callout callout-danger">
-          <div class="callout-title">⚠️ Excel で CSV を保存するときの重要ポイント</div>
+        <div class="callout callout-warning">
+          <div class="callout-title">⚠️ Excel で保存する際の大事なお願い</div>
           <p>
-            Microsoft Excel で編集したファイルを保存する際は、必ず「名前を付けて保存」でファイルの種類を<br>
-            <strong>「CSV UTF-8（コンマ区切り）（*.csv）」</strong> に指定してください。<br>
-            ※ 通常の「CSV（コンマ区切り）」を選択すると、日本語の学校名が文字化け（Shift_JIS化）する原因となります。
+            Microsoft Excel で編集したファイルを保存する際は、ファイルの種類で必ず<br>
+            <strong>「CSV UTF-8（コンマ区切り）（*.csv）」</strong> を選択してください。<br>
+            ※ 通常の「CSV（コンマ区切り）」を選択すると、日本語の学校名が文字化けして照合エラーの原因となります。
           </p>
         </div>
       </section>
 
       <!-- 第3章 -->
       <section id="sec3" class="guide-card">
-        <h2>3. 画面1: Setup & Validation (設定エディタと検証)</h2>
+        <h2>3. 【STEP 1】設定と事前検証（画面1）</h2>
         <p>
-          実行対象校の投入、適用予定設定の編集・確認、および静的検証を行う初期画面です。
+          CSVの投入、一括変更したい設定内容の指定、および入力チェックを行う最初のステップです。
         </p>
 
-        <h3>操作手順</h3>
-
         <div class="step-card">
-          <div class="step-title"><span class="step-num">1</span>CSV ファイルをアップロードする</div>
+          <div class="step-title"><span class="step-num">1</span>CSVファイルをドラッグ＆ドロップする</div>
           <p>
-            点線枠（<strong>ドロップゾーン</strong>）に CSV ファイルをドラッグ＆ドロップするか、枠内をクリックしてファイルを選択します。<br>
-            アップロード後、直ちに「学校リスト Preview」に先頭最大20校が表示されます。パスワードは自動でマスクされ「設定済 (非表示)」と表示されます。
-          </p>
-        </div>
-
-        <div class="step-card">
-          <div class="step-title"><span class="step-num">2</span>想定有効学校数（Safety Gate）を入力する</div>
-          <p>
-            「<strong>想定有効学校数 (Safety Gate)</strong>」欄に、今回処理することを予定している学校数（例: <code>3</code> や <code>400</code>）を半角数字で入力します。<br>
-            CSV内の有効学校数と一致するとバッジが緑色（<span class="badge badge-success">一致</span>）に変化します。誤投入や行抜けを防止するため、不一致時は後続の処理が物理的にブロックされます。
-          </p>
-        </div>
-
-        <div class="step-card">
-          <div class="step-title"><span class="step-num">3</span>Profile Editor で適用設定を調整する（新機能）</div>
-          <p>
-            画面中央の「<strong>適用プロファイル設定 (Profile Editor)</strong>」テーブルで、11項目の設定値を直接指定できます。
+            「<strong>CSVファイルをドラッグ＆ドロップ、またはここをクリックして選択</strong>」の枠内に、準備した CSV ファイルを入れます。
           </p>
           <div class="ui-mockup">
-            <div class="mockup-header">Profile Editor の便利機能</div>
-            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.5rem;">
-              <span class="key-badge">推奨設定</span> : 一般的な教育現場の運用標準設定を一括反映
-              <span class="key-badge">全項目維持</span> : 全項目を「UNMANAGED (変更なし)」に設定
-              <span class="key-badge">JSON インポート</span> : 保存済みの設定プロファイル（.json）を読込
-              <span class="key-badge">JSON エクスポート</span> : 編集した設定をローカルPCへ保存
-            </div>
-            <p style="font-size: 0.85rem; color: var(--text-muted);">
-              ※ ドロップダウンで「UNMANAGED (変更なし)」を選択した項目は、各学校の現在の設定値がそのまま維持されます。
+            <div class="mockup-header">📁 読み込み後の表示例</div>
+            <p><strong>選択ファイル:</strong> <code>schools.live.csv</code> (227 B)</p>
+            <p><strong>読み込み結果:</strong> 合計 3 校 (有効: 3 校, 無効: 0 校)</p>
+            <table class="guide-table" style="margin-top: 0.5rem;">
+              <thead>
+                <tr><th>#</th><th>学校コード</th><th>学校名</th><th>ログイン情報</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>1</td><td>PAKCW</td><td>テスト第一小学校</td><td><span class="badge badge-success">設定済 (非表示)</span></td></tr>
+                <tr><td>2</td><td>PRRHC</td><td>テスト第二中学校</td><td><span class="badge badge-success">設定済 (非表示)</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            「学校一覧プレビュー」に学校が表示され、ログイン情報が「設定済 (非表示)」となっていることを確認します。また、「有効学校数」が予定している校数と合っているか確認してください。
+          </p>
+        </div>
+
+        <div class="step-card">
+          <div class="step-title"><span class="step-num">2</span>一括変更する設定項目を指定する（Profile Editor）</div>
+          <p>
+            画面下部の「<strong>一括変更する設定項目の指定</strong>」テーブルで、11項目の設定値をプルダウンで指定します。
+          </p>
+          <div class="ui-mockup">
+            <div class="mockup-header">便利ボタンの活用</div>
+            <p>
+              <span class="key-badge">デフォルトを一括設定</span> : まなびポケット推奨の一般的な設定値をまとめて自動セットします。<br>
+              <span class="key-badge">全項目を変更しない</span> : 全項目を「UNMANAGED (変更しない)」にし、全校の現在値をそのまま維持します。
             </p>
           </div>
+          <ul>
+            <li><strong>設定値（例: ON / OFF / 利用する / 利用しない等）を指定した場合:</strong> 全校をその設定値に統一変更する計画を立てます。</li>
+            <li><strong>「UNMANAGED (変更しない)」を指定した場合:</strong> その項目は触らず、各学校の現在の設定をそのまま引き継ぎます。</li>
+          </ul>
+        </div>
 
-          <div class="callout callout-warning">
-            <div class="callout-title">⚠️ 破壊的変更リスクのリアルタイム警告バナー</div>
+        <div class="step-card">
+          <div class="step-title"><span class="step-num">3</span>親機能・子機能の不整合警告が出ていないか確認する</div>
+          <p>
+            まなびポケットの仕様上、<strong>「タイムライン・チャンネル機能」がOFF</strong> の状態で、子機能である「全体チャンネル」や「保護者チャンネル」を ON にすることはできません。
+          </p>
+          <div class="callout callout-danger" style="margin: 0.8rem 0;">
+            <div class="callout-title">⚠️ 設定の不整合警告が出た場合の対処法</div>
             <p>
-              設定編集中に「予約投稿削除リスク」を伴う設定（例: <code>タイムライン機能 &rarr; OFF</code> や <code>全体チャンネル &rarr; OFF</code>）を選択すると、即座に黄色のアラートバナーが出現し、どの項目がリスク要因であるかが明示されます。
+              赤色の警告「<strong>『タイムライン・チャンネル機能』がOFFの場合、子機能をONに設定することはできません</strong>」が表示された場合は、親機能を ON にするか、子機能を OFF または「変更しない」に合わせてください。不整合が解消されるまで事前検証は開始できません。
             </p>
           </div>
         </div>
 
         <div class="step-card">
-          <div class="step-title"><span class="step-num">4</span>「入力を検証」&rarr;「Read-only Preflight を実行」</div>
+          <div class="step-title"><span class="step-num">4</span>「事前検証を開始する」ボタンをクリックする</div>
           <p>
-            青色の <strong>[入力を検証 (--validate-only)]</strong> をクリックします。数秒で構文・認証解決・ハッシュが検証されます。<br>
-            検証に PASS すると、緑色の <strong>[Read-only Preflight を実行]</strong> がアンロックされます。クリックすると画面2（進捗監視）へ切り替わり、全校の事前読み取りが始まります。
+            画面最下部の青色ボタン <strong>[事前検証を開始する（読み取りのみ・変更なし）]</strong> をクリックします。<br>
+            ※ 設定値に不整合がある場合はボタンが無効化（薄い色）されています。<br>
+            クリックすると自動的に「2. 検証の進行状況」画面へ切り替わり、各校の設定読み取りが始まります。
           </p>
         </div>
       </section>
 
       <!-- 第4章 -->
       <section id="sec4" class="guide-card">
-        <h2>4. 画面2: Preflight Progress (進捗監視と安全停止)</h2>
+        <h2>4. 【STEP 2】検証の進行状況（画面2）</h2>
         <p>
-          全校のまなびポケットに順次アクセスし、現在の設定値を安全に読み取ります（この段階では書き込みは一切行われません）。
+          自動化ブラウザが対象校の管理画面へ順番にログインし、現在の設定値を安全に読み取ります（この段階では書き込みは一切行われません）。
         </p>
 
-        <h3>画面の見方（5大メトリクス）</h3>
+        <h3>進行状況の見方</h3>
         <table class="guide-table">
           <thead>
             <tr>
               <th style="width: 25%;">指標名</th>
-              <th>表示内容と確認のポイント</th>
+              <th>表示内容と目安</th>
             </tr>
           </thead>
           <tbody>
             <tr>
               <td><strong>進捗バー / カウント</strong></td>
-              <td>全体の進捗パーセンテージと完了校数（例: <code>150 / 400 (37.5%)</code>）を表示します。</td>
+              <td>全体の進行率（％）と、完了した学校数（例: <code>150 / 400 校</code>）です。</td>
             </tr>
             <tr>
-              <td><strong>Success (正常)</strong></td>
-              <td>設定の読み取りが正常に完了した学校数です（緑色）。</td>
+              <td><strong>読み取り完了 (正常)</strong></td>
+              <td>ログインと11項目の読み取りが完了した学校数です（緑色）。</td>
             </tr>
             <tr>
-              <td><strong>Failed (エラー)</strong></td>
-              <td>認証相違やタイムアウト等で読み取りに失敗した学校数です（赤色）。</td>
+              <td><strong>エラー発生 (失敗)</strong></td>
+              <td>パスワード相違や通信タイムアウト等で失敗した学校数です（赤色）。</td>
             </tr>
             <tr>
-              <td><strong>Remaining (残り)</strong></td>
-              <td>これから処理を行う未着手校数です。</td>
+              <td><strong>残りの学校数</strong></td>
+              <td>これから読み取りを行う学校の数です。</td>
             </tr>
             <tr>
-              <td><strong>Elapsed / ETA</strong></td>
-              <td>開始からの経過時間と、全校完了までの推定残り時間です。</td>
+              <td><strong>完了予定までの時間</strong></td>
+              <td>直前の読み取り速度をもとに推計した、全校完了までの残り時間です。</td>
             </tr>
           </tbody>
         </table>
 
         <div class="callout callout-warning">
-          <div class="callout-title">🛑 途中で処理を中断したい場合（Graceful Shutdown）</div>
+          <div class="callout-title">🛑 途中で処理を止めたい場合（安全中断）</div>
           <p>
-            処理を中断したい場合は、赤色の <strong>[安全に停止 (Graceful Shutdown)]</strong> をクリックしてください。<br>
-            現在処理中の1校が完了した時点で安全に停止し、状態が「中断（<code>INTERRUPTED</code>）」として保存されます（後から続きを簡単に再開できます）。
+            業務終了時間やネットワークトラブル等で処理を中断したい場合は、赤色の <strong>[安全に中断・停止する]</strong> ボタンを押してください。<br>
+            <strong>現在処理中の1校が完了した直後に安全に停止</strong>し、中断状態として自動保存されます。後から中断箇所から続きを再開できますので、強制終了等は行わないでください。
           </p>
         </div>
       </section>
 
       <!-- 第5章 -->
       <section id="sec5" class="guide-card">
-        <h2>5. 画面3: Results & Distribution (結果分析とリスク判定)</h2>
+        <h2>5. 【STEP 3】検証結果の確認（画面3）</h2>
         <p>
-          Preflight 完了後、全校の現在値と適用予定値の差分、および安全性が集計表示されます。
+          全校の事前検証が完了すると、自動的に「3. 検証結果」画面へ切り替わります。<br>
+          ここでは、現状の設定分布や、設定変更に伴うリスクの有無を確認します。
         </p>
+
+        <h3>集計結果の読み解き方</h3>
+        <p>画面は上から順に、分かりやすく整理されて表示されます：</p>
+        <div class="ui-mockup">
+          <div class="mockup-header">集計指標の構成</div>
+          <p><strong>最上段: 対象学校数（全校）</strong> &hellip; 今回投入された学校の総数（例: 400校）</p>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 0.5rem;">
+            <div style="background: #fff; padding: 0.8rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm);">
+              <strong>① 読み取り結果の内訳</strong><br>
+              ・読み取り成功（正常）<br>
+              ・読み取り失敗（エラー）
+            </div>
+            <div style="background: #fff; padding: 0.8rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm);">
+              <strong>② 反映判定の内訳</strong><br>
+              ・安全に反映可能（変更あり・リスクなし）<br>
+              ・反映ブロック（注意が必要な学校）<br>
+              ・予約投稿削除リスクの学校（投稿消去リスクあり）
+            </div>
+          </div>
+        </div>
 
         <h3>重要な警告アラートの確認</h3>
         <ul>
           <li>
-            <strong>⚠️ 予約投稿削除リスク警告 (DESTRUCTIVE_CHANGE_RISK):</strong><br>
-            設定変更に伴い予約投稿が消去されるリスクのある学校が一覧表示されます（本番適用時に自動スキップされます）。
+            <strong>⚠️ 予約投稿削除リスクの学校（DESTRUCTIVE_CHANGE_RISK）:</strong><br>
+            設定変更を行うと、すでに教員が設定した未来の予約投稿が消えてしまうリスクがある学校の一覧です。
           </li>
           <li>
-            <strong>⚠️ 未契約機能の有効化要求警告 (CONTRACT_NOT_AVAILABLE):</strong><br>
-            「心の健康観察」など、その学校で契約がなく画面上に存在しない項目を有効化しようとした学校の一覧です。
-          </li>
-          <li>
-            <strong>⚠️ RESULTS_STALE 警告:</strong><br>
-            表示中のデータが古いCSV/プロファイルの結果である場合に表示されます。再検証・再Preflightを行ってください。
+            <strong>⚠️ 契約外機能の有効化警告（CONTRACT_NOT_AVAILABLE）:</strong><br>
+            「心の健康観察」など、その学校で契約がなく画面上に存在しない項目を有効化しようとした学校の一覧です（設定項目を「変更しない」に戻すことを推奨します）。
           </li>
         </ul>
 
-        <h3>8大総合集計指標の読み解き方</h3>
+        <h3>現在の設定値と変更予定の内訳（11項目統合テーブル）</h3>
+        <p>
+          11項目それぞれについて、<strong>「現在の各校の設定状況」</strong> と <strong>「適用後にどの設定に変わるか（内訳校数）」</strong> が1つの表で確認できます。<br>
+          例: 「現在すでにONの学校: 350校 / 変更なし」「現在OFFの学校: 50校 / OFF&rarr;ONへ変更」など、影響範囲が一目で分かります。
+        </p>
+
+        <h3>失敗校への対応とやり直しボタンの使い分け</h3>
         <table class="guide-table">
           <thead>
             <tr>
-              <th style="width: 25%;">集計項目</th>
-              <th>意味とオペレーターの判断基準</th>
+              <th style="width: 32%;">画面右上のボタン</th>
+              <th>動作内容と使用場面</th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td><strong>対象学校 (Total)</strong></td>
-              <td>投入された全学校数。</td>
+              <td><strong>[中断箇所から再開する]</strong></td>
+              <td>途中で「安全に中断・停止」した場合や、未着手の学校がある場合に、続きから処理を再開します。</td>
             </tr>
             <tr>
-              <td><strong>読取成功 (Success)</strong></td>
-              <td>設定を取得できた学校数（全体の100%であることが必須）。</td>
+              <td><strong>[失敗した学校のみ再読み取りする]</strong></td>
+              <td>通信エラー等で読み取り失敗（エラー）となった学校のみを対象に、再度読み取りを行います。</td>
             </tr>
             <tr>
-              <td><strong>設定変更なし (0件)</strong></td>
-              <td>現状がすでに目標値と一致しており、変更の必要がない学校数（安全維持）。</td>
-            </tr>
-            <tr>
-              <td><strong>設定変更予定 (&gt;0件)</strong></td>
-              <td>今後設定変更が必要となる学校数。</td>
-            </tr>
-            <tr>
-              <td><strong>計画ブロック (Blocked)</strong></td>
-              <td>依存関係の不整合等で適用できない学校数。</td>
-            </tr>
-            <tr>
-              <td><strong>破壊的変更校 (Destructive)</strong></td>
-              <td>予約投稿削除リスクがあるため本番適用で自動スキップされる学校数。</td>
-            </tr>
-            <tr>
-              <td><strong>安全書込可能 (Write Eligible)</strong></td>
-              <td>安全に非破壊変更を適用できる対象校数。</td>
+              <td><strong style="color: var(--danger);">[🗑️ 実行結果をリセット]</strong></td>
+              <td><strong>新機能:</strong> 過去の実行結果やチェックポイントを完全に初期化し、最初からやり直したい場合に使用します（確認ダイアログが表示されます）。</td>
             </tr>
           </tbody>
         </table>
 
         <div class="callout callout-success">
-          <div class="callout-title">🚀 「4. Production Apply」タブへの移行条件</div>
+          <div class="callout-title">🚀 「4. 設定の反映・適用」タブへの進み方</div>
           <p>
-            全校の読取が100%成功し、Preflight が正常完了（<code>COMPLETE</code>）すると、画面上部ナビゲーションの <strong>[4. Production Apply]</strong> タブが自動的にアンロックされ、クリックできるようになります。
+            読み取り成功率が <strong>100%</strong> に達すると、画面上部のナビゲーションバーにある <strong>[4. 設定の反映・適用]</strong> タブがアンロックされ、クリックできるようになります。
           </p>
         </div>
       </section>
 
       <!-- 第6章 -->
       <section id="sec6" class="guide-card">
-        <h2>6. 画面4: Production Apply (非破壊本番適用 v1)</h2>
+        <h2>6. 【STEP 4】設定の反映・適用（画面4）</h2>
         <p>
-          事前検証（Preflight）の結果をもとに、<strong>安全な非破壊変更のみを本番環境へ書き込む</strong>機能です。
+          事前検証の結果に基づき、対象学校へ実際に設定の書き込み（本番反映）を行う最終ステップです。
         </p>
 
-        <h3>① Global Gate（全体前提条件）の自動検証</h3>
-        <p>
-          画面上部の「<strong>Global Gate 状態</strong>」カードを確認します。以下の条件がすべて満たされている場合のみ適用準備へ進めます：
-        </p>
-        <ul>
-          <li>Preflight が全校成功（読取成功率 100%）で完了していること</li>
-          <li>Preflight 完了から有効期限（24時間）以内であること</li>
-          <li>Preflight 実行時と現在の設定プロファイル（profileHash）および学校一覧（schoolsHash）が完全に同一であること</li>
-        </ul>
-
-        <h3>② 適用計画マニフェスト (Target Manifest) の自動制約</h3>
-        <p>
-          システムは Preflight 結果を解析し、以下の3群に全校を自動分類します：
-        </p>
-        <div class="ui-mockup">
-          <div class="mockup-header">マニフェストによる自動分類（安全ガード）</div>
-          <table class="guide-table">
-            <thead>
-              <tr><th>分類</th><th>対象校の扱い</th><th>安全性</th></tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td><strong>本番適用対象 (Non-destructive)</strong></td>
-                <td>ブラウザが自動アクセスし、設定変更＆保存を実行</td>
-                <td><span class="badge badge-success">安全</span> 破壊的リスクなし</td>
-              </tr>
-              <tr>
-                <td><strong>破壊的変更スキップ (Skipped)</strong></td>
-                <td><strong>書き込みを行わず自動スキップ</strong>（<code>SKIPPED_DESTRUCTIVE</code>）</td>
-                <td><span class="badge badge-danger">完全保護</span> 投稿消去を防止</td>
-              </tr>
-              <tr>
-                <td><strong>設定変更不要校 (Already Configured)</strong></td>
-                <td>変更の必要がないためスキップ（<code>SUCCESS_ALREADY_CONFIGURED</code>）</td>
-                <td><span class="badge badge-gray">維持</span> 現状維持</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <h3>③ 本番適用の実行手順（二段階確認モーダル）</h3>
         <div class="step-card">
-          <div class="step-title"><span class="step-num">1</span>「本番適用を確認する (Prepare)」をクリック</div>
+          <div class="step-title"><span class="step-num">1</span>反映前チェック状態を確認する</div>
           <p>
-            青色の <strong>[本番適用を確認する (Prepare)]</strong> ボタンを押すと、最終確認モーダルが表示されます。
+            画面上部の「<strong>反映前チェック状態: 正常（書き込み可能）</strong>」が表示されていることを確認します。<br>
+            ※ 設定ファイルの変更や有効期限切れ（24時間経過）がある場合は警告が表示され、事前検証のやり直しが求められます。
           </p>
         </div>
 
         <div class="step-card">
-          <div class="step-title"><span class="step-num">2</span>確認モーダルで対象数を確認し、チェックを入れる</div>
+          <div class="step-title"><span class="step-num">2</span>予約投稿削除リスクの取り扱いを選択する</div>
           <p>
-            モーダル内に表示される「適用対象校数」「スキップ校数」「ハッシュ値」を目視確認します。<br>
-            確認後、<strong>「上記の適用対象校数および非破壊設定変更の内容を確認しました」</strong> のチェックボックスをクリックしてチェックを入れます。
+            タイムラインやチャンネルをOFFにする学校（予約投稿が消去される学校）の取り扱いを決めます：
+          </p>
+          <div class="ui-mockup" style="background: var(--warning-bg); border-color: #FFE0B2;">
+            <label style="font-weight: 700; color: #5C3800;">
+              <input type="checkbox" disabled> 予約投稿削除のリスクを確認した上で、チャンネル非表示化も含めて反映する
+            </label>
+            <p style="margin-top: 0.4rem; font-size: 0.86rem; color: #7A4100;">
+              ※ <strong>チェックOFF（標準推奨）:</strong> 予約投稿削除リスクのある学校は<strong>自動的にスキップ</strong>され、安全な学校のみに反映されます。<br>
+              ※ <strong>チェックON:</strong> 学校現場と事前合意が取れており、消去を承諾した上で全校に反映させたい場合のみチェックを入れます。
+            </p>
+          </div>
+        </div>
+
+        <div class="step-card">
+          <div class="step-title"><span class="step-num">3</span>「反映内容を確認する」をクリックし、最終承認を行う</div>
+          <p>
+            青色の <strong>[反映内容を確認する]</strong> ボタンを押すと、最終確認モーダル画面が表示されます。
+          </p>
+          <div class="ui-mockup">
+            <div class="mockup-header">⚠️ 設定反映の最終確認モーダル</div>
+            <p><strong>反映対象校:</strong> ○○ 校 ／ <strong>スキップ校:</strong> ○○ 校</p>
+            <div style="margin-top: 0.6rem; padding: 0.6rem; background: #fff; border: 1px solid var(--border-color);">
+              <label style="font-weight: 700;">
+                ☑ 上記の反映対象校数および設定変更の内容を確認しました
+              </label>
+            </div>
+          </div>
+          <p>
+            モーダル内の対象校数を確認し、<strong>同意チェックボックスにチェックを入れる</strong>と、赤色の <strong>[設定変更を本番反映する]</strong> ボタンが押せるようになります。
           </p>
         </div>
 
         <div class="step-card">
-          <div class="step-title"><span class="step-num">3</span>「非破壊変更を本番適用する」をクリック</div>
+          <div class="step-title"><span class="step-num">4</span>反映の進行状況を見守る</div>
           <p>
-            赤色の <strong>[非破壊変更を本番適用する]</strong> ボタンが活性化します。クリックすると本番書き込み処理が開始されます。
+            反映が始まると、ブラウザが各校にログインし、設定変更・保存・保存後の再検証を1校ずつ安全に実行します。<br>
+            進行バーと実行ログで進行状況をリアルタイムに確認できます。
           </p>
-        </div>
-
-        <h3>④ リアルタイム適用進捗監視と安全停止</h3>
-        <p>
-          画面下部に「本番適用 進行状況」が表示され、1校ずつ安全に変更・保存・更新後検証が行われます。<br>
-          途中で止めたい場合は、<strong>[安全に停止 (Graceful Shutdown)]</strong> ボタンで安全に中断できます。
-        </p>
-
-        <div class="callout callout-danger">
-          <div class="callout-title">🔒 万が一の通信遮断時の安全保護 (SAVE_OUTCOME_UNKNOWN)</div>
-          <p>
-            設定変更の「更新する」ボタンを押した直後にネットワークが切断されるなど、保存が成功したか失敗したか判定できない事態が発生した場合、本ツールは<strong>二重クリックによる事故を防ぐため直ちにバッチ全体を自動停止（Circuit Breaker発動）</strong>します。<br>
-            自動再試行は物理的に行われませんので、該当校の状況を目視確認してください。
-          </p>
+          <div class="callout callout-danger">
+            <div class="callout-title">🔒 万が一の通信遮断時の安全保護</div>
+            <p>
+              「保存する」ボタンを押した直後にネットワークが切断される等のトラブルが起きた場合、本ツールは二重クリック事故を防ぐため<strong>直ちに全体の処理を自動停止</strong>します。自動再試行は行われませんので、該当校の状況を管理画面でご確認ください。
+            </p>
+          </div>
         </div>
       </section>
 
       <!-- 第7章 -->
       <section id="sec7" class="guide-card">
-        <h2>7. 読取失敗・中断時の再開と再試行</h2>
+        <h2>7. トラブルシューティング &amp; よくある質問 (FAQ)</h2>
 
-        <h3>画面右上アクションボタンの使い分け</h3>
-        <table class="guide-table">
-          <thead>
-            <tr>
-              <th style="width: 30%;">ボタン</th>
-              <th>動作内容と使用する場面</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><strong>[Preflight を再開 (--resume)]</strong></td>
-              <td>
-                途中で安全停止した場合（中断校 <code>INTERRUPTED</code>）や未処理校（<code>PENDING</code>）を<strong>1回の操作で続きから自動再開</strong>します。<br>
-                正常完了した学校はスキップされるため二重実行の心配はありません。
-              </td>
-            </tr>
-            <tr>
-              <td><strong>[失敗校のみ再読取 (--retry-failed)]</strong></td>
-              <td>
-                一時的な通信エラー等で読み取り失敗（<code>FAILED</code>）となった学校のみを対象に再実行します。
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <h3>Q1. 画面1で「事前検証を開始する」ボタンが押せません（色が薄い）。</h3>
+        <div class="callout callout-amber">
+          <div class="callout-title">チェックリスト</div>
+          <ol>
+            <li><strong>CSVファイルは選択されていますか？</strong> &rarr; ドロップゾーンにファイルを入れてください。</li>
+            <li><strong>「設定の不整合」警告が出ていませんか？</strong> &rarr; タイムライン機能がOFFなのに、子機能（全体/保護者チャンネル）がONになっていると開始できません。設定を揃えてください。</li>
+            <li><strong>ログイン情報の「未設定・不足」がありませんか？</strong> &rarr; CSV内のIDやパスワードが空欄の学校がないか確認してください。</li>
+          </ol>
+        </div>
+
+        <h3>Q2. 一部の学校で「予約投稿削除リスク」の警告が出ました。どうすればよいですか？</h3>
+        <p>
+          タイムラインや全体チャンネルを非表示にする設定が含まれているためです。<br>
+          そのまま「4. 設定の反映・適用」に進むと、その学校は<strong>自動的にスキップ（変更されない）</strong>されますので安全です。もし反映させたい場合は、学校現場に予約投稿がないことを確認した上で、画面4の許可チェックボックスにチェックを入れてください。
+        </p>
+
+        <h3>Q3. 最初からすべてやり直したいです。</h3>
+        <p>
+          画面3（検証結果）の右上にある赤字の <strong>[🗑️ 実行結果をリセット]</strong> ボタンを押してください。確認ダイアログで「OK」を押すと、過去の実行記録がクリアされ、初期状態に戻すことができます。
+        </p>
+
+        <h3>Q4. 画面4で「反映内容を確認する」ボタンが押せません。</h3>
+        <p>
+          事前検証でエラーとなった学校（読み取り失敗校）が残っている可能性があります。<br>
+          画面3の「失敗した学校のみ再読み取りする」を実行し、成功率を 100% にしてください。
+        </p>
       </section>
 
       <!-- 第8章 -->
       <section id="sec8" class="guide-card">
-        <h2>8. トラブルシューティング & よくある質問 (FAQ)</h2>
-
-        <h3>Q1. 「本番適用を確認する (Prepare)」ボタンが押せません。</h3>
-        <div class="callout callout-warning">
-          <div class="callout-title">確認ポイント</div>
-          <ol>
-            <li><strong>Preflight は100%成功していますか？</strong> &rarr; 読取失敗（Failed）が1校でもあると本番適用はブロックされます。「失敗校のみ再読取」で全校成功させてください。</li>
-            <li><strong>Preflight 実行後に設定を変更しませんでしたか？</strong> &rarr; Profile Editor で設定を変えるとハッシュ不一致となり、再Preflightが必須となります。</li>
-            <li><strong>有効期限（24時間）が切れていませんか？</strong> &rarr; 期限切れの場合は再度 Preflight を実行してください。</li>
-          </ol>
-        </div>
-
-        <h3>Q2. 一部の学校が「破壊的変更スキップ」されました。どうすればよいですか？</h3>
+        <h2>8. ステータスコード・エラー用語早見表</h2>
         <p>
-          本ツールの自動適用では、予約投稿消去リスクのある学校は安全のため<strong>自動的にスキップ</strong>されます。<br>
-          これらを適用したい場合は、教育委員会や各学校現場と事前に調整のうえ、手動で管理画面から変更するか、運用責任者による承認のもと CLI から専用オプションを指定して適用します。
+          ログや失敗校一覧に表示される主要なコードの意味と、オペレーターの対応手順です。
         </p>
 
-        <h3>Q3. CSVアップロード時に「ヘッダーが不正です」等のエラーが出ます。</h3>
-        <p>
-          CSVの1行目が <code>schoolCode,schoolName,userId,password,enabled</code> になっているか確認してください。<br>
-          また、Excel で保存する際に「CSV UTF-8（コンマ区切り）」を選択したかご確認ください。
-        </p>
-      </section>
-
-      <!-- 第9章 -->
-      <section id="sec9" class="guide-card">
-        <h2>9. ステータスコード・エラー用語早見表</h2>
         <table class="guide-table">
           <thead>
             <tr>
-              <th style="width: 28%;">コード名</th>
-              <th>分類</th>
+              <th style="width: 25%;">コード名</th>
+              <th style="width: 15%;">状態</th>
               <th>意味とオペレーターが取るべき対応</th>
             </tr>
           </thead>
@@ -903,38 +908,38 @@
             </tr>
             <tr>
               <td><code>SUCCESS_ALREADY_CONFIGURED</code></td>
-              <td>正常完了</td>
-              <td>現在値が目標設定とすでに一致していたため、書き込みをスキップして完了しました。</td>
+              <td>変更なし</td>
+              <td>現在の設定がすでに目標値と一致しているため、変更を行わずにスキップしました。</td>
             </tr>
             <tr>
               <td><code>SKIPPED_DESTRUCTIVE</code></td>
               <td>安全スキップ</td>
-              <td>予約投稿削除リスクがあるため、本番適用から自動除外されました（事故防止）。</td>
+              <td>予約投稿削除リスクがあるため、事故防止のため書き込みをスキップしました。</td>
             </tr>
             <tr>
               <td><code>PREFLIGHT_STATE_CHANGED</code></td>
               <td>安全スキップ</td>
-              <td>Preflight 実施後に学校管理者が手動で設定を変更した形跡を検知したため、上書き防止でスキップしました。</td>
+              <td>事前検証の後に、学校側で手動変更された形跡を検知したため、上書き防止でスキップしました。</td>
             </tr>
             <tr>
               <td><code>SAVE_OUTCOME_UNKNOWN</code></td>
               <td>重大エラー</td>
-              <td>保存ボタン押下後に通信が遮断され、成否が判定できません。二重事故防止のため即時停止しました。手動で画面確認を行ってください。</td>
+              <td>保存ボタン押下直後に通信が切れ、成否が判定できません。二重事故防止のため即時停止しました。手動で管理画面をご確認ください。</td>
             </tr>
             <tr>
               <td><code>INTERRUPTED</code></td>
-              <td>安全中断</td>
-              <td>「安全に停止」ボタンによる意図的な中断です。「Preflight を再開」で続きを実行可能です。</td>
+              <td>中断</td>
+              <td>「安全に中断・停止する」を押したことによる意図的な中断です。「中断箇所から再開する」で続きを実行できます。</td>
             </tr>
             <tr>
               <td><code>LOGIN_FAILED</code></td>
               <td>エラー</td>
-              <td>ログインに失敗しました。CSVの <code>userId</code> または <code>password</code> を確認してください。</td>
+              <td>ログインに失敗しました。CSVの <code>userId</code> または <code>password</code> をご確認ください。</td>
             </tr>
             <tr>
               <td><code>CONTRACT_NOT_AVAILABLE</code></td>
               <td>警告</td>
-              <td>その学校で未契約の機能です。設定項目を UNMANAGED に戻すことを推奨します。</td>
+              <td>その学校で未契約の機能です。設定項目を「変更しない」に戻すことを推奨します。</td>
             </tr>
           </tbody>
         </table>
