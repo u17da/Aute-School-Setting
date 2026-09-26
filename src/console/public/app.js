@@ -350,7 +350,7 @@ function renderCurrentStateDistribution(r) {
   tbody.innerHTML = '';
   for (const [key, counts] of Object.entries(dist)) {
     const tr = document.createElement('tr');
-    const countsStr = Object.entries(counts as Record<string, number>)
+    const countsStr = Object.entries(counts)
       .map(([val, cnt]) => `<strong>${escapeHtml(val)}</strong>: ${cnt}校`)
       .join(' / ');
     tr.innerHTML = `
@@ -369,7 +369,7 @@ function renderPlannedChangeDistribution(r) {
   tbody.innerHTML = '';
   for (const [key, counts] of Object.entries(dist)) {
     const tr = document.createElement('tr');
-    const countsStr = Object.entries(counts as Record<string, number>)
+    const countsStr = Object.entries(counts)
       .map(([val, cnt]) => `<strong>${escapeHtml(val)}</strong>: ${cnt}校`)
       .join(' / ');
     tr.innerHTML = `
