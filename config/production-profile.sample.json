@@ -1,0 +1,13 @@
+{
+  "storage": "ON",
+  "timelineChannel": "OFF",
+  "directMessage": "STUDENT_TO_STUDENT_DISABLED",
+  "parentDirectMessage": "ON",
+  "allChannel": null,
+  "parentChannel": null,
+  "attendance": "OFF",
+  "contactBook": "OFF",
+  "mentalHealth": null,
+  "otherSchoolLog": "ALLOW",
+  "studentPasswordChange": "HIDE"
+}

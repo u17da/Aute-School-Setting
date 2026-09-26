@@ -1,0 +1,172 @@
+{
+  "$ref": "#/definitions/SchoolConfigFile",
+  "definitions": {
+    "SchoolConfigFile": {
+      "type": "object",
+      "properties": {
+        "school": {
+          "type": "object",
+          "properties": {
+            "schoolCode": {
+              "type": "string",
+              "minLength": 1
+            },
+            "schoolName": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "schoolCode",
+            "schoolName"
+          ],
+          "additionalProperties": false
+        },
+        "settings": {
+          "type": "object",
+          "properties": {
+            "storage": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "ON",
+                    "OFF",
+                    "TEACHERS_ONLY"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "timelineChannel": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "ON",
+                    "OFF"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "directMessage": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "ON",
+                    "OFF",
+                    "STUDENT_TO_STUDENT_DISABLED"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "parentDirectMessage": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/SchoolConfigFile/properties/settings/properties/timelineChannel/anyOf/0"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "allChannel": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/SchoolConfigFile/properties/settings/properties/timelineChannel/anyOf/0"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "parentChannel": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/SchoolConfigFile/properties/settings/properties/timelineChannel/anyOf/0"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "attendance": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/SchoolConfigFile/properties/settings/properties/timelineChannel/anyOf/0"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "contactBook": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/SchoolConfigFile/properties/settings/properties/timelineChannel/anyOf/0"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "mentalHealth": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/SchoolConfigFile/properties/settings/properties/timelineChannel/anyOf/0"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "otherSchoolLog": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "ALLOW",
+                    "DENY"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "studentPasswordChange": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "SHOW",
+                    "HIDE"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "school",
+        "settings"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

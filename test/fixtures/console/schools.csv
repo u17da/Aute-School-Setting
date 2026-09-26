@@ -1,0 +1,4 @@
+schoolCode,schoolName,credentialRef,enabled
+TEST01,第一テスト小学校,TEST01,true
+TEST02,第二テスト中学校,TEST02,true
+TEST03,第三テスト高校,TEST03,false

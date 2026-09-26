@@ -1,0 +1,20 @@
+{
+  "$schema": "./schema.json",
+  "school": {
+    "schoolCode": "XXXXXXXX",
+    "schoolName": "大阪市立○○小学校"
+  },
+  "settings": {
+    "storage": "ON",
+    "timelineChannel": "ON",
+    "directMessage": "STUDENT_TO_STUDENT_DISABLED",
+    "parentDirectMessage": "ON",
+    "allChannel": "ON",
+    "parentChannel": "ON",
+    "attendance": "OFF",
+    "contactBook": "ON",
+    "mentalHealth": null,
+    "otherSchoolLog": "ALLOW",
+    "studentPasswordChange": "HIDE"
+  }
+}

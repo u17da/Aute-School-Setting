@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>まなびポケット 学校設定 一括変更 Operator Console [Read-only]</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header-container">
+      <div class="header-title">
+        <span class="badge badge-readonly">Read-only</span>
+        <h1>まなびポケット 学校設定 一括変更 Operator Console</h1>
+      </div>
+      <div class="header-meta">
+        <span id="jobStateBadge" class="badge badge-idle">IDLE</span>
+        <span id="toolVersionLabel" class="tool-version">Tool: 1.0.0</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="main-container">
+    <!-- タブ・ナビゲーション -->
+    <nav class="nav-tabs">
+      <button id="tabSetupBtn" class="tab-btn active" onclick="switchTab('setup')">1. Setup & Validation</button>
+      <button id="tabProgressBtn" class="tab-btn" onclick="switchTab('progress')">2. Preflight Progress</button>
+      <button id="tabResultsBtn" class="tab-btn" onclick="switchTab('results')">3. Results & Distribution</button>
+    </nav>
+
+    <!-- Screen 1: Setup & Static Validation -->
+    <section id="screenSetup" class="screen-section active">
+      <div class="card">
+        <h2>入力設定 & 検証 (Setup & Validation)</h2>
+        <p class="section-desc">実行対象の学校一覧、認証情報解決状況、および適用予定プロファイルを確認・検証します。</p>
+
+        <div class="grid-2col">
+          <div class="info-group">
+            <h3>対象学校 (Schools CSV)</h3>
+            <div class="info-row">
+              <span class="label">ファイル:</span>
+              <span class="value" id="schoolsFileVal">config/schools-live.csv</span>
+            </div>
+            <div class="info-row">
+              <span class="label">有効学校数 (Enabled):</span>
+              <span class="value font-bold" id="enabledSchoolsVal">-</span>
+            </div>
+            <div class="info-row">
+              <span class="label">Schools Hash:</span>
+              <span class="value font-mono" id="schoolsHashVal">-</span>
+            </div>
+          </div>
+
+          <div class="info-group">
+            <h3>認証情報解決 (Credentials)</h3>
+            <div class="info-row">
+              <span class="label">解決状況:</span>
+              <span class="value font-bold text-success" id="credResolvedVal">-</span>
+            </div>
+            <div class="info-row">
+              <span class="label">未解決 (Missing):</span>
+              <span class="value font-bold" id="credMissingVal">0</span>
+            </div>
+            <p class="help-text">※ セキュリティ保護のため、ユーザーIDおよびパスワードは画面上に表示されません。</p>
+          </div>
+        </div>
+
+        <div class="info-group mt-4">
+          <h3>適用予定プロファイル (Production Profile: Read-only)</h3>
+          <div class="info-row">
+            <span class="label">Profile Hash:</span>
+            <span class="value font-mono" id="profileHashVal">-</span>
+          </div>
+          <table class="data-table mt-2">
+            <thead>
+              <tr>
+                <th>設定項目</th>
+                <th>管理状態</th>
+                <th>設定予定値</th>
+              </tr>
+            </thead>
+            <tbody id="profileItemsBody">
+              <tr><td colspan="3" class="text-center text-muted">「入力を検証」を実行すると表示されます</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="action-bar mt-4">
+          <button id="btnValidate" class="btn btn-primary" onclick="runValidation()">入力を検証 (--validate-only)</button>
+          <button id="btnStartPreflight" class="btn btn-success" onclick="startPreflight()" disabled>
+            Read-only Preflight を実行
+          </button>
+        </div>
+
+        <div id="validationAlert" class="alert-box mt-3" style="display: none;"></div>
+      </div>
+    </section>
+
+    <!-- Screen 2: Preflight Progress -->
+    <section id="screenProgress" class="screen-section">
+      <div class="card">
+        <h2>Read-only Preflight 進捗</h2>
+        <div class="notice-box">
+          <span class="icon">ℹ️</span>
+          <span>本処理は <strong>Read-only (PREFLIGHT_DRY_RUN)</strong> です。ラジオボタンの選択変更および保存処理は一切行いません。</span>
+        </div>
+
+        <div class="progress-box mt-4">
+          <div class="progress-header">
+            <span class="progress-count" id="progressCountLabel">0 / 0</span>
+            <span class="progress-percent" id="progressPercentLabel">0%</span>
+          </div>
+          <div class="progress-bar-bg">
+            <div class="progress-bar-fill" id="progressBarFill" style="width: 0%;"></div>
+          </div>
+        </div>
+
+        <div class="metrics-grid mt-4">
+          <div class="metric-card">
+            <div class="metric-label">Success (正常)</div>
+            <div class="metric-value text-success" id="metricSuccess">0</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Failed (エラー)</div>
+            <div class="metric-value text-danger" id="metricFailed">0</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Remaining (残り)</div>
+            <div class="metric-value text-muted" id="metricRemaining">0</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">経過時間 (Elapsed)</div>
+            <div class="metric-value font-mono" id="metricElapsed">00:00:00</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">推定残り時間 (ETA)</div>
+            <div class="metric-value font-mono text-muted" id="metricEta">--:--:--</div>
+            <div class="metric-subtext">※ 認証応答による推定</div>
+          </div>
+        </div>
+
+        <div class="current-school-box mt-4">
+          <div class="label">現在処理中の学校:</div>
+          <div class="value font-bold" id="currentSchoolLabel">待機中</div>
+        </div>
+
+        <div class="action-bar mt-4">
+          <button id="btnStopPreflight" class="btn btn-danger" onclick="stopPreflight()" disabled>
+            安全に停止 (Graceful Shutdown)
+          </button>
+        </div>
+
+        <div class="log-box mt-4">
+          <h3>リアルタイム実行ログ (Live Logs)</h3>
+          <pre id="logConsole" class="log-console"></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- Screen 3: Preflight Results & Distribution -->
+    <section id="screenResults" class="screen-section">
+      <div class="card">
+        <div class="results-header">
+          <h2>Preflight 結果サマリー & 各種分布</h2>
+          <div class="results-actions">
+            <button class="btn btn-secondary" onclick="loadLatestResults()">最新結果を取得</button>
+            <button id="btnResumePreflight" class="btn btn-outline" onclick="resumePreflight()">Preflight を再開 (--resume)</button>
+            <button id="btnRetryFailed" class="btn btn-outline" onclick="retryFailedPreflight()">失敗校のみ再読取 (--retry-failed)</button>
+          </div>
+        </div>
+
+        <!-- 破壊的変更警告 (アラート) -->
+        <div id="destructiveAlertBox" class="alert-box alert-danger mt-3" style="display: none;">
+          <h3 class="alert-title">⚠️ 破壊的変更リスク警告 (SCHEDULED_POSTS_MAY_BE_DELETED)</h3>
+          <p id="destructiveAlertMsg">予約投稿が削除されるリスクのある学校が存在します。</p>
+          <div id="destructiveSchoolsTableContainer" class="mt-2"></div>
+        </div>
+
+        <!-- 総合集計指標 -->
+        <div class="summary-metrics-grid mt-4">
+          <div class="metric-card"><div class="metric-label">対象学校 (Total)</div><div class="metric-value" id="resTotal">0</div></div>
+          <div class="metric-card"><div class="metric-label">読取成功 (Success)</div><div class="metric-value text-success" id="resReadSuccess">0</div></div>
+          <div class="metric-card"><div class="metric-label">読取失敗 (Failed)</div><div class="metric-value text-danger" id="resReadFailed">0</div></div>
+          <div class="metric-card"><div class="metric-label">設定変更なし (0件)</div><div class="metric-value" id="resAlreadyConfigured">0</div></div>
+          <div class="metric-card"><div class="metric-label">設定変更予定 (&gt;0件)</div><div class="metric-value text-primary" id="resRequiresChange">0</div></div>
+          <div class="metric-card"><div class="metric-label">計画ブロック (Blocked)</div><div class="metric-value text-warning" id="resPlanBlocked">0</div></div>
+          <div class="metric-card"><div class="metric-label">破壊的変更校 (Destructive)</div><div class="metric-value text-danger font-bold" id="resDestructiveSchools">0</div></div>
+          <div class="metric-card"><div class="metric-label">安全書込可能 (Write Eligible)</div><div class="metric-value text-success font-bold" id="resWriteEligible">0</div></div>
+        </div>
+
+        <!-- アクション数分布 -->
+        <div class="info-group mt-4">
+          <h3>変更アクション数分布 (Actions Distribution)</h3>
+          <div class="actions-dist-grid" id="actionsDistGrid">
+            <div class="dist-card"><span class="dist-label">0 変更</span><span class="dist-val" id="dist0">0 校</span></div>
+            <div class="dist-card"><span class="dist-label">1 変更</span><span class="dist-val" id="dist1">0 校</span></div>
+            <div class="dist-card"><span class="dist-label">2 変更</span><span class="dist-val" id="dist2">0 校</span></div>
+            <div class="dist-card"><span class="dist-label">3+ 変更</span><span class="dist-val" id="dist3Plus">0 校</span></div>
+          </div>
+        </div>
+
+        <!-- Current State Distribution (現状分布表) -->
+        <div class="info-group mt-4">
+          <h3>11項目 現状設定値分布 (Current State Distribution)</h3>
+          <table class="data-table mt-2">
+            <thead>
+              <tr>
+                <th>設定項目</th>
+                <th>現在値の内訳 (学校数)</th>
+              </tr>
+            </thead>
+            <tbody id="currentStateTableBody">
+              <tr><td colspan="2" class="text-center text-muted">Preflight完了後に集計が表示されます</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Planned Change Distribution (変更予定分布表) -->
+        <div class="info-group mt-4">
+          <h3>11項目 変更予定分布 (Planned Change Distribution)</h3>
+          <table class="data-table mt-2">
+            <thead>
+              <tr>
+                <th>設定項目</th>
+                <th>変更方向の内訳 (学校数)</th>
+              </tr>
+            </thead>
+            <tbody id="plannedChangeTableBody">
+              <tr><td colspan="2" class="text-center text-muted">Preflight完了後に集計が表示されます</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- 失敗校一覧 -->
+        <div class="info-group mt-4">
+          <h3>読取失敗校一覧 (Failed Schools)</h3>
+          <table class="data-table mt-2">
+            <thead>
+              <tr>
+                <th>学校コード</th>
+                <th>学校名</th>
+                <th>エラーコード</th>
+                <th>安全なメッセージ</th>
+              </tr>
+            </thead>
+            <tbody id="failedSchoolsTableBody">
+              <tr><td colspan="4" class="text-center text-muted">失敗校はありません</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- レポートダウンロード -->
+        <div class="info-group mt-4">
+          <h3>レポート確認 &amp; ダウンロード (Reports &amp; Artifacts)</h3>
+          <p class="section-desc">※ ダウンロードされるJSONは機微情報（パスワード・ユーザー名等）が完全にサニタイズされた安全なレポートです。</p>
+          <div class="download-buttons mt-2">
+            <a href="/api/reports/download/summary" class="btn btn-outline" download>Summary JSON を保存</a>
+            <a href="/api/reports/download/preflight" class="btn btn-outline" download>Preflight Report を保存</a>
+            <a href="/api/reports/download/checkpoint" class="btn btn-outline" download>Checkpoint JSON を保存</a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-container">
+      <span>まなびポケット「9.2 学校設定」ブラウザ自動化基盤 Phase 5A Operator Console</span>
+      <span class="footer-host">Binding: 127.0.0.1 (Localhost Only)</span>
+    </div>
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>

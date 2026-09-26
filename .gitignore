@@ -1,0 +1,40 @@
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Live / Production Configs (containing real school info)
+config/*.live.json
+config/school.live.json
+config/school.phase2b.json
+config/*.phase2b.json
+
+# Node dependencies & build
+node_modules/
+dist/
+
+# Logs & Screenshots
+logs/
+screenshots/
+
+# Playwright
+playwright/.auth/
+test-results/
+playwright-report/
+
+# Credentials and Private Batch Configs
+config/credentials.json
+config/credentials.*.json
+!config/credentials.sample.json
+config/schools.csv
+config/*.live.csv
+!config/schools.sample.csv
+
+# Batch Checkpoints & Reports
+checkpoints/
+reports/
+scratch/
+
+# OS files
+Thumbs.db
+.DS_Store

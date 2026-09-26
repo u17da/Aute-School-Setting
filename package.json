@@ -1,0 +1,28 @@
+{
+  "name": "manapoke-school-settings-automation",
+  "version": "1.0.0",
+  "description": "まなびポケット 9.2 学校設定 ブラウザ自動化 PoC",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "ts-node -T src/index.ts",
+    "generate-schema": "ts-node -T src/config/generateSchema.ts",
+    "test": "ts-node -T test/phase1.test.ts",
+    "test:phase2a": "ts-node -T test/phase2a.test.ts",
+    "test:phase2b": "ts-node -T test/phase2b.test.ts",
+    "test:phase3": "ts-node -T test/phase3.test.ts",
+    "test:console": "ts-node -T test/console.test.ts",
+    "console": "ts-node -T src/console/server.ts"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "playwright": "^1.50.1",
+    "zod": "^3.24.2",
+    "zod-to-json-schema": "^3.24.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.9",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.3"
+  }
+}

@@ -1,0 +1,4 @@
+﻿schoolCode,schoolName,credentialRef,enabled
+PRRHC,MEXCBTデモ学校,PRRHC,true
+DEMO001,サンプル第一小学校,DEMO001,true
+DEMO002,サンプル第二中学校,DEMO002,false
