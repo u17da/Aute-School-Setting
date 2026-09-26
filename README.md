@@ -1,11 +1,13 @@
-# まなびポケット「9.2 学校設定」ブラウザ自動化 PoC / Production Batch
+# まなびポケット「9.2 学校設定」ブラウザ自動化 PoC / Production Batch & Operator Console
 
 > [!IMPORTANT]
-> **【Production Batch Foundation RE-CODE FREEZE (Phase 4C 完了)】**
-> 本ツールの Production Batch 基盤コードは、Phase 4A/4B/4C を通じた実環境（PRRHC / MEXCBTデモ学校）での実仕様実測・ドメインモデル補正（`directMessage: OFF` 時の `DISABLED_BY_DEPENDENCY` / `value: null` 実DOM仕様反映、Pre-Save / Post-Save 期待値分離、依存関係評価厳格化、異常系 Case A〜D 網羅）、全92件の単体・統合テスト完全通過、および PRRHC での Live 回帰検証（Write & Restore）の完全成功をもって、**再度コードフリーズ（凍結）** 状態に移行しました。
-> 今後、実400校のデータ到着に伴う `--validate-only` または Preflight 実行において実データ上の真の不整合が発見されない限り、追加の機能拡張やコード変更は一切行いません。
+> **【Phase 5A COMPLETE & CSV Excel Compatibility 完了 (CODE FREEZE)】**
+> 本ツールは、Phase 1〜4C の Production Batch 基盤、Phase 5A の Local Read-only Operator Console（Windows 信頼性強化 Phase 5A.1、stdin 制御による安全停止プロトコル Phase 5A.2、中断状態意味論の適正化 Phase 5A.3）、および Windows Excel 互換性対応（UTF-8 BOM / CRLF サポート）の全要件を完了し、全テスト通過および実 3 デモ校での検証成功をもって、**完全コードフリーズ（CODE FREEZE）** 状態にあります。
+> 
+> **今後の Write 開始前 Hard Blocker:**
+> 将来的な Canary Write / Production Write への着手前に、`SAVE_OUTCOME_UNKNOWN` および `RESTORE_OUTCOME_UNKNOWN` の状態管理・自動 retry 禁止・read-only recovery を必ず実装・検証する必要があります。
 
-まなびポケットの学校管理者アカウントでログインし、操作マニュアル **9.2「学校設定」p.197〜200** に記載されている11項目の学校設定を安全・確実に自動変更・検証するPlaywright自動化ツールです。
+まなびポケットの学校管理者アカウントでログインし、操作マニュアル **9.2「学校設定」p.197〜200** に記載されている11項目の学校設定を安全・確実に自動変更・検証するPlaywright自動化ツールおよびローカル運用コンソールです。
 
 将来的な約400校への安全な一括展開を前提に、**「Execution Plan（実行計画）」を中心とするアーキテクチャ**を採用しています。
 
@@ -14,15 +16,16 @@
 ## 1. 主な設計原則
 
 1. **Safe by Default (安全デフォルト)**:
-   - オプションなし実行はすべて Dry Run となります。
-   - **Dry Run の定義**: 設定値を変更する UI 操作および「更新する」による保存処理は一切行いません。ログイン、学校照合、画面遷移、設定値の読み取り、Plan 生成・評価は通常通り実行します。
+   - オプションなし実行および Console 経由の実行はすべて **純粋な Read-only Preflight (Dry Run)** となります。
+   - **Read-only Preflight の定義**: 設定値を変更する UI 操作および「更新する」による保存処理は一切行いません。ログイン、学校照合、画面遷移、設定値の読み取り、Plan 生成・評価、レポート集計のみを実行します。
+   - **Read-only の SSOT**: 子プロセス引数およびリクエストに Write 関連フラグ（`--apply`, `--allow-live-write`, `--batch-apply`, `--allow-destructive`）が物理的に一切存在しないことによって保証されます。
 2. **Execution Gate による多重保護**:
    - 通常変更 (Single): `--apply` および `--allow-live-write` が必須。
    - 破壊的変更（予約投稿削除リスク）: `--apply --allow-live-write` に加えて `--allow-destructive` が必須。
    - バッチ変更 (Batch): **4重Gate (`--batch --apply --allow-live-write --batch-apply`)** が必須。
    - バッチ実行時の破壊的変更: 安全のため強制ブロック（`DESTRUCTIVE_CHANGE_BLOCKED`）。
 3. **1学校 = 1 BrowserContext の完全分離**:
-   - 正常完了・Dry Run・エラー・例外を問わず、`finally` で確実に BrowserContext を破棄し、Cookie やセッションが他校に残らない構造を保証します。
+   - 正常完了・Dry Run・エラー・例外・中断を問わず、`finally` で確実に BrowserContext を破棄し、Cookie やセッションが他校に残らない構造を保証します。
 4. **観測 (Observation) と 期待 (Expectation) の分離**:
    - 実画面から得た事実と期待値を分離し、推測で `DISABLED_BY_DEPENDENCY` を作成しません。
 5. **UI 操作 (actions) と 依存連動結果 (dependencyEffects) の分離**:
@@ -34,9 +37,13 @@
    - 「更新する」ボタンの二重クリックは禁止。タイムアウト時は `page.reload()` して反映済みか確認（`SUCCESS_RECOVERED`）します。
 8. **Phase 2B Single Safe Write 原則 (変更 -> 検証 -> 復元 -> 検証)**:
    - PoC段階では設定変更を行ったまま放置せず、検証完了後に必ず元値（Baseline）へ戻して再検証します。
-9. **Circuit Breaker & Global Kill Switch (Phase 3 Batch)**:
+9. **Circuit Breaker & Application-level STOP プロトコル (Phase 5A.2 / 5A.3)**:
    - 重大エラーが連続3校発生した場合、残りの学校への処理を自動PAUSEします。
-   - `Ctrl+C` (SIGINT) 受信時は現在の学校完了後にチェックポイントを保存して安全停止します。
+   - OS シグナルに依存せず、**標準入力（stdin）制御メッセージ (`{"command":"STOP"}`)** により安全停止を要求します。
+   - 停止時は現在処理中の学校を偽エラーで上書きせず `status: INTERRUPTED` として Checkpoint に記録し、未処理校は `PENDING` のまま維持、`.lock` ファイルを自動解放します。
+   - 15秒以内に正常停止しない場合は、Force Terminate Fallback（強制終了）が発動し、`FAILED` (`FORCE_TERMINATED`) として記録します。
+10. **手動操作不要の Resume 保証**:
+    - `POST /api/preflight/resume`（または `--resume`）を **1回呼ぶだけ** で、中断校（`INTERRUPTED`）および未処理校（`PENDING`）がすべて自動的に再開・順次実行されます（`retry-failed` の追加呼出しは不要）。
 
 ---
 
@@ -72,7 +79,7 @@
 
 本番への適用は、全400校へいきなり一括適用するのではなく、以下のCanary段階を踏んで進めます。
 
-```
+```text
 [Step 1: Read-only Preflight] (400校 全件読取 & 差分集計、Writeなし)
       ↓ 問題なし確認
 [Step 2: Canary 1校適用] (--batch --apply --allow-live-write --batch-apply --limit 1)
@@ -84,7 +91,7 @@
 [Step 5: 残り全校適用] (--batch --apply --allow-live-write --batch-apply --resume)
 ```
 
-### --limit N の定義（指示15）
+### `--limit N` の定義
 > [!IMPORTANT]
 > `--limit N` は **「今回の実行で処理する eligible / PENDING 学校を最大 N 校」** と定義されています。
 > 累計数（過去に成功した学校を含む総数）ではありません。
@@ -92,7 +99,25 @@
 
 ---
 
-## 5. 運用手順 (STEP 1 〜 STEP 7)
+## 5. CSV Excel 互換性仕様
+
+オペレーターが Windows 環境の Excel で学校一覧 CSV を安全に作成・編集できるよう、以下の互換性設計が施されています。
+
+1. **テンプレート CSV (`config/schools.sample.csv`)**:
+   - **文字コード**: UTF-8 with BOM (`EF BB BF`)
+   - **改行コード**: CRLF (`\r\n`)
+   - **動作**: Windows 版 Excel でダブルクリックして直接開いた場合でも、ANSI や Shift_JIS への誤判定が発生せず、日本語の学校名（`○○市立第一小学校` 等）が文字化けせずに表示・編集されます。
+2. **CSV パーサー (`parseSchoolsCsv`)**:
+   - 入力境界で先頭の 1 文字のみ UTF-8 BOM (`\uFEFF`) を判定・安全に除去します。
+   - **BOMあり / BOMなし、LF / CRLF の双方を完全サポート** しています。
+   - スキーマ（ヘッダー順序およびカラム定義）:
+     ```csv
+     schoolCode,schoolName,credentialRef,enabled
+     ```
+
+---
+
+## 6. 運用手順 (STEP 1 〜 STEP 7)
 
 本番展開および事前検証は、事故を防ぐため以下の7ステップを厳格に順守して進めます。
 
@@ -176,22 +201,96 @@ npm start -- --batch --apply --allow-live-write --batch-apply --schools config/s
 
 ---
 
-## 6. テスト実行コマンド (PowerShell)
+## 7. Local Read-only Operator Console (Phase 5A Web UI)
+
+教育委員会や運用担当者が、400校Batch処理の入力検証・Read-only Preflight監視・現状設定分布・変更予定・リスク判定を直感的に確認・操作するためのローカル専用Web UIです。
+
+> [!IMPORTANT]
+> **Read-only 専用コンソール**
+> 本コンソールは **事前検証（Static Validation）および Read-only Preflight の実行・監視・分析専用** です。
+> 誤操作による予期せぬ更新事故を防止するため、UI からの Write 操作（Canary Write、本番一括書き込み等）を実行する機能および API は一切存在しません。書き込みの適用は CLI から多重安全 Gate を通してのみ実行可能です。
+
+### 7.1 起動方法
+
+```bash
+# 依存関係が未インストールの場合は npm install
+npm run console
+```
+
+ブラウザで以下のURLを開きます：
+`http://localhost:3000`
+
+※ ポート番号を変更したい場合は、環境変数 `CONSOLE_PORT=8080 npm run console` を指定します。
+
+### 7.2 画面構成 (3画面 SPA)
+
+1. **画面 1: 設定・入力検証画面 (Setup / Validation)**
+   - 設定ファイル（schools.csv, production-profile.json, credentials.json）の指定
+   - 想定学校数（`expectedSchoolCount`）の指定
+   - 11項目の統一設定プロファイル（MANAGED / UNMANAGED、設定値）の可視化
+   - **「入力を検証」ボタン**: 静的検証を実行し、ハッシュ値（`profileHash`, `schoolsHash`, `toolFingerprint`）および有効学校数を確認。検証 PASS で「Preflight を開始」がアンロックされます。
+2. **画面 2: Preflight 実行・監視画面 (Preflight Progress)**
+   - **Read-only 安全バッジ表示**: `Read-only Dry Run: 設定の変更・保存は行いません`
+   - **進捗バー & メトリクス**: 処理済校数、全体校数、進捗率（%）、成功数、失敗数、残り校数、経過時間、推定残り時間
+   - **リアルタイムログストリーム (SSE)**: 現在処理中の学校コード・学校名、ログ出力
+   - **安全停止ボタン (`[Preflightを停止]`)**: クリックで即座に stdin 経由で STOP コマンドを送信し、現在の学校完了後にチェックポイントを保存して安全停止（状態: `INTERRUPTED`、Lock自動解放）。
+3. **画面 3: 結果分析・分布確認画面 (Results & Distributions)**
+   - **総合サマリーカード**: 全体校数、読取成功、読取失敗（中断校は混入せず 0 件）、現状一致（変更なし）、要変更、Planブロック、破壊的変更校、Write対象校
+   - **変更アクション数分布**: 0件変更、1件変更、2件変更、3件以上変更の学校数グラフ/テーブル
+   - **現状設定分布表 (Current State Distribution)**: 11項目それぞれの実画面値（ON, OFF, CONTRACT_NOT_AVAILABLE など）の学校数分布
+   - **変更予定分布表 (Planned Change Distribution)**: 各項目の変更方向（noChange, ON_TO_OFF, OFF_TO_ON 等）の学校数分布
+   - **破壊的変更警告領域 (Destructive Change Alerts)**: 予約投稿削除リスク等の破壊的変更が含まれる学校の警告リスト
+   - **失敗校リスト (Failed Schools)**: 読取失敗校の学校コード、学校名、エラーコード、安全なエラーメッセージ
+   - **レポートプレビュー & ダウンロード**: Preflight Report、Summary Report、Checkpoint のサニタイズ済み JSON ダウンロード
+   - **再開 / 再試行**: 未処理校・中断校をまとめて再開する `[Preflightを再開]`（1回の呼出しで自動再開）、失敗校のみの `[失敗校のみ再読取]`
+
+### 7.3 セキュリティ & 安全アーキテクチャ
+
+1. **完全なプロセス境界 (Process Boundary)**:
+   - Console Server は Production Domain コードを直接改変せず、`process.execPath` (node.exe) + `ts-node/dist/bin.js` 直接起動（`shell: false`）により子プロセスを実行します。引数に `--apply` などの Write フラグは物理的に含めません。
+2. **二重安全 Gate (Validation Snapshot)**:
+   - 検証 PASS 時にハッシュ（`profileHash`, `schoolsHash`, `toolFingerprint` 等）のスナップショットを保持。Preflight 開始直前に再度ハッシュを計算し、一致しない場合は `VALIDATION_STALE` で起動を拒絶します。
+3. **Single Job Guard**:
+   - バックグラウンド実行中に重複して Preflight や Retry を起動することは `409 Conflict` でブロックされます。
+4. **Localhost 限定バインド & 厳格なアクセス防護**:
+   - `127.0.0.1` のみにバインド（外部LANからの接続不可）。
+   - 不正な `Host` ヘッダー（`evil.com` 等）や `Origin` ヘッダーからのアクセスは `403 Forbidden` で遮断。
+   - すべての POST リクエストで `X-CSRF-Nonce` を検証。
+5. **秘密情報の完全非露出**:
+   - `userId`, `password`, `token` などの秘密情報は UI、API レスポンス、SSE ストリーム、ダウンロードレポートから完全にマスク・除去（`[REDACTED]`）されます。
+6. **レポートダウンロードの Allow-list 防護**:
+   - ダウンロード可能なレポートは `['summary', 'preflight', 'checkpoint']` に限定され、パストラバーサル（`../`）による任意ファイル閲覧は一切不可です。
+
+---
+
+## 8. テスト実行コマンド (PowerShell)
 
 ```powershell
-# 1. ユニットテスト実行 (Phase 1, 2A, 2B, 3)
+# 1. ドメインロジック単体テスト (Phase 1)
 npm test
+
+# 2. ブラウザ統合テスト (Phase 2A)
 npm run test:phase2a
+
+# 3. 単一安全書込み PoC / Mock テスト (Phase 2B)
 npm run test:phase2b
+
+# 4. バッチ基盤・Checkpoint・Resume・CSV互換テスト (Phase 3)
 npm run test:phase3
 
-# 2. 型チェック
+# 5. Local Operator Console テストスイート (Phase 5A)
+npm run test:console
+
+# 6. Windows ファイルシステム並行競合負荷テスト (100 Writes + 300+ Reads)
+npx ts-node -T test/windows_fs_stress.test.ts
+
+# 7. TypeScript 型チェック
 npx tsc --noEmit
 ```
 
 ---
 
-## 7. ステータスコード一覧 (SSOT)
+## 9. ステータスコード一覧 (SSOT)
 
 | ステータスコード | 分類 | 説明 |
 |---|---|---|
@@ -226,11 +325,12 @@ npx tsc --noEmit
 | `TIMEOUT` | エラー | 一般的なページ・要素待機タイムアウト |
 | `CLEANUP_TIMEOUT` | 致命的エラー | タイムアウト後のBrowserContextクリーンアップが時間内に完了せず、裏タスク生存リスク防止のためバッチを即時PAUSE |
 | `APPROVAL_AUDIT_INVALID` | 致命的エラー | 承認履歴のタイムライン不整合（過去逆転、未承認実行等）を検知して実装着手を拒否 |
+| `INTERRUPTED` | 中断 | ユーザーまたはConsoleによる意図的な安全停止要求（偽エラーと区別され正常に再開可能） |
 | `UNEXPECTED_ERROR` | エラー | その他予期せぬ例外 |
 
 ---
 
-## 8. スクリーンショット Allow-list ポリシー (機密情報・資格情報保護)
+## 10. スクリーンショット Allow-list ポリシー (機密情報・資格情報保護)
 
 本ツールでは、機密情報（パスワード、ID、認証画面DOM、学校一覧画面等）がログや成果物に流出する事故を防止するため、**厳格な Allow-list 判定** を適用しています。
 
@@ -249,7 +349,7 @@ npx tsc --noEmit
 
 ---
 
-## 9. 主要 CLI オプション一覧
+## 11. 主要 CLI オプション一覧
 
 | オプション | 型 / デフォルト | 説明 |
 |---|---|---|
@@ -268,68 +368,3 @@ npx tsc --noEmit
 | `--preflight-report <path>` | string | 事前検証済みのPreflight Reportパス（Write実行時は必須） |
 | `--resume` | boolean (false) | 中断したチェックポイントから未完了校を再開 |
 | `--limit <N>` | number | 今回の実行で処理する未完了校の最大数（Canary展開用） |
-
----
-
-## 10. Local Read-only Operator Console (Phase 5A Web UI)
-
-教育委員会や運用担当者が、400校Batch処理の入力検証・Read-only Preflight監視・現状設定分布・変更予定・リスク判定を直感的に確認・操作するためのローカル専用Web UIです。
-
-> [!IMPORTANT]
-> **Read-only 専用コンソール**
-> 本コンソールは **事前検証（Static Validation）および Read-only Preflight の実行・監視・分析専用** です。
-> 誤操作による予期せぬ更新事故を防止するため、UI からの Write 操作（Canary Write、本番一括書き込み等）を実行する機能および API は一切存在しません。書き込みの適用は CLI から多重安全 Gate を通してのみ実行可能です。
-
-### 10.1 起動方法
-
-```bash
-# 依存関係が未インストールの場合は npm install
-npm run console
-```
-
-ブラウザで以下のURLを開きます：
-`http://localhost:3000`
-
-※ ポート番号を変更したい場合は、環境変数 `CONSOLE_PORT=8080 npm run console` を指定します。
-
-### 10.2 画面構成 (3画面 SPA)
-
-1. **画面 1: 設定・入力検証画面 (Setup / Validation)**
-   - 設定ファイル（schools.csv, production-profile.json, credentials.json）の指定
-   - 想定学校数（`expectedSchoolCount`）の指定
-   - 11項目の統一設定プロファイル（MANAGED / UNMANAGED、設定値）の可視化
-   - **「入力を検証」ボタン**: 静的検証を実行し、ハッシュ値（`profileHash`, `schoolsHash`, `toolFingerprint`）および有効学校数を確認。検証 PASS で「Preflight を開始」がアンロックされます。
-2. **画面 2: Preflight 実行・監視画面 (Preflight Progress)**
-   - **Read-only 安全バッジ表示**: `Read-only Dry Run: 設定の変更・保存は行いません`
-   - **進捗バー & メトリクス**: 処理済校数、全体校数、進捗率（%）、成功数、失敗数、残り校数、経過時間、推定残り時間
-   - **リアルタイムログストリーム (SSE)**: 現在処理中の学校コード・学校名、ログ出力
-   - **安全停止ボタン (`[Preflightを停止]`)**: クリックで即座に子プロセスへ SIGINT を送信し、現在の学校完了後にチェックポイントを保存して安全停止。
-3. **画面 3: 結果分析・分布確認画面 (Results & Distributions)**
-   - **総合サマリーカード**: 全体校数、読取成功、読取失敗、現状一致（変更なし）、要変更、Planブロック、破壊的変更校、Write対象校
-   - **変更アクション数分布**: 0件変更、1件変更、2件変更、3件以上変更の学校数グラフ/テーブル
-   - **現状設定分布表 (Current State Distribution)**: 11項目それぞれの実画面値（ON, OFF, CONTRACT_NOT_AVAILABLE など）の学校数分布
-   - **変更予定分布表 (Planned Change Distribution)**: 各項目の変更方向（noChange, ON_TO_OFF, OFF_TO_ON 等）の学校数分布
-   - **破壊的変更警告領域 (Destructive Change Alerts)**: 予約投稿削除リスク等の破壊的変更が含まれる学校の警告リスト
-   - **失敗校リスト (Failed Schools)**: 読取失敗校の学校コード、学校名、エラーコード、安全なエラーメッセージ
-   - **レポートプレビュー & ダウンロード**: Preflight Report、Summary Report、Checkpoint のサニタイズ済み JSON ダウンロード
-   - **再開 / 再試行**: 未処理校のみの `[Preflightを再開]`、失敗校のみの `[失敗校のみ再読取]`
-
-### 10.3 セキュリティ & 安全アーキテクチャ
-
-1. **完全なプロセス境界 (Process Boundary)**:
-   - Console Server は Production Domain コードを直接改変せず、`child_process.spawn('npx.cmd', ['ts-node', '-T', 'src/index.ts', '--batch', '--dry-run', ...], { shell: false })` を経由して実行します。引数に `--apply` などの Write フラグは物理的に含めません。
-2. **二重安全 Gate (Validation Snapshot)**:
-   - 検証 PASS 時にハッシュ（`profileHash`, `schoolsHash`, `toolFingerprint` 等）のスナップショットを保持。Preflight 開始直前に再度ハッシュを計算し、一致しない場合は `VALIDATION_STALE` で起動を拒絶します。
-3. **Single Job Guard**:
-   - バックグラウンド実行中に重複して Preflight や Retry を起動することは `409 Conflict` でブロックされます。
-4. **Localhost 限定バインド & 厳格なアクセス防護**:
-   - `127.0.0.1` のみにバインド（外部LANからの接続不可）。
-   - 不正な `Host` ヘッダー（`evil.com` 等）や `Origin` ヘッダーからのアクセスは `403 Forbidden` で遮断。
-   - すべての POST リクエストで `X-CSRF-Nonce` を検証。
-5. **秘密情報の完全非露出**:
-   - `userId`, `password`, `token` などの秘密情報は UI、API レスポンス、SSE ストリーム、ダウンロードレポートから完全にマスク・除去（`[REDACTED]`）されます。
-6. **レポートダウンロードの Allow-list 防護**:
-   - ダウンロード可能なレポートは `['summary', 'preflight', 'checkpoint']` に限定され、パストラバーサル（`../`）による任意ファイル閲覧は一切不可です。
-
-
-
