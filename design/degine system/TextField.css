@@ -1,0 +1,268 @@
+/* =========================================================================
+ * TextField — まなびポケット Design System
+ * Variants: input / textarea / search
+ * Sizes:    L / M / S
+ * States:   default / hover / focus / error / disabled
+ * ========================================================================= */
+
+:root {
+  /* Colors */
+  --mp-textfield-color-text: #283148;
+  --mp-textfield-color-placeholder: #909398;
+  --mp-textfield-color-helper: #61646C;
+  --mp-textfield-color-error: #C53F3F;
+  --mp-textfield-color-disabled-text: #61646C;
+
+  --mp-textfield-color-border: #E9EBEC;
+  --mp-textfield-color-border-focus: #008299;
+  --mp-textfield-color-border-error: #C53F3F;
+
+  --mp-textfield-color-bg: #FFFFFF;
+  --mp-textfield-color-bg-hover: #F5F7F8;
+  --mp-textfield-color-bg-disabled: #DFE6EB;
+
+  --mp-textfield-color-icon: #909398;
+  --mp-textfield-color-icon-focus: #008299;
+
+  /* Shape */
+  --mp-textfield-radius: 8px;
+
+  /* Typography */
+  --mp-textfield-font: 'Hiragino Kaku Gothic Pro', 'Noto Sans JP', sans-serif;
+  --mp-textfield-font-weight: 300;
+  --mp-textfield-line-height: 1.5;
+
+  /* Sizes (height / font-size / padding-y) */
+  --mp-textfield-height-l: 48px;
+  --mp-textfield-height-m: 40px;
+  --mp-textfield-height-s: 33px;
+
+  --mp-textfield-font-size-l: 16px;
+  --mp-textfield-font-size-m: 16px;
+  --mp-textfield-font-size-s: 14px;
+
+  --mp-textfield-padding-x: 12px;
+
+  /* Helper text */
+  --mp-textfield-helper-font-size: 12px;
+  --mp-textfield-helper-font-size-s: 10px;
+  --mp-textfield-helper-padding-x: 4px;
+  --mp-textfield-helper-margin: 2px;
+
+  /* Icon */
+  --mp-textfield-icon-size: 24px;
+  --mp-textfield-icon-gap: 8px;
+}
+
+/* -------------------------------------------------------------------------
+ * Wrapper (ラベル + Input本体 + ヘルパーテキスト全体)
+ * ------------------------------------------------------------------------- */
+.mp-textfield {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+  font-family: var(--mp-textfield-font);
+  min-width: 80px;
+}
+
+.mp-textfield--block {
+  display: flex;
+  width: 100%;
+}
+
+/* -------------------------------------------------------------------------
+ * Helper text (上部ラベル / 下部補足 / エラー)
+ * ------------------------------------------------------------------------- */
+.mp-textfield__helper {
+  font-family: var(--mp-textfield-font);
+  font-weight: var(--mp-textfield-font-weight);
+  font-size: var(--mp-textfield-helper-font-size);
+  line-height: var(--mp-textfield-line-height);
+  color: var(--mp-textfield-color-helper);
+  padding: 0 var(--mp-textfield-helper-padding-x);
+}
+
+.mp-textfield__helper--top {
+  padding-bottom: var(--mp-textfield-helper-margin);
+}
+
+.mp-textfield__helper--bottom {
+  padding-top: var(--mp-textfield-helper-margin);
+}
+
+.mp-textfield__helper--error {
+  color: var(--mp-textfield-color-error);
+}
+
+.mp-textfield__helper--disabled {
+  color: var(--mp-textfield-color-placeholder);
+}
+
+/* size=S のときヘルパーも縮小 */
+.mp-textfield--s .mp-textfield__helper {
+  font-size: var(--mp-textfield-helper-font-size-s);
+}
+
+/* -------------------------------------------------------------------------
+ * Input container (枠線・背景を持つ箱)
+ * ------------------------------------------------------------------------- */
+.mp-textfield__container {
+  display: flex;
+  align-items: center;
+  gap: var(--mp-textfield-icon-gap);
+  box-sizing: border-box;
+  padding: 0 var(--mp-textfield-padding-x);
+  background: var(--mp-textfield-color-bg);
+  border: 1px solid var(--mp-textfield-color-border);
+  border-radius: var(--mp-textfield-radius);
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+/* Sizes */
+.mp-textfield--l .mp-textfield__container {
+  height: var(--mp-textfield-height-l);
+}
+.mp-textfield--m .mp-textfield__container {
+  height: var(--mp-textfield-height-m);
+}
+.mp-textfield--s .mp-textfield__container {
+  height: var(--mp-textfield-height-s);
+}
+
+/* Hover (disabled / error / focus 中は無効) */
+.mp-textfield:not(.mp-textfield--disabled):not(.mp-textfield--error)
+  .mp-textfield__container:hover {
+  background: var(--mp-textfield-color-bg-hover);
+}
+
+/* Focus */
+.mp-textfield__container:focus-within {
+  background: var(--mp-textfield-color-bg);
+  border: 2px solid var(--mp-textfield-color-border-focus);
+  /* border幅2pxによるガタつきを抑える: 内側にinsetでもよいが、Figmaに合わせて単純にborder変更 */
+}
+
+/* Error */
+.mp-textfield--error .mp-textfield__container {
+  border: 2px solid var(--mp-textfield-color-border-error);
+}
+
+/* Disabled */
+.mp-textfield--disabled .mp-textfield__container {
+  background: var(--mp-textfield-color-bg-disabled);
+  border-color: transparent;
+  cursor: not-allowed;
+}
+
+/* -------------------------------------------------------------------------
+ * Native input / textarea
+ * ------------------------------------------------------------------------- */
+.mp-textfield__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: inherit;
+  font-weight: var(--mp-textfield-font-weight);
+  line-height: var(--mp-textfield-line-height);
+  color: var(--mp-textfield-color-text);
+  padding: 0;
+}
+
+.mp-textfield--l .mp-textfield__input,
+.mp-textfield--m .mp-textfield__input {
+  font-size: var(--mp-textfield-font-size-m);
+}
+.mp-textfield--s .mp-textfield__input {
+  font-size: var(--mp-textfield-font-size-s);
+}
+
+/* Placeholder */
+.mp-textfield__input::placeholder {
+  color: var(--mp-textfield-color-placeholder);
+  opacity: 1; /* Firefox の薄化を抑える */
+}
+
+/* Disabled の入力文字色 */
+.mp-textfield--disabled .mp-textfield__input {
+  color: var(--mp-textfield-color-disabled-text);
+  cursor: not-allowed;
+}
+.mp-textfield--disabled .mp-textfield__input::placeholder {
+  color: var(--mp-textfield-color-placeholder);
+}
+
+/* -------------------------------------------------------------------------
+ * Variant: textarea
+ * ------------------------------------------------------------------------- */
+.mp-textfield--textarea .mp-textfield__container {
+  height: auto;
+  align-items: stretch;
+  padding: 8px var(--mp-textfield-padding-x);
+}
+
+.mp-textfield--textarea .mp-textfield__input {
+  resize: vertical;
+  min-height: calc(var(--mp-textfield-line-height) * 1em * 3);
+  padding: 0;
+}
+
+/* textarea のサイズはフィールド全体ではなく行数で制御するため height 指定は外す */
+.mp-textfield--textarea.mp-textfield--l .mp-textfield__container,
+.mp-textfield--textarea.mp-textfield--m .mp-textfield__container,
+.mp-textfield--textarea.mp-textfield--s .mp-textfield__container {
+  height: auto;
+}
+
+/* -------------------------------------------------------------------------
+ * Variant: search
+ * ------------------------------------------------------------------------- */
+.mp-textfield--search .mp-textfield__icon-start {
+  display: inline-flex;
+}
+
+/* search では focus 時にアイコン色も Primary に変わる */
+.mp-textfield--search .mp-textfield__container:focus-within .mp-textfield__icon-start svg,
+.mp-textfield--search .mp-textfield__container:focus-within .mp-textfield__icon-start {
+  color: var(--mp-textfield-color-icon-focus);
+}
+
+/* -------------------------------------------------------------------------
+ * Icons (start / end)
+ * ------------------------------------------------------------------------- */
+.mp-textfield__icon-start,
+.mp-textfield__icon-end {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: var(--mp-textfield-icon-size);
+  height: var(--mp-textfield-icon-size);
+  color: var(--mp-textfield-color-icon);
+}
+
+.mp-textfield__icon-start svg,
+.mp-textfield__icon-end svg {
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
+}
+
+/* -------------------------------------------------------------------------
+ * Focus visible (キーボード時のみ強調)
+ * ------------------------------------------------------------------------- */
+.mp-textfield__container:has(:focus-visible) {
+  outline: 2px solid var(--mp-textfield-color-border-focus);
+  outline-offset: 2px;
+}
+
+/* :has() 非対応ブラウザ向けフォールバック */
+@supports not selector(:has(*)) {
+  .mp-textfield__input:focus-visible {
+    outline: none; /* container側で表現できないので素直にinputへ */
+  }
+}

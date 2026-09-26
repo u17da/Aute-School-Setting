@@ -1,0 +1,422 @@
+/* ============================================================
+   Pulldown — まなびポケット Design System
+   2 sub-components: Btn (trigger) + Menu (item list)
+   ============================================================ */
+
+:root {
+  /* Colors — shared with other DS components */
+  --mp-pulldown-primary: #008299;
+  --mp-pulldown-primary-hover: #00606D;
+  --mp-pulldown-text: #283148;
+  --mp-pulldown-text-muted: #61646C;
+  --mp-pulldown-text-disabled: #909398;
+  --mp-pulldown-text-danger: #C53F3F;
+
+  /* Surfaces */
+  --mp-pulldown-bg: #FFFFFF;
+  --mp-pulldown-bg-hover: #F5F7F8;
+  --mp-pulldown-bg-active: #F5F7F8;
+  --mp-pulldown-border: #E9EBEC;
+  --mp-pulldown-border-strong: #CCCCCC;
+  --mp-pulldown-border-focus: #008299;
+
+  /* Icon button (more_vert) hover bg */
+  --mp-pulldown-icon-hover-bg: rgba(61, 73, 101, 0.2);
+
+  /* Scrollbar */
+  --mp-pulldown-scroll-track: #EFEFEF;
+  --mp-pulldown-scroll-thumb: #BCBDBD;
+
+  /* Typography */
+  --mp-pulldown-font: 'Hiragino Kaku Gothic Pro', 'Hiragino Sans', sans-serif;
+  --mp-pulldown-font-weight: 300;
+  --mp-pulldown-line-height: 1.5;
+
+  /* Radius */
+  --mp-pulldown-radius: 8px;
+
+  /* Sizes — Btn */
+  --mp-pulldown-btn-l-height: 48px;
+  --mp-pulldown-btn-m-height: 40px;
+  --mp-pulldown-btn-s-height: 32px;
+  --mp-pulldown-btn-ss-height: 32px;
+
+  /* Sizes — Menu */
+  --mp-pulldown-menu-m-height: 40px;
+  --mp-pulldown-menu-s-height: 32px;
+  --mp-pulldown-menu-ss-height: 30px;
+
+  /* Font sizes */
+  --mp-pulldown-fs-l: 16px;
+  --mp-pulldown-fs-m: 16px;
+  --mp-pulldown-fs-s: 14px;
+  --mp-pulldown-fs-ss: 12px;
+
+  /* Borders */
+  --mp-pulldown-border-width: 1px;
+  --mp-pulldown-border-width-focus: 2px;
+}
+
+/* ============================================================
+   Pulldown/Btn — trigger button
+   ============================================================ */
+
+.mp-pulldown-btn {
+  /* reset */
+  appearance: none;
+  margin: 0;
+  background: var(--mp-pulldown-bg);
+  border: var(--mp-pulldown-border-width) solid var(--mp-pulldown-border);
+  border-radius: var(--mp-pulldown-radius);
+
+  /* layout */
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 120px;
+
+  /* typography */
+  font-family: var(--mp-pulldown-font);
+  font-weight: var(--mp-pulldown-font-weight);
+  line-height: var(--mp-pulldown-line-height);
+  color: var(--mp-pulldown-text);
+  text-align: left;
+
+  /* interaction */
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+
+.mp-pulldown-btn:hover {
+  background: var(--mp-pulldown-bg-hover);
+}
+
+.mp-pulldown-btn:focus-visible,
+.mp-pulldown-btn[aria-expanded="true"] {
+  outline: none;
+  border: var(--mp-pulldown-border-width-focus) solid var(--mp-pulldown-border-focus);
+}
+
+.mp-pulldown-btn:disabled,
+.mp-pulldown-btn[aria-disabled="true"] {
+  color: var(--mp-pulldown-text-disabled);
+  cursor: not-allowed;
+  background: var(--mp-pulldown-bg);
+}
+
+.mp-pulldown-btn:disabled:hover,
+.mp-pulldown-btn[aria-disabled="true"]:hover {
+  background: var(--mp-pulldown-bg);
+}
+
+/* Sizes — Btn */
+.mp-pulldown-btn--l {
+  height: var(--mp-pulldown-btn-l-height);
+  padding: 12px;
+  font-size: var(--mp-pulldown-fs-l);
+}
+
+.mp-pulldown-btn--m {
+  height: var(--mp-pulldown-btn-m-height);
+  padding: 8px 12px;
+  font-size: var(--mp-pulldown-fs-m);
+}
+
+.mp-pulldown-btn--s {
+  height: var(--mp-pulldown-btn-s-height);
+  padding: 4px 12px;
+  font-size: var(--mp-pulldown-fs-s);
+  gap: 8px;
+}
+
+.mp-pulldown-btn--ss {
+  height: var(--mp-pulldown-btn-ss-height);
+  padding: 4px 12px;
+  font-size: var(--mp-pulldown-fs-ss);
+  gap: 8px;
+}
+
+/* Btn label (flex grow) */
+.mp-pulldown-btn__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Btn caret icon */
+.mp-pulldown-btn__caret {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--mp-pulldown-text);
+}
+
+.mp-pulldown-btn:disabled .mp-pulldown-btn__caret,
+.mp-pulldown-btn[aria-disabled="true"] .mp-pulldown-btn__caret {
+  color: var(--mp-pulldown-text-disabled);
+}
+
+/* ============================================================
+   Pulldown/Btn — Icon variant (more_vert, no border)
+   ============================================================ */
+
+.mp-pulldown-btn--icon {
+  min-width: 0;
+  width: 40px;
+  height: 40px;
+  padding: 8px;
+  background: transparent;
+  border: none;
+  border-radius: var(--mp-pulldown-radius);
+  justify-content: center;
+}
+
+.mp-pulldown-btn--icon:hover {
+  background: var(--mp-pulldown-icon-hover-bg);
+}
+
+.mp-pulldown-btn--icon:focus-visible,
+.mp-pulldown-btn--icon[aria-expanded="true"] {
+  background: var(--mp-pulldown-icon-hover-bg);
+  border: none;
+  outline: 2px solid var(--mp-pulldown-border-focus);
+  outline-offset: -2px;
+}
+
+.mp-pulldown-btn--icon:disabled,
+.mp-pulldown-btn--icon[aria-disabled="true"] {
+  background: transparent;
+  cursor: not-allowed;
+}
+
+.mp-pulldown-btn--icon:disabled:hover,
+.mp-pulldown-btn--icon[aria-disabled="true"]:hover {
+  background: transparent;
+}
+
+.mp-pulldown-btn--icon .mp-pulldown-btn__icon {
+  width: 24px;
+  height: 24px;
+  color: var(--mp-pulldown-text-muted);
+}
+
+.mp-pulldown-btn--icon:disabled .mp-pulldown-btn__icon,
+.mp-pulldown-btn--icon[aria-disabled="true"] .mp-pulldown-btn__icon {
+  color: var(--mp-pulldown-text-disabled);
+}
+
+/* Icon size variants (only S/SS commonly used for table cells) */
+.mp-pulldown-btn--icon.mp-pulldown-btn--s {
+  width: 32px;
+  height: 32px;
+  padding: 4px;
+}
+
+.mp-pulldown-btn--icon.mp-pulldown-btn--ss {
+  width: 28px;
+  height: 28px;
+  padding: 2px;
+}
+
+/* ============================================================
+   Pulldown/Set — menu container (the popup panel)
+   ============================================================ */
+
+.mp-pulldown-set {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  background: var(--mp-pulldown-bg);
+  border: var(--mp-pulldown-border-width) solid var(--mp-pulldown-border-strong);
+  border-radius: var(--mp-pulldown-radius);
+  overflow: hidden;
+  isolation: isolate;
+  /* shadow for floating menu */
+  box-shadow:
+    0 2px 4px -1px rgba(0, 0, 0, 0.08),
+    0 4px 12px -2px rgba(0, 0, 0, 0.08);
+  /* default container width matches Btn */
+  min-width: 120px;
+  /* listbox role */
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* Scrollable variant — when items > 5, set max-height + overflow */
+.mp-pulldown-set--scrollable {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+/* Custom scrollbar — webkit */
+.mp-pulldown-set--scrollable::-webkit-scrollbar {
+  width: 15px;
+}
+
+.mp-pulldown-set--scrollable::-webkit-scrollbar-track {
+  background: var(--mp-pulldown-scroll-track);
+}
+
+.mp-pulldown-set--scrollable::-webkit-scrollbar-thumb {
+  background: var(--mp-pulldown-scroll-thumb);
+  border-radius: 4px;
+  border: 4px solid var(--mp-pulldown-scroll-track);
+  background-clip: padding-box;
+}
+
+/* Firefox */
+.mp-pulldown-set--scrollable {
+  scrollbar-width: thin;
+  scrollbar-color: var(--mp-pulldown-scroll-thumb) var(--mp-pulldown-scroll-track);
+}
+
+/* ============================================================
+   Pulldown/Menu — individual menu item
+   ============================================================ */
+
+.mp-pulldown-menu {
+  /* reset */
+  appearance: none;
+  margin: 0;
+  background: var(--mp-pulldown-bg);
+  border: none;
+  border-bottom: var(--mp-pulldown-border-width) solid var(--mp-pulldown-border-strong);
+
+  /* layout */
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+
+  /* typography */
+  font-family: var(--mp-pulldown-font);
+  font-weight: var(--mp-pulldown-font-weight);
+  line-height: var(--mp-pulldown-line-height);
+  color: var(--mp-pulldown-text);
+  text-align: left;
+
+  /* interaction */
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.1s ease;
+}
+
+.mp-pulldown-menu:last-child {
+  border-bottom: none;
+}
+
+.mp-pulldown-menu:hover,
+.mp-pulldown-menu[aria-selected="true"],
+.mp-pulldown-menu:focus-visible {
+  background: var(--mp-pulldown-bg-hover);
+  outline: none;
+}
+
+.mp-pulldown-menu:disabled,
+.mp-pulldown-menu[aria-disabled="true"] {
+  color: var(--mp-pulldown-text-disabled);
+  cursor: not-allowed;
+}
+
+.mp-pulldown-menu:disabled:hover,
+.mp-pulldown-menu[aria-disabled="true"]:hover {
+  background: var(--mp-pulldown-bg);
+}
+
+/* Tone — danger (delete etc.) */
+.mp-pulldown-menu--danger {
+  color: var(--mp-pulldown-text-danger);
+}
+
+.mp-pulldown-menu--danger:hover,
+.mp-pulldown-menu--danger[aria-selected="true"] {
+  background: #FCECEF;
+}
+
+/* Sizes — Menu */
+.mp-pulldown-menu--m {
+  height: var(--mp-pulldown-menu-m-height);
+  padding: 8px 12px;
+  font-size: var(--mp-pulldown-fs-m);
+}
+
+.mp-pulldown-menu--s {
+  height: var(--mp-pulldown-menu-s-height);
+  padding: 6px 12px;
+  font-size: var(--mp-pulldown-fs-s);
+  gap: 4px;
+}
+
+.mp-pulldown-menu--ss {
+  height: var(--mp-pulldown-menu-ss-height);
+  padding: 6px 12px;
+  font-size: var(--mp-pulldown-fs-ss);
+  gap: 4px;
+}
+
+/* Menu inner label */
+.mp-pulldown-menu__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Menu sub-label (small grey, e.g. "1年2組") */
+.mp-pulldown-menu__sub {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: #757575;
+}
+
+/* Menu leading icon slot */
+.mp-pulldown-menu__icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mp-pulldown-menu--m .mp-pulldown-menu__icon {
+  width: 24px;
+  height: 24px;
+}
+
+.mp-pulldown-menu--s .mp-pulldown-menu__icon {
+  width: 18px;
+  height: 18px;
+}
+
+.mp-pulldown-menu--ss .mp-pulldown-menu__icon {
+  width: 16px;
+  height: 16px;
+}
+
+/* ============================================================
+   Composite wrapper (positioning helper for Btn + Set)
+   ============================================================ */
+
+.mp-pulldown {
+  position: relative;
+  display: inline-block;
+}
+
+.mp-pulldown__popup {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 100;
+}
+
+.mp-pulldown__popup--right {
+  left: auto;
+  right: 0;
+}

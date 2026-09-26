@@ -36,7 +36,16 @@ test/inspect_pakcw.ts
 # Batch Checkpoints & Reports
 checkpoints/
 reports/
+archive/
 scratch/
+tmp_idp_investigation/
+
+# Specific live school configurations
+config/school.*.json
+!config/school.sample.json
+
+# Investigation scripts containing credentials
+scripts/*idp*.ts
 
 # OS files
 Thumbs.db

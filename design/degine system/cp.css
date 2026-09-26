@@ -1,0 +1,312 @@
+/* =============================================================================
+ * Manabi Pocket Design System — CP (Content Provider)
+ * Figma "コンテンツプロバイダ" セクションから抽出。
+ * 値の変更は cp.md を更新してから行うこと。
+ * ============================================================================= */
+
+:root {
+  /* --- Icon sizes ------------------------------------------------------- */
+  --mp-cp-icon-s:            28px;
+  --mp-cp-icon-s-padding:    2.33px;
+  --mp-cp-icon-s-radius:     4.67px;
+  --mp-cp-icon-s-img-radius: 3.27px;
+
+  --mp-cp-icon-m:            48px;
+  --mp-cp-icon-m-padding:    4px;
+  --mp-cp-icon-m-radius:     8px;
+  --mp-cp-icon-m-img-radius: 5.6px;
+
+  /* --- Card (L) --------------------------------------------------------- */
+  --mp-cp-card-height:       44px;
+  --mp-cp-card-padding:      8px;
+  --mp-cp-card-radius:       8px;
+  --mp-cp-card-border:       #E9EBEC;
+  --mp-cp-card-bg:           #FFFFFF;
+  --mp-cp-card-icon-size:    28px;
+
+  /* --- Borders ---------------------------------------------------------- */
+  --mp-cp-border:            #CCCCCC;
+
+  /* --- Close badge ------------------------------------------------------ */
+  --mp-cp-close-size:        16px;
+  --mp-cp-close-bg:          #61646C;
+  --mp-cp-close-icon:        #FFFFFF;
+  --mp-cp-close-radius:      8px;
+  --mp-cp-close-offset:      -8px;
+
+  /* --- Suggest ---------------------------------------------------------- */
+  --mp-cp-suggest-height:    44px;
+  --mp-cp-suggest-padding:   8px 12px;
+  --mp-cp-suggest-radius:    8px;
+  --mp-cp-suggest-bg:        #FFFFFF;
+  --mp-cp-suggest-border:    #CCCCCC;
+  --mp-cp-suggest-sel-bg:    #F2FAFC;
+  --mp-cp-suggest-sel-border:#008299;
+  --mp-cp-suggest-sel-check: #00838F;
+
+  /* --- Typography ------------------------------------------------------- */
+  --mp-cp-font:              'Hiragino Kaku Gothic Pro', 'ヒラギノ角ゴ Pro W3',
+                             'Meiryo', 'メイリオ', system-ui, sans-serif;
+  --mp-cp-label-size:        8px;
+  --mp-cp-label-weight:      600;
+  --mp-cp-label-color:       #283148;
+  --mp-cp-desc-size:         12px;
+  --mp-cp-desc-weight:       300;
+  --mp-cp-desc-color:        #283148;
+  --mp-cp-status-size:       8px;
+  --mp-cp-status-weight:     600;
+  --mp-cp-status-color:      #61646C;
+  --mp-cp-status-sel-color:  #00838F;
+  --mp-cp-line-height:       1.5;
+}
+
+/* =============================================================================
+ * CpIcon — Size S
+ * ============================================================================= */
+
+.mp-cp-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #FFFFFF;
+  border: 1px solid var(--mp-cp-border);
+  box-sizing: border-box;
+  position: relative;
+}
+
+.mp-cp-icon--s {
+  width: var(--mp-cp-icon-s);
+  height: var(--mp-cp-icon-s);
+  padding: var(--mp-cp-icon-s-padding);
+  border-radius: var(--mp-cp-icon-s-radius);
+}
+
+.mp-cp-icon--s .mp-cp-icon__img {
+  border-radius: var(--mp-cp-icon-s-img-radius);
+}
+
+/* =============================================================================
+ * CpIcon — Size M (with optional close badge)
+ * ============================================================================= */
+
+.mp-cp-icon--m {
+  width: var(--mp-cp-icon-m);
+  height: var(--mp-cp-icon-m);
+  padding: var(--mp-cp-icon-m-padding);
+  border-radius: var(--mp-cp-icon-m-radius);
+}
+
+.mp-cp-icon--m .mp-cp-icon__img {
+  border-radius: var(--mp-cp-icon-m-img-radius);
+}
+
+/* --- Image -------------------------------------------------------------- */
+
+.mp-cp-icon__img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  mix-blend-mode: multiply;
+  display: block;
+}
+
+/* =============================================================================
+ * Close badge (M and Card)
+ * ============================================================================= */
+
+.mp-cp-close {
+  position: absolute;
+  top: var(--mp-cp-close-offset);
+  right: var(--mp-cp-close-offset);
+  width: var(--mp-cp-close-size);
+  height: var(--mp-cp-close-size);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--mp-cp-close-bg);
+  border: none;
+  border-radius: var(--mp-cp-close-radius);
+  color: var(--mp-cp-close-icon);
+  cursor: pointer;
+  padding: 0;
+  z-index: 1;
+  transition: opacity 120ms ease;
+}
+
+.mp-cp-close:hover {
+  opacity: 0.85;
+}
+
+.mp-cp-close:focus-visible {
+  outline: 2px solid #008299;
+  outline-offset: 2px;
+}
+
+.mp-cp-close svg {
+  width: 55%;
+  height: 55%;
+}
+
+/* =============================================================================
+ * CpCard (Size L) — icon + label + description + close
+ * ============================================================================= */
+
+.mp-cp-card {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--mp-cp-card-padding);
+  gap: 4px;
+  background: var(--mp-cp-card-bg);
+  border: 1px solid var(--mp-cp-card-border);
+  border-radius: var(--mp-cp-card-radius);
+  font-family: var(--mp-cp-font);
+  box-sizing: border-box;
+  position: relative;
+}
+
+.mp-cp-card__icon {
+  width: var(--mp-cp-card-icon-size);
+  height: var(--mp-cp-card-icon-size);
+  flex-shrink: 0;
+  border: 1px solid var(--mp-cp-card-border);
+  border-radius: var(--mp-cp-icon-m-img-radius);
+  overflow: hidden;
+}
+
+.mp-cp-card__icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  mix-blend-mode: multiply;
+  display: block;
+}
+
+.mp-cp-card__info {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+}
+
+.mp-cp-card__label {
+  font-size: var(--mp-cp-label-size);
+  font-weight: var(--mp-cp-label-weight);
+  color: var(--mp-cp-label-color);
+  line-height: 1.25;
+}
+
+.mp-cp-card__desc {
+  font-size: var(--mp-cp-desc-size);
+  font-weight: var(--mp-cp-desc-weight);
+  color: var(--mp-cp-desc-color);
+  line-height: var(--mp-cp-line-height);
+}
+
+/* =============================================================================
+ * CpSuggest — dropdown option
+ * ============================================================================= */
+
+.mp-cp-suggest {
+  display: flex;
+  align-items: center;
+  padding: var(--mp-cp-suggest-padding);
+  gap: 4px;
+  min-height: var(--mp-cp-suggest-height);
+  background: var(--mp-cp-suggest-bg);
+  border: 1px solid var(--mp-cp-suggest-border);
+  border-radius: var(--mp-cp-suggest-radius);
+  font-family: var(--mp-cp-font);
+  box-sizing: border-box;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.mp-cp-suggest:hover {
+  background: #F5F7F8;
+}
+
+.mp-cp-suggest:focus-visible {
+  outline: 2px solid #008299;
+  outline-offset: 2px;
+}
+
+/* --- Selected state ----------------------------------------------------- */
+
+.mp-cp-suggest--selected {
+  background: var(--mp-cp-suggest-sel-bg);
+  border: 2px solid var(--mp-cp-suggest-sel-border);
+}
+
+.mp-cp-suggest--selected:hover {
+  background: var(--mp-cp-suggest-sel-bg);
+}
+
+/* --- Inner layout ------------------------------------------------------- */
+
+.mp-cp-suggest__icon {
+  width: var(--mp-cp-card-icon-size);
+  height: var(--mp-cp-card-icon-size);
+  flex-shrink: 0;
+  border: 0.58px solid var(--mp-cp-border);
+  border-radius: var(--mp-cp-icon-s-radius);
+  overflow: hidden;
+  padding: var(--mp-cp-icon-s-padding);
+  background: #FFFFFF;
+}
+
+.mp-cp-suggest__icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  mix-blend-mode: multiply;
+  border-radius: var(--mp-cp-icon-s-img-radius);
+  display: block;
+}
+
+.mp-cp-suggest__info {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  flex: 1;
+  min-width: 0;
+}
+
+.mp-cp-suggest__label {
+  font-size: var(--mp-cp-label-size);
+  font-weight: var(--mp-cp-label-weight);
+  color: var(--mp-cp-label-color);
+  line-height: 1.25;
+}
+
+.mp-cp-suggest__desc {
+  font-size: var(--mp-cp-desc-size);
+  font-weight: var(--mp-cp-desc-weight);
+  color: var(--mp-cp-desc-color);
+  line-height: var(--mp-cp-line-height);
+}
+
+.mp-cp-suggest__status {
+  font-size: var(--mp-cp-status-size);
+  font-weight: var(--mp-cp-status-weight);
+  color: var(--mp-cp-status-color);
+  line-height: 1.25;
+}
+
+.mp-cp-suggest--selected .mp-cp-suggest__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--mp-cp-status-sel-color);
+}
+
+.mp-cp-suggest__check {
+  width: 12px;
+  height: 12px;
+  display: inline-flex;
+  color: var(--mp-cp-suggest-sel-check);
+}
+
+.mp-cp-suggest__check svg {
+  width: 100%;
+  height: 100%;
+}

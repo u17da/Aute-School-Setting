@@ -1,0 +1,187 @@
+/* =========================================================================
+   Tab — まなびポケット Design System
+   Figma出力CSSのノイズを除去し、CSS変数 + BEM風クラスに再構成。
+   ========================================================================= */
+
+:root {
+  /* --- Tab tokens --- */
+  --mp-tab-font-family: 'Hiragino Kaku Gothic Pro', sans-serif;
+  --mp-tab-font-weight: 600;
+  --mp-tab-line-height: 1.5;
+
+  /* Primary */
+  --mp-tab-primary-height: 40px;
+  --mp-tab-primary-padding: 8px 16px;
+  --mp-tab-primary-gap: 8px;
+  --mp-tab-primary-radius: 16px 16px 0 0;
+  --mp-tab-primary-icon-size: 24px;
+  --mp-tab-primary-font-size: 16px;
+
+  /* Secondary */
+  --mp-tab-secondary-height: 32px;
+  --mp-tab-secondary-min-width: 100px;
+  --mp-tab-secondary-padding: 4px 12px;
+  --mp-tab-secondary-gap: 4px;
+  --mp-tab-secondary-radius: 40px;
+  --mp-tab-secondary-icon-size: 20px;
+  --mp-tab-secondary-font-size: 16px;
+
+  /* Colors — default */
+  --mp-tab-default-bg: #DFE6EB;
+  --mp-tab-default-text: #283148;
+  --mp-tab-default-line: #283148;
+
+  /* Colors — disabled */
+  --mp-tab-disabled-bg: #EDF0F2;
+  --mp-tab-disabled-text: #FFFFFF;
+
+  /* Colors — active */
+  --mp-tab-active-bg: #283148;
+  --mp-tab-active-text: #FFFFFF;
+
+  /* Secondary — default override */
+  --mp-tab-secondary-default-bg: #FFFFFF;
+
+  /* Transition */
+  --mp-tab-transition: background-color 150ms ease, color 150ms ease;
+}
+
+/* ---- Tablist container ---- */
+.mp-tablist {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+  gap: 0;
+}
+
+/* ---- Base tab ---- */
+.mp-tab {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  align-items: center;
+  border: none;
+  cursor: pointer;
+  font-family: var(--mp-tab-font-family);
+  font-weight: var(--mp-tab-font-weight);
+  line-height: var(--mp-tab-line-height);
+  transition: var(--mp-tab-transition);
+  position: relative;
+  white-space: nowrap;
+  user-select: none;
+  outline: none;
+}
+
+.mp-tab__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.mp-tab__label {
+  flex-shrink: 0;
+}
+
+/* ================================================================
+   PRIMARY variant
+   ================================================================ */
+.mp-tab--primary {
+  height: var(--mp-tab-primary-height);
+  padding: var(--mp-tab-primary-padding);
+  gap: var(--mp-tab-primary-gap);
+  border-radius: var(--mp-tab-primary-radius);
+  font-size: var(--mp-tab-primary-font-size);
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  isolation: isolate;
+}
+
+.mp-tab--primary .mp-tab__icon {
+  width: var(--mp-tab-primary-icon-size);
+  height: var(--mp-tab-primary-icon-size);
+}
+
+/* Primary — default */
+.mp-tab--primary.mp-tab--default {
+  background: var(--mp-tab-default-bg);
+  color: var(--mp-tab-default-text);
+}
+
+.mp-tab--primary.mp-tab--default::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--mp-tab-default-line);
+}
+
+/* Primary — disabled */
+.mp-tab--primary.mp-tab--disabled {
+  background: var(--mp-tab-disabled-bg);
+  color: var(--mp-tab-disabled-text);
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Primary — active */
+.mp-tab--primary.mp-tab--active {
+  background: var(--mp-tab-active-bg);
+  color: var(--mp-tab-active-text);
+}
+
+/* ================================================================
+   SECONDARY variant
+   ================================================================ */
+.mp-tab--secondary {
+  height: var(--mp-tab-secondary-height);
+  min-width: var(--mp-tab-secondary-min-width);
+  padding: var(--mp-tab-secondary-padding);
+  gap: var(--mp-tab-secondary-gap);
+  border-radius: var(--mp-tab-secondary-radius);
+  font-size: var(--mp-tab-secondary-font-size);
+}
+
+.mp-tab--secondary .mp-tab__icon {
+  width: var(--mp-tab-secondary-icon-size);
+  height: var(--mp-tab-secondary-icon-size);
+}
+
+/* Secondary — default */
+.mp-tab--secondary.mp-tab--default {
+  background: var(--mp-tab-secondary-default-bg);
+  color: var(--mp-tab-default-text);
+}
+
+/* Secondary — disabled */
+.mp-tab--secondary.mp-tab--disabled {
+  background: var(--mp-tab-disabled-bg);
+  color: var(--mp-tab-disabled-text);
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Secondary — active */
+.mp-tab--secondary.mp-tab--active {
+  background: var(--mp-tab-active-bg);
+  color: var(--mp-tab-active-text);
+}
+
+/* ================================================================
+   Interactive states (hover / focus-visible)
+   ================================================================ */
+.mp-tab--primary.mp-tab--default:hover {
+  background: #CDD5DC;
+}
+
+.mp-tab--secondary.mp-tab--default:hover {
+  background: #F5F7F8;
+}
+
+.mp-tab:focus-visible {
+  outline: 2px solid #008299;
+  outline-offset: 2px;
+}

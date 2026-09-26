@@ -1,0 +1,193 @@
+/* =============================================================================
+ * まなびポケット Design System — Radio
+ * 複数の選択肢から1つだけ選ぶ際に使用
+ * ============================================================================= */
+
+:root {
+  /* Border / dot */
+  --mp-radio-border-default: #CCCCCC;
+  --mp-radio-border-checked: #008299;
+  --mp-radio-border-disable: #DFE6EB;
+  --mp-radio-dot: #008299;
+  --mp-radio-dot-disable: #DFE6EB;
+
+  /* Hover / Focus 背景 (タッチ領域の薄い円) */
+  --mp-radio-hover-bg: #EFEFEF;
+  --mp-radio-focus-bg: #D7D7D7;
+  --mp-radio-hover-bg-checked: #F2FAFC;
+  --mp-radio-focus-bg-checked: #EFFBFF;
+
+  /* Label */
+  --mp-radio-label-default: #61646C;
+  --mp-radio-label-disable: #909398;
+
+  /* Sizes (input 円のサイズ) */
+  --mp-radio-size-l: 28px;
+  --mp-radio-size-m: 24px;
+  --mp-radio-size-s: 20px;
+
+  /* タッチヒット領域（input 周りのパディング） */
+  --mp-radio-hit-l: 46px;
+  --mp-radio-hit-m: 42px;
+  --mp-radio-hit-s: 38px;
+
+  /* Motion */
+  --mp-radio-duration: 150ms;
+}
+
+/* =============================================================================
+ * Group container (fieldset)
+ * ============================================================================= */
+.mp-radio-group {
+  display: inline-flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 24px;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font-family: 'Hiragino Kaku Gothic Pro', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.mp-radio-group--vertical {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.mp-radio-group__legend {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: #283148;
+  margin-bottom: 8px;
+  padding: 0;
+}
+
+/* =============================================================================
+ * Radio item (label wrapping input)
+ * ============================================================================= */
+.mp-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'Hiragino Kaku Gothic Pro', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-weight: 300;
+  line-height: 1.5;
+  color: var(--mp-radio-label-default);
+  cursor: pointer;
+  user-select: none;
+}
+
+.mp-radio--disabled {
+  cursor: not-allowed;
+  color: var(--mp-radio-label-disable);
+}
+
+/* Label位置の派生: start, top, bottom */
+.mp-radio--placement-start { flex-direction: row-reverse; }
+.mp-radio--placement-top { flex-direction: column-reverse; align-items: center; gap: 4px; }
+.mp-radio--placement-bottom { flex-direction: column; align-items: center; gap: 4px; }
+
+/* =============================================================================
+ * Visual circle (input をラップした span)
+ * ============================================================================= */
+.mp-radio__visual {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: background-color var(--mp-radio-duration) ease;
+}
+
+/* Sizes */
+.mp-radio--l .mp-radio__visual { width: var(--mp-radio-hit-l); height: var(--mp-radio-hit-l); }
+.mp-radio--m .mp-radio__visual { width: var(--mp-radio-hit-m); height: var(--mp-radio-hit-m); }
+.mp-radio--s .mp-radio__visual { width: var(--mp-radio-hit-s); height: var(--mp-radio-hit-s); }
+
+/* Native input は visually hidden（focus は CSS で擬似ringとして表現） */
+.mp-radio__input {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+.mp-radio__input:disabled { cursor: not-allowed; }
+
+/* 円本体 */
+.mp-radio__circle {
+  position: relative;
+  border-radius: 50%;
+  border: 2px solid var(--mp-radio-border-default);
+  background: transparent;
+  transition: border-color var(--mp-radio-duration) ease;
+}
+.mp-radio--l .mp-radio__circle { width: var(--mp-radio-size-l); height: var(--mp-radio-size-l); }
+.mp-radio--m .mp-radio__circle { width: var(--mp-radio-size-m); height: var(--mp-radio-size-m); }
+.mp-radio--s .mp-radio__circle { width: var(--mp-radio-size-s); height: var(--mp-radio-size-s); }
+
+/* 中心ドット (checked 時のみ表示) */
+.mp-radio__circle::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 50%;
+  height: 50%;
+  border-radius: 50%;
+  background: var(--mp-radio-dot);
+  transform: scale(0);
+  transition: transform var(--mp-radio-duration) cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Label */
+.mp-radio__label {
+  font-size: 16px;
+}
+.mp-radio--s .mp-radio__label { font-size: 14px; }
+
+/* =============================================================================
+ * State: Checked
+ * ============================================================================= */
+.mp-radio__input:checked + .mp-radio__circle {
+  border-color: var(--mp-radio-border-checked);
+}
+.mp-radio__input:checked + .mp-radio__circle::after {
+  transform: scale(1);
+}
+
+/* =============================================================================
+ * State: Hover
+ * ============================================================================= */
+.mp-radio:not(.mp-radio--disabled):hover .mp-radio__visual {
+  background-color: var(--mp-radio-hover-bg);
+}
+.mp-radio:not(.mp-radio--disabled):hover .mp-radio__input:checked ~ * {
+  /* 親側で背景色を上書き */
+}
+.mp-radio:not(.mp-radio--disabled):has(.mp-radio__input:checked):hover .mp-radio__visual {
+  background-color: var(--mp-radio-hover-bg-checked);
+}
+
+/* =============================================================================
+ * State: Focus
+ * ============================================================================= */
+.mp-radio__input:focus-visible + .mp-radio__circle {
+  outline: 2px solid var(--mp-radio-border-checked);
+  outline-offset: 2px;
+}
+
+/* =============================================================================
+ * State: Disabled
+ * ============================================================================= */
+.mp-radio__input:disabled + .mp-radio__circle {
+  border-color: var(--mp-radio-border-disable);
+}
+.mp-radio__input:disabled:checked + .mp-radio__circle::after {
+  background: var(--mp-radio-dot-disable);
+}

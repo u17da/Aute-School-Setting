@@ -177,6 +177,17 @@ export class BatchProcessAdapter extends EventEmitter {
     this.emit('snapshotInvalidated', { reason });
   }
 
+  resetAllResults(): void {
+    this.currentSnapshot = null;
+    this.currentJobState = 'IDLE';
+    this.stdoutBuffer = [];
+    this.currentRunId = null;
+    this.runStartedAt = null;
+    this.lastSpawnInfo = null;
+    this.activeUpload = null;
+    this.emit('stateChange', { state: 'IDLE', reason: 'RESET_RESULTS' });
+  }
+
   getLastSpawnInfo(): { command: string; args: string[]; env: any } | null {
     return this.lastSpawnInfo;
   }
@@ -238,7 +249,7 @@ export class BatchProcessAdapter extends EventEmitter {
   /**
    * 指示5: Production Apply の準備 (Global Gate 検証, Manifest 生成, Confirmation Token 発行)
    */
-  prepareProductionApply(customPreflight?: PreflightReport, customSummary?: any): { manifest: ApplyTargetManifest; tokenData: ConfirmationTokenData } {
+  prepareProductionApply(customPreflight?: PreflightReport, customSummary?: any, includeDestructiveSchools?: boolean): { manifest: ApplyTargetManifest; tokenData: ConfirmationTokenData } {
     if (this.currentJobState === 'RUNNING' || this.currentJobState === 'STOPPING') {
       throw new ConsoleError('JOB_CONFLICT', '現在別の処理が実行中または停止処理中のため、Production Applyの準備を開始できません');
     }
@@ -261,7 +272,8 @@ export class BatchProcessAdapter extends EventEmitter {
       preflightReport,
       activeProfileSnapshot: this.activeProfileSnapshot,
       currentValidationSnapshot: this.currentSnapshot,
-      summaryReport
+      summaryReport,
+      allowDestructive: Boolean(includeDestructiveSchools)
     });
 
     // Confirmation Token の発行
@@ -697,7 +709,7 @@ export class BatchProcessAdapter extends EventEmitter {
   /**
    * 指示2.7, 5: Production Apply プロセス起動 (Process Boundary, 完全分離, 固定引数)
    */
-  startProductionApplyProcess(confirmationToken: string): void {
+  startProductionApplyProcess(confirmationToken: string, includeDestructiveSchools?: boolean): void {
     if (this.currentJobState === 'RUNNING' || this.currentJobState === 'STOPPING') {
       throw new ConsoleError('JOB_CONFLICT', 'すでに別のバッチ処理が実行中または停止処理中です');
     }
@@ -713,7 +725,8 @@ export class BatchProcessAdapter extends EventEmitter {
       preflightReport: latest.preflight,
       activeProfileSnapshot: this.activeProfileSnapshot,
       currentValidationSnapshot: this.currentSnapshot,
-      summaryReport: latest.summary
+      summaryReport: latest.summary,
+      allowDestructive: Boolean(includeDestructiveSchools)
     });
 
     // 3. Confirmation Token の厳格検証と一回限り消費 (再利用・二重実行防止)
@@ -744,6 +757,10 @@ export class BatchProcessAdapter extends EventEmitter {
       '--schools', schoolsPath,
       '--profile', effectiveProfilePath
     ];
+
+    if (includeDestructiveSchools) {
+      args.push('--allow-destructive');
+    }
 
     if (this.activeProfileSnapshot?.snapshotId) {
       args.push('--profile-snapshot-id', this.activeProfileSnapshot.snapshotId);

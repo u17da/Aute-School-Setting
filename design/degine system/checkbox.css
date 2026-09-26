@@ -1,0 +1,237 @@
+/* =========================================================
+   Checkbox — まなびポケット Design System
+   ========================================================= */
+
+:root {
+  /* Box */
+  --mp-checkbox-border-unchecked: #CCCCCC;
+  --mp-checkbox-fill-checked: #008299;
+  --mp-checkbox-fill-disabled: #DFE6EB;
+  --mp-checkbox-tick: #FFFFFF;
+
+  /* Hover / Focus background ring */
+  --mp-checkbox-bg-unchecked-hover: #EFEFEF;
+  --mp-checkbox-bg-unchecked-focus: #D7D7D7;
+  --mp-checkbox-bg-checked-hover: #F2FAFC;
+  --mp-checkbox-bg-checked-focus: #EFFBFF;
+
+  /* Label */
+  --mp-checkbox-label-color: #283148;
+  --mp-checkbox-label-color-disabled: #909398;
+  --mp-checkbox-helper-color: #61646C;
+  --mp-checkbox-helper-color-disabled: #909398;
+
+  /* Focus ring */
+  --mp-checkbox-focus-ring: #008299;
+
+  /* Sizes */
+  --mp-checkbox-l-hit: 46px;
+  --mp-checkbox-l-icon: 28px;
+  --mp-checkbox-l-radius: 4px;
+
+  --mp-checkbox-m-hit: 42px;
+  --mp-checkbox-m-icon: 24px;
+  --mp-checkbox-m-radius: 4px;
+
+  --mp-checkbox-s-hit: 38px;
+  --mp-checkbox-s-icon: 20px;
+  --mp-checkbox-s-radius: 3px;
+
+  --mp-checkbox-ss-hit: 38px;
+  --mp-checkbox-ss-icon: 20px;
+  --mp-checkbox-ss-radius: 3px;
+
+  /* Typography */
+  --mp-checkbox-font: 'Hiragino Kaku Gothic Pro', system-ui, sans-serif;
+  --mp-checkbox-font-weight: 600;
+  --mp-checkbox-line-height: 1.5;
+  --mp-checkbox-l-font: 16px;
+  --mp-checkbox-m-font: 16px;
+  --mp-checkbox-s-font: 14px;
+  --mp-checkbox-ss-font: 12px;
+  --mp-checkbox-helper-font: 12px;
+
+  /* Misc */
+  --mp-checkbox-gap: 8px;
+  --mp-checkbox-transition: 120ms ease;
+}
+
+/* ---------- Wrapper ---------- */
+.mp-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mp-checkbox-gap);
+  cursor: pointer;
+  font-family: var(--mp-checkbox-font);
+  font-weight: var(--mp-checkbox-font-weight);
+  line-height: var(--mp-checkbox-line-height);
+  color: var(--mp-checkbox-label-color);
+  user-select: none;
+}
+
+.mp-checkbox--disabled {
+  cursor: not-allowed;
+  color: var(--mp-checkbox-label-color-disabled);
+}
+
+/* Sizes — font on label */
+.mp-checkbox--l  { font-size: var(--mp-checkbox-l-font); }
+.mp-checkbox--m  { font-size: var(--mp-checkbox-m-font); }
+.mp-checkbox--s  { font-size: var(--mp-checkbox-s-font); }
+.mp-checkbox--ss { font-size: var(--mp-checkbox-ss-font); }
+
+/* ---------- Native input (hidden) ---------- */
+.mp-checkbox__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------- Visible square ---------- */
+.mp-checkbox__square {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%; /* outer hit area is round (matches Figma) */
+  flex-shrink: 0;
+  transition: background-color var(--mp-checkbox-transition);
+}
+
+.mp-checkbox--l  .mp-checkbox__square { width: var(--mp-checkbox-l-hit);  height: var(--mp-checkbox-l-hit); }
+.mp-checkbox--m  .mp-checkbox__square { width: var(--mp-checkbox-m-hit);  height: var(--mp-checkbox-m-hit); }
+.mp-checkbox--s  .mp-checkbox__square { width: var(--mp-checkbox-s-hit);  height: var(--mp-checkbox-s-hit); }
+.mp-checkbox--ss .mp-checkbox__square { width: var(--mp-checkbox-ss-hit); height: var(--mp-checkbox-ss-hit); }
+
+/* The actual checkbox box */
+.mp-checkbox__box {
+  position: relative;
+  box-sizing: border-box;
+  border: 2px solid var(--mp-checkbox-border-unchecked);
+  background: transparent;
+  transition:
+    border-color var(--mp-checkbox-transition),
+    background-color var(--mp-checkbox-transition);
+}
+
+.mp-checkbox--l  .mp-checkbox__box { width: var(--mp-checkbox-l-icon);  height: var(--mp-checkbox-l-icon);  border-radius: var(--mp-checkbox-l-radius); }
+.mp-checkbox--m  .mp-checkbox__box { width: var(--mp-checkbox-m-icon);  height: var(--mp-checkbox-m-icon);  border-radius: var(--mp-checkbox-m-radius); }
+.mp-checkbox--s  .mp-checkbox__box { width: var(--mp-checkbox-s-icon);  height: var(--mp-checkbox-s-icon);  border-radius: var(--mp-checkbox-s-radius); }
+.mp-checkbox--ss .mp-checkbox__box { width: var(--mp-checkbox-ss-icon); height: var(--mp-checkbox-ss-icon); border-radius: var(--mp-checkbox-ss-radius); }
+
+/* Tick (checkmark) — drawn with two borders */
+.mp-checkbox__tick {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 30%;
+  height: 55%;
+  border: solid var(--mp-checkbox-tick);
+  border-width: 0 2px 2px 0;
+  transform: translate(-55%, -65%) rotate(45deg) scale(0);
+  transform-origin: center;
+  transition: transform var(--mp-checkbox-transition);
+}
+
+/* Indeterminate dash */
+.mp-checkbox__dash {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 50%;
+  height: 2px;
+  background: var(--mp-checkbox-tick);
+  transform: translate(-50%, -50%) scaleX(0);
+  transition: transform var(--mp-checkbox-transition);
+}
+
+/* ---------- Checked ---------- */
+.mp-checkbox--checked .mp-checkbox__box {
+  background: var(--mp-checkbox-fill-checked);
+  border-color: var(--mp-checkbox-fill-checked);
+}
+
+.mp-checkbox--checked .mp-checkbox__tick {
+  transform: translate(-55%, -65%) rotate(45deg) scale(1);
+}
+
+/* ---------- Indeterminate ---------- */
+.mp-checkbox--indeterminate .mp-checkbox__box {
+  background: var(--mp-checkbox-fill-checked);
+  border-color: var(--mp-checkbox-fill-checked);
+}
+
+.mp-checkbox--indeterminate .mp-checkbox__tick {
+  transform: translate(-55%, -65%) rotate(45deg) scale(0);
+}
+
+.mp-checkbox--indeterminate .mp-checkbox__dash {
+  transform: translate(-50%, -50%) scaleX(1);
+}
+
+/* ---------- Hover ---------- */
+.mp-checkbox:not(.mp-checkbox--disabled):hover .mp-checkbox__square {
+  background: var(--mp-checkbox-bg-unchecked-hover);
+}
+
+.mp-checkbox--checked:not(.mp-checkbox--disabled):hover .mp-checkbox__square,
+.mp-checkbox--indeterminate:not(.mp-checkbox--disabled):hover .mp-checkbox__square {
+  background: var(--mp-checkbox-bg-checked-hover);
+}
+
+/* ---------- Focus-visible ---------- */
+.mp-checkbox__input:focus-visible + .mp-checkbox__square {
+  background: var(--mp-checkbox-bg-unchecked-focus);
+}
+
+.mp-checkbox--checked .mp-checkbox__input:focus-visible + .mp-checkbox__square,
+.mp-checkbox--indeterminate .mp-checkbox__input:focus-visible + .mp-checkbox__square {
+  background: var(--mp-checkbox-bg-checked-focus);
+}
+
+.mp-checkbox__input:focus-visible + .mp-checkbox__square .mp-checkbox__box {
+  outline: 2px solid var(--mp-checkbox-focus-ring);
+  outline-offset: 2px;
+}
+
+/* ---------- Disabled ---------- */
+.mp-checkbox--disabled .mp-checkbox__box {
+  border-color: var(--mp-checkbox-fill-disabled);
+}
+
+.mp-checkbox--disabled.mp-checkbox--checked .mp-checkbox__box,
+.mp-checkbox--disabled.mp-checkbox--indeterminate .mp-checkbox__box {
+  background: var(--mp-checkbox-fill-disabled);
+  border-color: var(--mp-checkbox-fill-disabled);
+}
+
+/* ---------- Label / helper ---------- */
+.mp-checkbox__label-block {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 300; /* labels typically lighter than container default */
+}
+
+.mp-checkbox__helper-label {
+  font-size: var(--mp-checkbox-helper-font);
+  color: var(--mp-checkbox-helper-color);
+  font-weight: 300;
+}
+
+.mp-checkbox--disabled .mp-checkbox__helper-label {
+  color: var(--mp-checkbox-helper-color-disabled);
+}
+
+.mp-checkbox__helper-icon {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  color: #757575;
+}

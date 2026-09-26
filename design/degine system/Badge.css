@@ -1,0 +1,139 @@
+/* =========================================================================
+   Badge — まなびポケット Design System
+   ========================================================================= */
+
+:root {
+  /* --- Badge tokens --- */
+  --mp-badge-font-family: 'Hiragino Kaku Gothic Pro', sans-serif;
+
+  /* Primary */
+  --mp-badge-primary-bg: #D50000;
+  --mp-badge-primary-text: #FFFFFF;
+
+  /* Secondary */
+  --mp-badge-secondary-bg: #FFFFFF;
+  --mp-badge-secondary-text: #61646C;
+  --mp-badge-secondary-border: #CCCCCC;
+
+  /* Dot */
+  --mp-badge-dot-size: 8px;
+
+  /* Count — Small */
+  --mp-badge-count-sm-height: 14px;
+  --mp-badge-count-sm-min-width: 14px;
+  --mp-badge-count-sm-font-size: 8px;
+  --mp-badge-count-sm-font-weight: 600;
+  --mp-badge-count-sm-line-height: 10px;
+
+  /* Count — Medium */
+  --mp-badge-count-md-height: 19px;
+  --mp-badge-count-md-min-width: 19px;
+  --mp-badge-count-md-font-size: 10px;
+  --mp-badge-count-md-font-weight: 300;
+  --mp-badge-count-md-line-height: 1.5;
+  --mp-badge-count-md-padding: 2px 6px;
+
+  /* Transition */
+  --mp-badge-transition: transform 200ms ease, opacity 200ms ease;
+}
+
+/* ---- Base ---- */
+.mp-badge {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  font-family: var(--mp-badge-font-family);
+  box-sizing: border-box;
+  flex-shrink: 0;
+  transition: var(--mp-badge-transition);
+}
+
+/* ---- Positioning (when inside a relative parent) ---- */
+.mp-badge--positioned {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  z-index: 1;
+}
+
+/* ================================================================
+   DOT type
+   ================================================================ */
+.mp-badge--dot {
+  width: var(--mp-badge-dot-size);
+  height: var(--mp-badge-dot-size);
+  border-radius: 50%;
+}
+
+.mp-badge--dot.mp-badge--primary {
+  background: var(--mp-badge-primary-bg);
+}
+
+/* ================================================================
+   COUNT type — Small
+   ================================================================ */
+.mp-badge--count.mp-badge--small {
+  height: var(--mp-badge-count-sm-height);
+  min-width: var(--mp-badge-count-sm-min-width);
+  font-size: var(--mp-badge-count-sm-font-size);
+  font-weight: var(--mp-badge-count-sm-font-weight);
+  line-height: var(--mp-badge-count-sm-line-height);
+  border-radius: 64px;
+  padding: 0 2px;
+}
+
+.mp-badge--count.mp-badge--small.mp-badge--primary {
+  background: var(--mp-badge-primary-bg);
+  color: var(--mp-badge-primary-text);
+}
+
+.mp-badge--count.mp-badge--small.mp-badge--secondary {
+  background: var(--mp-badge-secondary-bg);
+  color: var(--mp-badge-secondary-text);
+  border: 1px solid var(--mp-badge-secondary-border);
+}
+
+/* ================================================================
+   COUNT type — Medium
+   ================================================================ */
+.mp-badge--count.mp-badge--medium {
+  height: var(--mp-badge-count-md-height);
+  min-width: var(--mp-badge-count-md-min-width);
+  font-size: var(--mp-badge-count-md-font-size);
+  font-weight: var(--mp-badge-count-md-font-weight);
+  line-height: var(--mp-badge-count-md-line-height);
+  border-radius: 64px;
+  padding: var(--mp-badge-count-md-padding);
+}
+
+.mp-badge--count.mp-badge--medium.mp-badge--primary {
+  background: var(--mp-badge-primary-bg);
+  color: var(--mp-badge-primary-text);
+}
+
+.mp-badge--count.mp-badge--medium.mp-badge--secondary {
+  background: var(--mp-badge-secondary-bg);
+  color: var(--mp-badge-secondary-text);
+  border: 1px solid var(--mp-badge-secondary-border);
+}
+
+/* ---- Hidden state ---- */
+.mp-badge--hidden {
+  transform: scale(0);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ---- Screen-reader only ---- */
+.mp-badge-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

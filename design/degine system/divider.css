@@ -1,0 +1,160 @@
+/* =============================================================================
+ * Manabi Pocket Design System — Divider
+ * Figma "ディバイダー" セクションから抽出。
+ * 値の変更は divider.md を更新してから行うこと。
+ * ============================================================================= */
+
+:root {
+  /* --- Line ------------------------------------------------------------- */
+  --mp-divider-color:           #E9EBEC;
+  --mp-divider-width:           1px;
+
+  /* --- Chip (accordion mode) -------------------------------------------- */
+  --mp-divider-chip-bg:         #FFFFFF;
+  --mp-divider-chip-border:     #DDE0E2;
+  --mp-divider-chip-radius:     100px;
+  --mp-divider-chip-padding:    4px 8px;
+  --mp-divider-chip-font-size:  14px;
+  --mp-divider-chip-font-weight: 300;
+  --mp-divider-chip-text:       #283148;
+
+  /* --- Chevron icon ----------------------------------------------------- */
+  --mp-divider-chevron-closed:  #61646C;
+  --mp-divider-chevron-open:    #909398;
+  --mp-divider-chevron-size:    24px;
+
+  /* --- Typography ------------------------------------------------------- */
+  --mp-divider-font:            'Hiragino Kaku Gothic Pro', 'ヒラギノ角ゴ Pro W3',
+                                'Meiryo', 'メイリオ', system-ui, sans-serif;
+  --mp-divider-line-height:     1.5;
+}
+
+/* =============================================================================
+ * Horizontal (default)
+ * ============================================================================= */
+
+.mp-divider {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  border: none;
+  margin: 0;
+  padding: 0;
+  font-family: var(--mp-divider-font);
+}
+
+.mp-divider--horizontal {
+  flex-direction: row;
+}
+
+.mp-divider__line {
+  flex: 1;
+  height: 0;
+  border: none;
+  border-top: var(--mp-divider-width) solid var(--mp-divider-color);
+}
+
+/* =============================================================================
+ * Vertical
+ * ============================================================================= */
+
+.mp-divider--vertical {
+  flex-direction: column;
+  width: auto;
+  align-self: stretch;
+}
+
+.mp-divider--vertical .mp-divider__line {
+  flex: 1;
+  width: 0;
+  height: auto;
+  border-top: none;
+  border-left: var(--mp-divider-width) solid var(--mp-divider-color);
+}
+
+/* =============================================================================
+ * Accordion chip
+ * ============================================================================= */
+
+.mp-divider__chip {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--mp-divider-chip-padding);
+  background: var(--mp-divider-chip-bg);
+  border: 1px solid var(--mp-divider-chip-border);
+  border-radius: var(--mp-divider-chip-radius);
+  font-family: var(--mp-divider-font);
+  font-size: var(--mp-divider-chip-font-size);
+  font-weight: var(--mp-divider-chip-font-weight);
+  line-height: var(--mp-divider-line-height);
+  color: var(--mp-divider-chip-text);
+  cursor: pointer;
+  white-space: nowrap;
+  gap: 0;
+  transition: background-color 120ms ease;
+  box-sizing: border-box;
+}
+
+.mp-divider__chip:hover {
+  background: #F5F7F8;
+}
+
+.mp-divider__chip:focus-visible {
+  outline: 2px solid #008299;
+  outline-offset: 2px;
+}
+
+/* No outline variant */
+.mp-divider__chip--plain {
+  border-color: transparent;
+  padding: 4px 8px;
+}
+
+.mp-divider__chip-label {
+  padding: 2px 6px;
+}
+
+.mp-divider__chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--mp-divider-chevron-size);
+  height: var(--mp-divider-chevron-size);
+  color: var(--mp-divider-chevron-closed);
+  transition: transform 200ms ease, color 120ms ease;
+}
+
+.mp-divider__chevron svg {
+  width: 100%;
+  height: 100%;
+}
+
+.mp-divider__chip[aria-expanded="true"] .mp-divider__chevron {
+  transform: rotate(180deg);
+  color: var(--mp-divider-chevron-open);
+}
+
+/* =============================================================================
+ * Accordion content
+ * ============================================================================= */
+
+.mp-divider__content {
+  overflow: hidden;
+  transition: max-height 250ms ease;
+}
+
+.mp-divider__content[data-state="closed"] {
+  max-height: 0;
+}
+
+.mp-divider__content[data-state="open"] {
+  max-height: 9999px; /* JS で実測値に差し替え推奨 */
+}
+
+/* =============================================================================
+ * Color override utility
+ * ============================================================================= */
+
+.mp-divider[style*="--mp-divider-color"] .mp-divider__line {
+  border-color: var(--mp-divider-color);
+}

@@ -1,0 +1,93 @@
+/* ==========================================================
+   ProgressBar — まなびポケット Design System
+   BEM: .mp-progressbar
+   ========================================================== */
+
+/* ---- Design Tokens ---- */
+:root {
+  --mp-progressbar-track-bg: #efefef;
+  --mp-progressbar-fill: #008299;
+  --mp-progressbar-text: #008299;
+  --mp-progressbar-track-radius: 100px;
+  --mp-progressbar-fill-radius: 100px;
+  --mp-progressbar-font-family: 'Hiragino Kaku Gothic Pro', 'Hiragino Sans',
+    'Noto Sans JP', sans-serif;
+}
+
+/* ---- Container ---- */
+.mp-progressbar {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  font-family: var(--mp-progressbar-font-family);
+}
+
+/* ---- Track ---- */
+.mp-progressbar__track {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--mp-progressbar-track-bg);
+  border-radius: var(--mp-progressbar-track-radius);
+}
+
+/* Size: md (default) */
+.mp-progressbar--md .mp-progressbar__track {
+  height: 8px;
+}
+
+/* Size: sm */
+.mp-progressbar--sm .mp-progressbar__track {
+  height: 4px;
+}
+
+/* ---- Fill ---- */
+.mp-progressbar__fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: var(--mp-progressbar-fill);
+  border-radius: var(--mp-progressbar-fill-radius);
+  transition: width 0.3s ease;
+}
+
+/* ---- Label (percentage text) ---- */
+.mp-progressbar__label {
+  flex-shrink: 0;
+  font-weight: 600;
+  line-height: 1.5;
+  text-align: right;
+  color: var(--mp-progressbar-text);
+}
+
+.mp-progressbar--md .mp-progressbar__label {
+  width: 56px;
+  font-size: 18px;
+}
+
+.mp-progressbar--sm .mp-progressbar__label {
+  width: 40px;
+  font-size: 14px;
+}
+
+/* ---- Indeterminate animation ---- */
+.mp-progressbar--indeterminate .mp-progressbar__fill {
+  width: 30%;
+  animation: mp-progressbar-slide 1.5s ease-in-out infinite;
+}
+
+@keyframes mp-progressbar-slide {
+  0% {
+    left: -30%;
+  }
+  50% {
+    left: 70%;
+  }
+  100% {
+    left: -30%;
+  }
+}

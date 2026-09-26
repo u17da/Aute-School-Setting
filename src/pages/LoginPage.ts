@@ -185,6 +185,73 @@ export class LoginPage extends BasePage {
   }
 
   /**
+   * 外部IdP (Google Workspace / Microsoft Entra ID 等) による自動ログイン
+   */
+  async loginWithExternalIdp(userId: string, password?: string, timeoutMs = 60000): Promise<void> {
+    if (!password) {
+      logger.info('外部IdP用パスワードが未設定のため、手動認証待機にフォールバックします');
+      await this.waitForExternalIdpLogin(timeoutMs);
+      return;
+    }
+
+    logger.info(`外部IdP画面で自動認証を実行中 (ユーザー: ${userId})`);
+
+    try {
+      // 1. メールアドレス / ユーザー名入力欄を特定
+      const idInput = this.page.locator(
+        '#identifierId, input[name="identifier"], input[type="email"], input[name*="loginfmt"], input[placeholder*="メール"], input[type="text"]:visible'
+      ).first();
+
+      await idInput.waitFor({ state: 'visible', timeout: 15000 });
+      await idInput.fill(userId);
+
+      // 「次へ」ボタン
+      const nextBtn = this.page.locator(
+        '#identifierNext button, button:has-text("次へ"), button:has-text("Next"), input[type="submit"]'
+      ).first();
+      await Promise.all([
+        this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {}),
+        nextBtn.click()
+      ]);
+
+      // 2. パスワード入力欄を特定
+      const pwInput = this.page.locator(
+        'input[type="password"]:visible, input[name="Passwd"], input[name="password"]'
+      ).first();
+      await pwInput.waitFor({ state: 'visible', timeout: 15000 });
+      await pwInput.fill(password);
+
+      // パスワード送信（次へ / サインイン）
+      const pwSubmitBtn = this.page.locator(
+        '#passwordNext button, button:has-text("次へ"), button:has-text("Next"), button:has-text("サインイン"), button:has-text("ログイン"), input[type="submit"]'
+      ).first();
+
+      await Promise.all([
+        this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {}),
+        pwSubmitBtn.click()
+      ]);
+
+      // 3. もし「サインインの状態を維持しますか？」(Entra ID) や確認画面が出た場合の処理
+      const staySignedInBtn = this.page.locator(
+        'input[type="submit"][value*="はい"], button:has-text("はい"), input[type="submit"][value*="Yes"], button:has-text("Yes")'
+      ).first();
+      if (await staySignedInBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await Promise.all([
+          this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {}),
+          staySignedInBtn.click()
+        ]);
+      }
+
+      // 4. まなびポケットへのリダイレクト完了を待機
+      await this.waitForLoginSuccess(timeoutMs);
+      logger.info('外部IdP自動認証が完了しました');
+    } catch (err: any) {
+      logger.warn(`外部IdP自動認証中に例外が発生しました: ${err.message}。手動待機にフォールバックします`);
+      await this.waitForExternalIdpLogin(timeoutMs);
+    }
+  }
+
+  /**
    * AUTH_MODE=B または 外部IdP連携時の待機 (Human-in-the-loop / MFA対応)
    */
   async waitForExternalIdpLogin(timeoutMs: number): Promise<void> {

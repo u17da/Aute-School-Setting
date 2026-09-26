@@ -1,0 +1,315 @@
+/* =============================================================================
+ * Manabi Pocket Design System — Button
+ * Figma仕様(2025/11)から抽出。値の変更は button.md を更新してから行うこと。
+ * ============================================================================= */
+
+:root {
+  /* --- Color tokens (Button専用) --------------------------------------- */
+
+  /* Primary */
+  --mp-btn-primary-default:    #008299;
+  --mp-btn-primary-hover:      #00606D;
+  --mp-btn-primary-active:     #00606D;
+  --mp-btn-primary-bg-hover:   #E1F7FD;  /* outline hover時の薄塗り */
+  --mp-btn-primary-bg-soft:    #EFFBFF;  /* icon hover時の薄塗り */
+
+  /* Negative (Grey) — 戻る/キャンセル用 */
+  --mp-btn-negative-default:   #878F96;
+  --mp-btn-negative-hover:     #717C86;
+  --mp-btn-negative-active:    #717C86;
+  --mp-btn-negative-bg-hover:  #EFEFEF;
+
+  /* Alert (Red) — 削除/破棄用 */
+  --mp-btn-alert-default:      #C53F3F;
+  --mp-btn-alert-hover:        #A7322F;
+  --mp-btn-alert-active:       #A7322F;
+  --mp-btn-alert-bg-hover:     #FCECEF;
+
+  /* Tertiary — 画像/動画オーバーレイ用 */
+  --mp-btn-tertiary-default:   rgba(0, 0, 0, 0.5);
+  --mp-btn-tertiary-bg-hover:  rgba(61, 73, 101, 0.2);
+
+  /* Disable */
+  --mp-btn-disable-bg:         #DFE6EB;
+  --mp-btn-disable-border:     #DFE6EB;
+  --mp-btn-disable-text:       #D7D7D7;
+
+  /* Text color (label) */
+  --mp-btn-text-on-color:      #FFFFFF;
+
+  /* --- Typography ------------------------------------------------------- */
+  --mp-btn-font-family: 'Hiragino Kaku Gothic Pro', 'ヒラギノ角ゴ Pro W3',
+                        'Meiryo', 'メイリオ', system-ui, sans-serif;
+  --mp-btn-font-weight: 600;
+  --mp-btn-line-height: 1.5;
+}
+
+/* =============================================================================
+ * Base
+ * ============================================================================= */
+
+.mp-btn {
+  /* layout */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex-shrink: 0;
+
+  /* reset */
+  appearance: none;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  user-select: none;
+
+  /* typography */
+  font-family: var(--mp-btn-font-family);
+  font-weight: var(--mp-btn-font-weight);
+  line-height: var(--mp-btn-line-height);
+  text-decoration: none;
+  white-space: nowrap;
+
+  /* transition */
+  transition: background-color 120ms ease, border-color 120ms ease,
+              color 120ms ease;
+}
+
+.mp-btn:focus-visible {
+  outline: 2px solid var(--mp-btn-primary-default);
+  outline-offset: 2px;
+}
+
+.mp-btn:disabled,
+.mp-btn[aria-disabled="true"] {
+  cursor: not-allowed;
+  pointer-events: auto;  /* hover で not-allowed カーソルを出すため */
+}
+
+/* アイコンサイズ（24/20）はsizeで切り替え */
+.mp-btn__icon { display: inline-flex; flex-shrink: 0; }
+.mp-btn--l .mp-btn__icon,
+.mp-btn--m .mp-btn__icon { width: 24px; height: 24px; }
+.mp-btn--s .mp-btn__icon,
+.mp-btn--ss .mp-btn__icon { width: 20px; height: 20px; }
+
+/* =============================================================================
+ * Sizes
+ * ============================================================================= */
+
+.mp-btn--l {
+  height: 48px;
+  min-width: 160px;
+  padding: 12px 16px;
+  font-size: 16px;
+  border-radius: 8px;
+}
+.mp-btn--m {
+  height: 40px;
+  min-width: 80px;
+  padding: 8px 16px;
+  font-size: 16px;
+  border-radius: 8px;
+}
+.mp-btn--s {
+  height: 32px;
+  min-width: 64px;
+  padding: 4px 12px;
+  font-size: 14px;
+  border-radius: 8px;
+}
+.mp-btn--ss {
+  height: 26px;
+  min-width: 64px;
+  padding: 4px 12px;
+  font-size: 12px;
+  border-radius: 6px;  /* SSのみ6px */
+}
+
+/* =============================================================================
+ * Variant: SOLID
+ * ============================================================================= */
+
+/* solid × primary */
+.mp-btn--solid.mp-btn--primary {
+  background-color: var(--mp-btn-primary-default);
+  color: var(--mp-btn-text-on-color);
+}
+.mp-btn--solid.mp-btn--primary:hover:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--mp-btn-primary-hover);
+}
+.mp-btn--solid.mp-btn--primary:active:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--mp-btn-primary-active);
+}
+
+/* solid × negative */
+.mp-btn--solid.mp-btn--negative {
+  background-color: var(--mp-btn-negative-default);
+  color: var(--mp-btn-text-on-color);
+}
+.mp-btn--solid.mp-btn--negative:hover:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--mp-btn-negative-hover);
+}
+.mp-btn--solid.mp-btn--negative:active:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--mp-btn-negative-active);
+}
+
+/* solid × alert */
+.mp-btn--solid.mp-btn--alert {
+  background-color: var(--mp-btn-alert-default);
+  color: var(--mp-btn-text-on-color);
+}
+.mp-btn--solid.mp-btn--alert:hover:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--mp-btn-alert-hover);
+}
+.mp-btn--solid.mp-btn--alert:active:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--mp-btn-alert-active);
+}
+
+/* solid × tertiary */
+.mp-btn--solid.mp-btn--tertiary {
+  background-color: var(--mp-btn-tertiary-default);
+  color: var(--mp-btn-text-on-color);
+}
+.mp-btn--solid.mp-btn--tertiary:hover:not(:disabled):not([aria-disabled="true"]) { opacity: 0.7; }
+.mp-btn--solid.mp-btn--tertiary:active:not(:disabled):not([aria-disabled="true"]) { opacity: 0.7; }
+
+/* solid × disable (color問わず共通) */
+.mp-btn--solid:disabled,
+.mp-btn--solid[aria-disabled="true"] {
+  background-color: var(--mp-btn-disable-bg);
+  color: var(--mp-btn-text-on-color);
+}
+
+/* =============================================================================
+ * Variant: OUTLINE
+ * ============================================================================= */
+
+.mp-btn--outline {
+  background-color: #FFFFFF;
+  border-style: solid;
+  border-width: 2px;
+}
+
+/* outline × primary */
+.mp-btn--outline.mp-btn--primary {
+  border-color: var(--mp-btn-primary-default);
+  color: var(--mp-btn-primary-default);
+}
+.mp-btn--outline.mp-btn--primary:hover:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--mp-btn-primary-bg-hover);
+  border-color: var(--mp-btn-primary-hover);
+  color: var(--mp-btn-primary-hover);
+}
+.mp-btn--outline.mp-btn--primary:active:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--mp-btn-primary-default);
+  border-color: var(--mp-btn-primary-default);
+  color: var(--mp-btn-text-on-color);
+}
+
+/* outline × negative */
+.mp-btn--outline.mp-btn--negative {
+  border-color: var(--mp-btn-negative-default);
+  color: var(--mp-btn-negative-default);
+}
+.mp-btn--outline.mp-btn--negative:hover:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--mp-btn-negative-bg-hover);
+  border-color: var(--mp-btn-negative-hover);
+  color: var(--mp-btn-negative-hover);
+}
+.mp-btn--outline.mp-btn--negative:active:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--mp-btn-negative-active);
+  border-color: var(--mp-btn-negative-active);
+  color: var(--mp-btn-text-on-color);
+}
+
+/* outline × alert */
+.mp-btn--outline.mp-btn--alert {
+  border-color: var(--mp-btn-alert-default);
+  color: var(--mp-btn-alert-default);
+}
+.mp-btn--outline.mp-btn--alert:hover:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--mp-btn-alert-bg-hover);
+  border-color: var(--mp-btn-alert-hover);
+  color: var(--mp-btn-alert-hover);
+}
+.mp-btn--outline.mp-btn--alert:active:not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--mp-btn-alert-active);
+  border-color: var(--mp-btn-alert-active);
+  color: var(--mp-btn-text-on-color);
+}
+
+/* outline × disable */
+.mp-btn--outline:disabled,
+.mp-btn--outline[aria-disabled="true"] {
+  background-color: #FFFFFF;
+  border-color: var(--mp-btn-disable-border);
+  color: var(--mp-btn-disable-text);
+}
+
+/* =============================================================================
+ * Variant: TEXT
+ * ============================================================================= */
+
+.mp-btn--text {
+  background-color: transparent;
+  padding-left: 4px;
+  padding-right: 4px;
+  border-radius: 4px;
+  min-width: 0;
+}
+
+/* text × primary */
+.mp-btn--text.mp-btn--primary { color: var(--mp-btn-primary-default); }
+.mp-btn--text.mp-btn--primary:hover:not(:disabled):not([aria-disabled="true"]) {
+  color: var(--mp-btn-primary-hover);
+}
+.mp-btn--text.mp-btn--primary:active:not(:disabled):not([aria-disabled="true"]) {
+  color: var(--mp-btn-primary-active);
+}
+
+/* text × tertiary (= dark grey label) */
+.mp-btn--text.mp-btn--tertiary { color: #61646C; }
+.mp-btn--text.mp-btn--tertiary:hover:not(:disabled):not([aria-disabled="true"]) {
+  color: #283148;
+}
+
+/* text × alert */
+.mp-btn--text.mp-btn--alert { color: var(--mp-btn-alert-default); }
+.mp-btn--text.mp-btn--alert:hover:not(:disabled):not([aria-disabled="true"]) {
+  color: var(--mp-btn-alert-hover);
+}
+
+/* text × disable */
+.mp-btn--text:disabled,
+.mp-btn--text[aria-disabled="true"] {
+  color: var(--mp-btn-disable-text);
+}
+
+/* =============================================================================
+ * Loading state (任意・スピナー)
+ * ============================================================================= */
+
+.mp-btn[data-loading="true"] {
+  position: relative;
+  color: transparent !important;
+  pointer-events: none;
+}
+.mp-btn[data-loading="true"]::after {
+  content: "";
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  color: var(--mp-btn-text-on-color);
+  animation: mp-btn-spin 600ms linear infinite;
+}
+.mp-btn--outline[data-loading="true"]::after,
+.mp-btn--text[data-loading="true"]::after {
+  color: var(--mp-btn-primary-default);
+}
+@keyframes mp-btn-spin {
+  to { transform: rotate(360deg); }
+}

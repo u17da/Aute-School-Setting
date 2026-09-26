@@ -1,0 +1,258 @@
+/* ==========================================================
+   SideMenu — まなびポケット Design System
+   BEM: .mp-sidemenu / .mp-sidemenu-item
+   ========================================================== */
+
+/* ---- Design Tokens ---- */
+:root {
+  /* Backgrounds */
+  --mp-sidemenu-bg-enabled: #ffffff;
+  --mp-sidemenu-bg-hover: #f5f7f8;
+  --mp-sidemenu-bg-active: #effbff;
+  --mp-sidemenu-bg-section: #f5f7f8;
+
+  /* Text */
+  --mp-sidemenu-text-primary: #283148;
+  --mp-sidemenu-text-secondary: #61646c;
+  --mp-sidemenu-text-active: #00606d;
+
+  /* Icons */
+  --mp-sidemenu-icon-default: #61646c;
+  --mp-sidemenu-icon-active: #008299;
+
+  /* Badge */
+  --mp-sidemenu-badge-bg: #d50000;
+  --mp-sidemenu-badge-text: #ffffff;
+
+  /* Nav variant */
+  --mp-sidemenu-nav-border: #3d4965;
+
+  /* Focus */
+  --mp-sidemenu-focus-ring: #008299;
+
+  /* Font */
+  --mp-sidemenu-font-family: 'Hiragino Kaku Gothic Pro', 'Hiragino Sans',
+    'Noto Sans JP', sans-serif;
+}
+
+/* ---- Container ---- */
+.mp-sidemenu {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+  font-family: var(--mp-sidemenu-font-family);
+}
+
+/* ---- Base Item ---- */
+.mp-sidemenu-item {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: none;
+  cursor: pointer;
+  text-decoration: none;
+  color: var(--mp-sidemenu-text-primary);
+  background: var(--mp-sidemenu-bg-enabled);
+  font-family: inherit;
+  font-weight: 300;
+  font-size: 14px;
+  line-height: 1.5;
+  box-sizing: border-box;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.mp-sidemenu-item:focus-visible {
+  outline: 2px solid var(--mp-sidemenu-focus-ring);
+  outline-offset: -2px;
+  border-radius: 2px;
+}
+
+/* ---- Size: md (default) ---- */
+.mp-sidemenu-item--md {
+  padding: 8px 16px;
+  min-height: 40px;
+}
+
+.mp-sidemenu-item--md.mp-sidemenu-item--title,
+.mp-sidemenu-item--md.mp-sidemenu-item--accordion,
+.mp-sidemenu-item--md.mp-sidemenu-item--name {
+  padding: 16px;
+  min-height: 56px;
+}
+
+.mp-sidemenu-item--md.mp-sidemenu-item--section {
+  padding: 4px 16px;
+  min-height: 26px;
+}
+
+/* ---- Size: sm ---- */
+.mp-sidemenu-item--sm {
+  padding: 8px 16px;
+  min-height: 40px;
+}
+
+.mp-sidemenu-item--sm.mp-sidemenu-item--title,
+.mp-sidemenu-item--sm.mp-sidemenu-item--accordion,
+.mp-sidemenu-item--sm.mp-sidemenu-item--name {
+  padding: 12px 16px;
+  min-height: 48px;
+}
+
+.mp-sidemenu-item--sm.mp-sidemenu-item--section {
+  padding: 4px 16px;
+  min-height: 26px;
+}
+
+/* ---- Variant: section ---- */
+.mp-sidemenu-item--section {
+  background: var(--mp-sidemenu-bg-section);
+  font-size: 12px;
+  font-weight: 300;
+  cursor: default;
+  pointer-events: none;
+}
+
+/* ---- Variant: title ---- */
+.mp-sidemenu-item--title {
+  font-weight: 600;
+  font-size: 16px;
+}
+
+.mp-sidemenu-item--sm.mp-sidemenu-item--title {
+  font-size: 14px;
+}
+
+/* ---- Variant: accordion ---- */
+.mp-sidemenu-item--accordion {
+  font-weight: 600;
+  font-size: 16px;
+}
+
+.mp-sidemenu-item--sm.mp-sidemenu-item--accordion {
+  font-size: 14px;
+}
+
+/* ---- Variant: default ---- */
+.mp-sidemenu-item--default {
+  font-weight: 300;
+  font-size: 14px;
+}
+
+/* ---- Variant: name ---- */
+.mp-sidemenu-item--name {
+  font-weight: 300;
+  font-size: 14px;
+}
+
+/* ---- Variant: nav ---- */
+.mp-sidemenu-item--nav {
+  padding: 8px 12px;
+  min-height: 40px;
+  min-width: 160px;
+  font-weight: 300;
+  font-size: 16px;
+  border-bottom: 1px solid var(--mp-sidemenu-nav-border);
+}
+
+/* ---- States: hover ---- */
+.mp-sidemenu-item:not(.mp-sidemenu-item--section):hover {
+  background: var(--mp-sidemenu-bg-hover);
+}
+
+/* ---- States: active (current page) ---- */
+.mp-sidemenu-item--active {
+  background: var(--mp-sidemenu-bg-active);
+  color: var(--mp-sidemenu-text-active);
+}
+
+.mp-sidemenu-item--active:hover {
+  background: var(--mp-sidemenu-bg-active);
+}
+
+/* ---- Icon: chevron / arrow ---- */
+.mp-sidemenu-item__icon {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--mp-sidemenu-icon-default);
+}
+
+.mp-sidemenu-item--active .mp-sidemenu-item__icon {
+  color: var(--mp-sidemenu-icon-active);
+}
+
+/* Chevron right — pushed to the end */
+.mp-sidemenu-item__chevron {
+  margin-left: auto;
+}
+
+/* Accordion arrow */
+.mp-sidemenu-item__arrow {
+  transition: transform 0.2s ease;
+}
+
+.mp-sidemenu-item__arrow--open {
+  transform: rotate(180deg);
+}
+
+/* ---- Label ---- */
+.mp-sidemenu-item__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- Sub-label (e.g. "1時間目") ---- */
+.mp-sidemenu-item__sublabel {
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--mp-sidemenu-text-secondary);
+}
+
+.mp-sidemenu-item--active .mp-sidemenu-item__sublabel {
+  color: var(--mp-sidemenu-text-active);
+}
+
+/* ---- Avatar (name variant) ---- */
+.mp-sidemenu-item__avatar {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+/* ---- Badge ---- */
+.mp-sidemenu-item__badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 19px;
+  height: 19px;
+  padding: 2px 6px;
+  background: var(--mp-sidemenu-badge-bg);
+  color: var(--mp-sidemenu-badge-text);
+  font-size: 10px;
+  font-weight: 300;
+  line-height: 1.5;
+  border-radius: 64px;
+  box-sizing: border-box;
+}
+
+/* ---- Nav variant arrow icon ---- */
+.mp-sidemenu-item--nav .mp-sidemenu-item__icon {
+  color: var(--mp-sidemenu-text-primary);
+}

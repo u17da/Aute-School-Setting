@@ -1,0 +1,158 @@
+/* =========================================================================
+   Tooltip — まなびポケット Design System
+   ========================================================================= */
+
+:root {
+  --mp-tooltip-bg: rgba(97, 97, 97, 0.9);
+  --mp-tooltip-text: #FFFFFF;
+  --mp-tooltip-font-family: 'Hiragino Kaku Gothic Pro', sans-serif;
+  --mp-tooltip-font-size: 10px;
+  --mp-tooltip-font-weight: 300;
+  --mp-tooltip-line-height: 1.5;
+  --mp-tooltip-padding: 4px 8px;
+  --mp-tooltip-radius: 4px;
+  --mp-tooltip-arrow-width: 12px;
+  --mp-tooltip-arrow-height: 6px;
+  --mp-tooltip-gap: 4px;
+  --mp-tooltip-z-index: 1000;
+  --mp-tooltip-transition: opacity 150ms ease, transform 150ms ease;
+}
+
+/* ---- Wrapper (inline around trigger) ---- */
+.mp-tooltip-wrapper {
+  position: relative;
+  display: inline-flex;
+}
+
+/* ---- Tooltip body ---- */
+.mp-tooltip {
+  position: absolute;
+  z-index: var(--mp-tooltip-z-index);
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+  transition: var(--mp-tooltip-transition);
+}
+
+.mp-tooltip--hidden {
+  opacity: 0;
+  transform: scale(0.95);
+  pointer-events: none;
+}
+
+.mp-tooltip--visible {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+}
+
+/* ---- Content box ---- */
+.mp-tooltip__content {
+  background: var(--mp-tooltip-bg);
+  color: var(--mp-tooltip-text);
+  font-family: var(--mp-tooltip-font-family);
+  font-size: var(--mp-tooltip-font-size);
+  font-weight: var(--mp-tooltip-font-weight);
+  line-height: var(--mp-tooltip-line-height);
+  padding: var(--mp-tooltip-padding);
+  border-radius: var(--mp-tooltip-radius);
+  white-space: nowrap;
+}
+
+/* ---- Arrow ---- */
+.mp-tooltip__arrow {
+  width: 0;
+  height: 0;
+  flex-shrink: 0;
+}
+
+/* ================================================================
+   Direction: UP (tooltip above trigger, arrow points down)
+   ================================================================ */
+.mp-tooltip--up {
+  bottom: calc(100% + var(--mp-tooltip-gap));
+  flex-direction: column;
+}
+
+.mp-tooltip--up .mp-tooltip__arrow {
+  border-left: calc(var(--mp-tooltip-arrow-width) / 2) solid transparent;
+  border-right: calc(var(--mp-tooltip-arrow-width) / 2) solid transparent;
+  border-top: var(--mp-tooltip-arrow-height) solid var(--mp-tooltip-bg);
+}
+
+/* Position within UP */
+.mp-tooltip--up.mp-tooltip--center { left: 50%; transform: translateX(-50%); }
+.mp-tooltip--up.mp-tooltip--center.mp-tooltip--visible { transform: translateX(-50%) scale(1); }
+.mp-tooltip--up.mp-tooltip--left { left: 0; }
+.mp-tooltip--up.mp-tooltip--left .mp-tooltip__arrow { align-self: flex-start; margin-left: 8px; }
+.mp-tooltip--up.mp-tooltip--right { right: 0; }
+.mp-tooltip--up.mp-tooltip--right .mp-tooltip__arrow { align-self: flex-end; margin-right: 8px; }
+
+/* ================================================================
+   Direction: DOWN (tooltip below trigger, arrow points up)
+   ================================================================ */
+.mp-tooltip--down {
+  top: calc(100% + var(--mp-tooltip-gap));
+  flex-direction: column-reverse;
+}
+
+.mp-tooltip--down .mp-tooltip__arrow {
+  border-left: calc(var(--mp-tooltip-arrow-width) / 2) solid transparent;
+  border-right: calc(var(--mp-tooltip-arrow-width) / 2) solid transparent;
+  border-bottom: var(--mp-tooltip-arrow-height) solid var(--mp-tooltip-bg);
+}
+
+.mp-tooltip--down.mp-tooltip--center { left: 50%; transform: translateX(-50%); }
+.mp-tooltip--down.mp-tooltip--center.mp-tooltip--visible { transform: translateX(-50%) scale(1); }
+.mp-tooltip--down.mp-tooltip--left { left: 0; }
+.mp-tooltip--down.mp-tooltip--left .mp-tooltip__arrow { align-self: flex-start; margin-left: 8px; }
+.mp-tooltip--down.mp-tooltip--right { right: 0; }
+.mp-tooltip--down.mp-tooltip--right .mp-tooltip__arrow { align-self: flex-end; margin-right: 8px; }
+
+/* ================================================================
+   Direction: RIGHT (tooltip to the right)
+   ================================================================ */
+.mp-tooltip--right-dir {
+  left: calc(100% + var(--mp-tooltip-gap));
+  top: 50%;
+  transform: translateY(-50%);
+  flex-direction: row;
+}
+
+.mp-tooltip--right-dir.mp-tooltip--visible { transform: translateY(-50%) scale(1); }
+
+.mp-tooltip--right-dir .mp-tooltip__arrow {
+  border-top: calc(var(--mp-tooltip-arrow-width) / 2) solid transparent;
+  border-bottom: calc(var(--mp-tooltip-arrow-width) / 2) solid transparent;
+  border-right: var(--mp-tooltip-arrow-height) solid var(--mp-tooltip-bg);
+}
+
+/* ================================================================
+   Direction: LEFT (tooltip to the left)
+   ================================================================ */
+.mp-tooltip--left-dir {
+  right: calc(100% + var(--mp-tooltip-gap));
+  top: 50%;
+  transform: translateY(-50%);
+  flex-direction: row-reverse;
+}
+
+.mp-tooltip--left-dir.mp-tooltip--visible { transform: translateY(-50%) scale(1); }
+
+.mp-tooltip--left-dir .mp-tooltip__arrow {
+  border-top: calc(var(--mp-tooltip-arrow-width) / 2) solid transparent;
+  border-bottom: calc(var(--mp-tooltip-arrow-width) / 2) solid transparent;
+  border-left: var(--mp-tooltip-arrow-height) solid var(--mp-tooltip-bg);
+}
+
+/* ================================================================
+   Direction: NONE (no arrow)
+   ================================================================ */
+.mp-tooltip--none {
+  bottom: calc(100% + var(--mp-tooltip-gap));
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.mp-tooltip--none.mp-tooltip--visible { transform: translateX(-50%) scale(1); }
+.mp-tooltip--none .mp-tooltip__arrow { display: none; }

@@ -20,8 +20,9 @@ export function validateGlobalGateAndBuildManifest(params: {
   currentValidationSnapshot: ValidationSnapshot | null;
   summaryPath?: string;
   summaryReport?: any; // 詳細な actions や expectedFinalState が格納された summary
+  allowDestructive?: boolean;
 }): ApplyTargetManifest {
-  const { preflightReport, activeProfileSnapshot, currentValidationSnapshot, summaryReport } = params;
+  const { preflightReport, activeProfileSnapshot, currentValidationSnapshot, summaryReport, allowDestructive = false } = params;
 
   // 1. Snapshot / Preflight 存在確認
   if (!activeProfileSnapshot) {
@@ -103,10 +104,12 @@ export function validateGlobalGateAndBuildManifest(params: {
       continue;
     }
 
-    // 破壊的変更校の自動除外 (指示2: SKIPPED_DESTRUCTIVE)
+    // 破壊的変更校の自動除外 (allowDestructive が false の場合のみスキップ)
     if (s.hasDestructiveChanges) {
-      skippedDestructiveCount++;
-      continue;
+      if (!allowDestructive) {
+        skippedDestructiveCount++;
+        continue;
+      }
     }
 
     // 設定変更なし校の除外 (指示4: ALREADY_CONFIGURED)

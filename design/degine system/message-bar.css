@@ -1,0 +1,109 @@
+/* =============================================================================
+ * Manabi Pocket Design System — MessageBar
+ * Figma "MessageBar" セクションから抽出。
+ * 値の変更は message-bar.md を更新してから行うこと。
+ * ============================================================================= */
+
+:root {
+  /* --- Color variants --------------------------------------------------- */
+  --mp-mbar-alert-bg:    #C53F3F;
+  --mp-mbar-black-bg:    #283148;
+  --mp-mbar-text:        #FFFFFF;
+  --mp-mbar-close:       #FFFFFF;
+
+  /* --- Layout ----------------------------------------------------------- */
+  --mp-mbar-height:      48px;
+  --mp-mbar-padding:     12px 20px;
+  --mp-mbar-gap:         20px;
+
+  /* --- Typography ------------------------------------------------------- */
+  --mp-mbar-font:        'Hiragino Kaku Gothic Pro', 'ヒラギノ角ゴ Pro W3',
+                         'Meiryo', 'メイリオ', system-ui, sans-serif;
+  --mp-mbar-font-size:   16px;
+  --mp-mbar-font-weight: 300;
+  --mp-mbar-line-height: 1.5;
+
+  /* --- Close icon ------------------------------------------------------- */
+  --mp-mbar-close-size:  24px;
+}
+
+/* =============================================================================
+ * Base
+ * ============================================================================= */
+
+.mp-mbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: var(--mp-mbar-height);
+  padding: var(--mp-mbar-padding);
+  gap: var(--mp-mbar-gap);
+  font-family: var(--mp-mbar-font);
+  font-size: var(--mp-mbar-font-size);
+  font-weight: var(--mp-mbar-font-weight);
+  line-height: var(--mp-mbar-line-height);
+  color: var(--mp-mbar-text);
+  box-sizing: border-box;
+}
+
+/* =============================================================================
+ * Color variants
+ * ============================================================================= */
+
+.mp-mbar--alert { background: var(--mp-mbar-alert-bg); }
+.mp-mbar--black { background: var(--mp-mbar-black-bg); }
+
+/* =============================================================================
+ * Text
+ * ============================================================================= */
+
+.mp-mbar__text {
+  flex: 1;
+  text-align: center;
+  min-width: 0;
+}
+
+/* =============================================================================
+ * Close button
+ * ============================================================================= */
+
+.mp-mbar__close {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--mp-mbar-close-size);
+  height: var(--mp-mbar-close-size);
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--mp-mbar-close);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: opacity 120ms ease;
+}
+
+.mp-mbar__close:hover {
+  opacity: 0.8;
+}
+
+.mp-mbar__close:focus-visible {
+  outline: 2px solid var(--mp-mbar-text);
+  outline-offset: 2px;
+}
+
+.mp-mbar__close svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* =============================================================================
+ * Sticky positioning (opt-in via container)
+ * ============================================================================= */
+
+.mp-mbar--sticky {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+}

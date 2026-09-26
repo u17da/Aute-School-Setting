@@ -80,15 +80,6 @@ export async function runSchoolProduction(params: ProductionSchoolRunParams): Pr
     resultManager.setSchoolInfo(schoolCode, schoolName);
     resultManager.setHashes(desiredSettings, executionOptions);
 
-    // 指示13: AUTH_MODE=B は本番・Batch適用禁止
-    if (executionOptions.authMode !== 'A') {
-      throw new AutomationError(
-        'UNSAFE_CONFIGURATION',
-        `Production Runnerでは AUTH_MODE=A のみが許可されています (指定: ${executionOptions.authMode})`,
-        { authMode: executionOptions.authMode }
-      );
-    }
-
     // 1学校1Contextの作成 (指示12)
     browser = await chromium.launch({
       headless: executionOptions.headless,
@@ -105,11 +96,12 @@ export async function runSchoolProduction(params: ProductionSchoolRunParams): Pr
     );
     resultManager.setAuthObservation(authObs);
 
-    if (authObs.resolvedProvider !== 'LOCAL' || authObs.externalIdpDetected) {
+    // 外部IdPかつ studentPasswordChange が SHOW の場合は安全のため禁止
+    if (authObs.externalIdpDetected && desiredSettings.studentPasswordChange === 'SHOW') {
       throw new AutomationError(
         'UNSAFE_CONFIGURATION',
-        `LOCAL認証以外の外部IdPが検出されたため実行を中止します (Provider: ${authObs.resolvedProvider}, 外部IdP: ${authObs.externalIdpDetected})`,
-        { authObs }
+        '外部IdP連携環境では児童・生徒へのパスワード変更表示(SHOW)は許可されません',
+        { authObs, studentPasswordChange: 'SHOW' }
       );
     }
 
@@ -118,7 +110,12 @@ export async function runSchoolProduction(params: ProductionSchoolRunParams): Pr
     if (!actualPassword) {
       throw new AutomationError('LOGIN_FAILED', 'ログインパスワードが提供されていません');
     }
-    await loginPage.loginWithLocalPassword(userId, actualPassword);
+
+    if (authObs.resolvedProvider === 'LOCAL' && executionOptions.authMode === 'A') {
+      await loginPage.loginWithLocalPassword(userId, actualPassword);
+    } else {
+      await loginPage.loginWithExternalIdp(userId, actualPassword, envConfig.externalIdpTimeoutMs);
+    }
     safetyContext.authenticationCompleted = true;
     safetyContext.pageType = 'HOME';
 

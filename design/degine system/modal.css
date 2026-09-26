@@ -1,0 +1,262 @@
+/* =============================================================================
+ * Manabi Pocket Design System — Modal
+ * Figma "モーダル" セクションから抽出。
+ * 値の変更は modal.md を更新してから行うこと。
+ * ============================================================================= */
+
+:root {
+  /* --- Overlay ---------------------------------------------------------- */
+  --mp-modal-overlay:        rgba(0, 0, 0, 0.5);
+
+  /* --- Surface ---------------------------------------------------------- */
+  --mp-modal-bg:             #FFFFFF;
+  --mp-modal-shadow:         0px 2px 12px rgba(0, 0, 0, 0.1);
+  --mp-modal-radius:         8px;
+  --mp-modal-padding:        24px;
+
+  /* --- Sizes (width) ---------------------------------------------------- */
+  --mp-modal-width-sm:       444px;
+  --mp-modal-width-md:       600px;
+  --mp-modal-width-lg:       800px;
+  --mp-modal-min-width:      444px;
+  --mp-modal-min-height:     200px;
+  --mp-modal-max-height:     80vh;
+
+  /* --- Typography ------------------------------------------------------- */
+  --mp-modal-font:           'Hiragino Kaku Gothic Pro', 'ヒラギノ角ゴ Pro W3',
+                             'Meiryo', 'メイリオ', system-ui, sans-serif;
+  --mp-modal-title-size:     16px;
+  --mp-modal-title-weight:   600;
+  --mp-modal-body-size:      14px;
+  --mp-modal-body-weight:    300;
+  --mp-modal-line-height:    1.5;
+
+  /* --- Colors ----------------------------------------------------------- */
+  --mp-modal-text:           #283148;
+  --mp-modal-text-secondary: #757575;
+  --mp-modal-close:          #61646C;
+  --mp-modal-slot-bg:        #EDF0F2;
+
+  /* --- Icon colors (style variants) ------------------------------------- */
+  --mp-modal-icon-info:      #0083B1;
+  --mp-modal-icon-success:   #388E3C;
+  --mp-modal-icon-error:     #C53F3F;
+  --mp-modal-icon-warning:   #EF6C00;
+
+  /* --- Button tokens (matches Button component) ------------------------- */
+  --mp-modal-btn-primary:    #008299;
+  --mp-modal-btn-negative:   #878F96;
+  --mp-modal-btn-radius:     8px;
+
+  /* --- Gap -------------------------------------------------------------- */
+  --mp-modal-gap-default:    24px;
+  --mp-modal-gap-compact:    16px;
+
+  /* --- Animation -------------------------------------------------------- */
+  --mp-modal-duration-in:    200ms;
+  --mp-modal-duration-out:   150ms;
+}
+
+/* =============================================================================
+ * Overlay
+ * ============================================================================= */
+
+.mp-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--mp-modal-overlay);
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: mp-modal-fade-in var(--mp-modal-duration-in) ease-out;
+}
+
+.mp-modal-overlay--closing {
+  animation: mp-modal-fade-out var(--mp-modal-duration-out) ease-in forwards;
+}
+
+/* =============================================================================
+ * Panel
+ * ============================================================================= */
+
+.mp-modal {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: var(--mp-modal-min-width);
+  min-height: var(--mp-modal-min-height);
+  max-height: var(--mp-modal-max-height);
+  padding: var(--mp-modal-padding);
+  gap: var(--mp-modal-gap-compact);
+  background: var(--mp-modal-bg);
+  box-shadow: var(--mp-modal-shadow);
+  border-radius: var(--mp-modal-radius);
+  font-family: var(--mp-modal-font);
+  color: var(--mp-modal-text);
+  box-sizing: border-box;
+  animation: mp-modal-scale-in var(--mp-modal-duration-in) ease-out;
+}
+
+.mp-modal--default { gap: var(--mp-modal-gap-default); }
+
+/* --- Size modifiers ----------------------------------------------------- */
+
+.mp-modal--sm { width: var(--mp-modal-width-sm); }
+.mp-modal--md { width: var(--mp-modal-width-md); }
+.mp-modal--lg { width: var(--mp-modal-width-lg); }
+
+/* --- Responsive cap ----------------------------------------------------- */
+
+@media (max-width: 480px) {
+  .mp-modal { width: 90vw !important; min-width: 0; }
+}
+
+/* =============================================================================
+ * Header
+ * ============================================================================= */
+
+.mp-modal__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.mp-modal__header-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.mp-modal__icon {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mp-modal__icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* Style-based icon colors */
+.mp-modal--info    .mp-modal__icon { color: var(--mp-modal-icon-info); }
+.mp-modal--success .mp-modal__icon { color: var(--mp-modal-icon-success); }
+.mp-modal--error   .mp-modal__icon { color: var(--mp-modal-icon-error); }
+.mp-modal--warning .mp-modal__icon { color: var(--mp-modal-icon-warning); }
+
+.mp-modal__title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--mp-modal-title-size);
+  font-weight: var(--mp-modal-title-weight);
+  line-height: var(--mp-modal-line-height);
+  margin: 0;
+}
+
+/* =============================================================================
+ * Close button
+ * ============================================================================= */
+
+.mp-modal__close {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--mp-modal-close);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background-color 120ms ease;
+}
+
+.mp-modal__close:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.mp-modal__close:focus-visible {
+  outline: 2px solid var(--mp-modal-btn-primary);
+  outline-offset: 2px;
+}
+
+.mp-modal__close svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* =============================================================================
+ * Body
+ * ============================================================================= */
+
+.mp-modal__body {
+  font-size: var(--mp-modal-body-size);
+  font-weight: var(--mp-modal-body-weight);
+  line-height: var(--mp-modal-line-height);
+  overflow-y: auto;
+}
+
+/* Content slot (grey placeholder area) */
+.mp-modal__slot {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 36px;
+  background: var(--mp-modal-slot-bg);
+  border-radius: var(--mp-modal-radius);
+  min-height: 96px;
+}
+
+/* =============================================================================
+ * Footer
+ * ============================================================================= */
+
+.mp-modal__footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+}
+
+.mp-modal__footer-left {
+  flex: 1;
+}
+
+.mp-modal__footer-buttons {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+/* =============================================================================
+ * Animation
+ * ============================================================================= */
+
+@keyframes mp-modal-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes mp-modal-fade-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+
+@keyframes mp-modal-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

@@ -1,0 +1,239 @@
+/* ==========================================================================
+   Chip — まなびポケット Design System
+   ステータス／フィルタ／補助アクション用ピル
+   ========================================================================== */
+
+:root {
+  /* Brand palette (Button と共通) */
+  --mp-chip-primary: #008299;
+  --mp-chip-primary-hover: #00606D;
+  --mp-chip-primary-active: #00606D;
+  --mp-chip-primary-bg: #F2FAFC;
+  --mp-chip-primary-bg-hover: #EFFBFF;
+
+  /* Neutral / outline */
+  --mp-chip-border-white: #DDE0E2;
+  --mp-chip-bg-white-hover: #F5F7F8;
+
+  /* Disabled */
+  --mp-chip-disabled-bg: #EDF0F2;
+  --mp-chip-disabled-text: #909398;
+  --mp-chip-disabled-border: #CCCCCC;
+  --mp-chip-disabled-opacity: 0.38;
+
+  /* Text */
+  --mp-chip-text: #283148;
+  --mp-chip-text-secondary: #61646C;
+
+  /* Notification (重要) — 出欠などで使用 */
+  --mp-chip-alert: #C53F3F;
+
+  /* Shape */
+  --mp-chip-radius: 100px; /* full-pill */
+  --mp-chip-radius-attendance: 14px;
+
+  /* Typography */
+  --mp-chip-font-family: 'Hiragino Kaku Gothic Pro', sans-serif;
+  --mp-chip-line-height: 1.5;
+  --mp-chip-font-weight: 600;
+}
+
+/* --------------------------------------------------------------------------
+   Base
+   -------------------------------------------------------------------------- */
+
+.mp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: var(--mp-chip-radius);
+  background: transparent;
+  font-family: var(--mp-chip-font-family);
+  font-weight: var(--mp-chip-font-weight);
+  line-height: var(--mp-chip-line-height);
+  color: var(--mp-chip-text);
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+  white-space: nowrap;
+}
+
+.mp-chip:focus { outline: none; }
+.mp-chip:focus-visible {
+  outline: 2px solid var(--mp-chip-primary);
+  outline-offset: 2px;
+}
+
+/* --------------------------------------------------------------------------
+   Sizes
+   -------------------------------------------------------------------------- */
+
+.mp-chip--size-l {
+  height: 36px;
+  padding: 4px 8px;
+  font-size: 16px;
+}
+
+.mp-chip--size-m {
+  height: 32px;
+  padding: 4px 8px;
+  font-size: 14px;
+  font-weight: 300;
+}
+
+.mp-chip--size-s {
+  height: 21px;
+  padding: 0 8px;
+  font-size: 14px;
+  font-weight: 300;
+}
+
+/* --------------------------------------------------------------------------
+   Variants × Colors
+   -------------------------------------------------------------------------- */
+
+/* Primary × Filled (default) */
+.mp-chip--primary.mp-chip--filled {
+  background: var(--mp-chip-primary-bg);
+  color: var(--mp-chip-text);
+}
+.mp-chip--primary.mp-chip--filled:hover {
+  background: var(--mp-chip-primary-bg-hover);
+}
+.mp-chip--primary.mp-chip--filled:active,
+.mp-chip--primary.mp-chip--filled.is-active {
+  background: var(--mp-chip-primary-bg-hover);
+  color: var(--mp-chip-primary-active);
+}
+
+/* Primary × Outlined */
+.mp-chip--primary.mp-chip--outlined {
+  background: #FFFFFF;
+  border: 1px solid var(--mp-chip-primary);
+  color: var(--mp-chip-text);
+}
+.mp-chip--primary.mp-chip--outlined:hover {
+  background: var(--mp-chip-primary-bg-hover);
+}
+.mp-chip--primary.mp-chip--outlined:active,
+.mp-chip--primary.mp-chip--outlined.is-active {
+  background: var(--mp-chip-primary-bg-hover);
+  color: var(--mp-chip-primary-active);
+}
+
+/* White × Filled */
+.mp-chip--white.mp-chip--filled {
+  background: #FFFFFF;
+  color: var(--mp-chip-text);
+}
+.mp-chip--white.mp-chip--filled:hover,
+.mp-chip--white.mp-chip--filled:active {
+  background: #FFFFFF;
+}
+
+/* White × Outlined */
+.mp-chip--white.mp-chip--outlined {
+  background: #FFFFFF;
+  border: 1px solid var(--mp-chip-border-white);
+  color: var(--mp-chip-text);
+}
+.mp-chip--white.mp-chip--outlined:hover {
+  background: var(--mp-chip-bg-white-hover);
+}
+.mp-chip--white.mp-chip--outlined:active,
+.mp-chip--white.mp-chip--outlined.is-active {
+  background: var(--mp-chip-bg-white-hover);
+}
+
+/* --------------------------------------------------------------------------
+   Disabled
+   -------------------------------------------------------------------------- */
+
+.mp-chip[disabled],
+.mp-chip[aria-disabled='true'],
+.mp-chip.is-disabled {
+  background: var(--mp-chip-disabled-bg);
+  color: var(--mp-chip-disabled-text);
+  opacity: var(--mp-chip-disabled-opacity);
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.mp-chip--outlined[disabled],
+.mp-chip--outlined[aria-disabled='true'],
+.mp-chip--outlined.is-disabled {
+  background: #FFFFFF;
+  border-color: var(--mp-chip-disabled-border);
+  color: var(--mp-chip-disabled-text);
+}
+
+/* --------------------------------------------------------------------------
+   Icons & label
+   -------------------------------------------------------------------------- */
+
+.mp-chip__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.mp-chip--size-l .mp-chip__icon { width: 24px; height: 24px; }
+.mp-chip--size-m .mp-chip__icon { width: 20px; height: 20px; }
+.mp-chip--size-s .mp-chip__icon { width: 16px; height: 16px; }
+
+.mp-chip__label {
+  display: inline-flex;
+  padding: 2px 6px;
+}
+
+/* 削除ボタンとして独立した click target */
+.mp-chip__delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-left: 2px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--mp-chip-text-secondary);
+  cursor: pointer;
+}
+.mp-chip__delete:hover { color: var(--mp-chip-text); }
+.mp-chip__delete:focus-visible {
+  outline: 2px solid var(--mp-chip-primary);
+  outline-offset: 1px;
+}
+
+/* --------------------------------------------------------------------------
+   Chips/Attendance — 出欠表示
+   -------------------------------------------------------------------------- */
+
+.mp-chip-attendance {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 15px;
+  min-width: 30px;
+  padding: 0 4px;
+  background: #FFFFFF;
+  border: 1px solid;
+  border-radius: var(--mp-chip-radius-attendance);
+  font-family: var(--mp-chip-font-family);
+  font-weight: 600;
+  font-size: 8px;
+  line-height: 1.5;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.mp-chip-attendance--present { border-color: #008299; color: #008299; }
+.mp-chip-attendance--late    { border-color: #C97CCB; color: #C97CCB; }
+.mp-chip-attendance--early   { border-color: #A3CB7C; color: #A3CB7C; }
+.mp-chip-attendance--absent  { border-color: #C53F3F; color: #C53F3F; }
+.mp-chip-attendance--other   { border-color: #909398; color: #909398; }

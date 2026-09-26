@@ -1,0 +1,175 @@
+/* ==========================================================================
+   Label — まなびポケット Design System
+   カテゴリ・ステータスを表示するだけの受動的コンポーネント（操作不可）
+   ========================================================================== */
+
+:root {
+  /* Color tokens */
+  --mp-label-gray:           #444749;
+  --mp-label-blue:           #0D47A1;
+  --mp-label-secondary:      #00729E;
+  --mp-label-green-bg:       #2E7D32;
+  --mp-label-green-outline:  #219653;
+  --mp-label-orange:         #C45500;
+  --mp-label-lightblue-bg:   #EFFBFF;
+  --mp-label-notif1:         #C53F3F; /* 重要 */
+  --mp-label-notif2-bg:      #FCECEF; /* 要返信 */
+  --mp-label-notif2-text:    #D50000;
+
+  /* Status dot */
+  --mp-label-status-bg:      #EDF0F2;
+  --mp-label-status-on:      #00839A;
+  --mp-label-status-off:     #909398;
+
+  /* Text */
+  --mp-label-text-on-light:  #283148;
+  --mp-label-text-on-dark:   #FFFFFF;
+
+  /* Shape */
+  --mp-label-radius: 2px;
+
+  /* Typography */
+  --mp-label-font-family: 'Hiragino Kaku Gothic Pro', sans-serif;
+  --mp-label-font-weight: 300;
+  --mp-label-line-height: 1.5;
+}
+
+/* --------------------------------------------------------------------------
+   Base
+   -------------------------------------------------------------------------- */
+
+.mp-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 6px;
+  border-radius: var(--mp-label-radius);
+  font-family: var(--mp-label-font-family);
+  font-weight: var(--mp-label-font-weight);
+  line-height: var(--mp-label-line-height);
+  white-space: nowrap;
+  /* 受動表示なのでクリック操作を許容しない */
+  cursor: default;
+  user-select: text;
+}
+
+/* --------------------------------------------------------------------------
+   Sizes — L/M は存在しない（仕様より）
+   -------------------------------------------------------------------------- */
+
+.mp-label--size-s {
+  height: 22px;
+  font-size: 12px;
+}
+
+.mp-label--size-ss {
+  height: 16px;
+  font-size: 10px;
+}
+
+/* --------------------------------------------------------------------------
+   Filled
+   -------------------------------------------------------------------------- */
+
+.mp-label--gray.mp-label--filled {
+  background: var(--mp-label-gray);
+  color: var(--mp-label-text-on-dark);
+}
+.mp-label--blue.mp-label--filled {
+  background: var(--mp-label-blue);
+  color: var(--mp-label-text-on-dark);
+}
+.mp-label--secondary.mp-label--filled {
+  background: var(--mp-label-secondary);
+  color: var(--mp-label-text-on-dark);
+}
+.mp-label--green.mp-label--filled {
+  background: var(--mp-label-green-bg);
+  color: var(--mp-label-text-on-dark);
+}
+.mp-label--orange.mp-label--filled {
+  background: var(--mp-label-orange);
+  color: var(--mp-label-text-on-dark);
+}
+.mp-label--lightblue.mp-label--filled {
+  background: var(--mp-label-lightblue-bg);
+  color: var(--mp-label-text-on-light);
+}
+.mp-label--notification1.mp-label--filled {
+  background: var(--mp-label-notif1);
+  color: var(--mp-label-text-on-dark);
+}
+.mp-label--notification2.mp-label--filled {
+  background: var(--mp-label-notif2-bg);
+  color: var(--mp-label-notif2-text);
+}
+
+/* --------------------------------------------------------------------------
+   Outlined
+   -------------------------------------------------------------------------- */
+
+.mp-label--outlined {
+  background: #FFFFFF;
+  border: 1px solid;
+}
+
+.mp-label--gray.mp-label--outlined {
+  border-color: var(--mp-label-gray);
+  color: var(--mp-label-gray);
+}
+.mp-label--blue.mp-label--outlined {
+  border-color: var(--mp-label-blue);
+  color: var(--mp-label-blue);
+}
+.mp-label--secondary.mp-label--outlined {
+  border-color: var(--mp-label-secondary);
+  color: var(--mp-label-secondary);
+}
+.mp-label--green.mp-label--outlined {
+  border-color: var(--mp-label-green-bg);
+  color: var(--mp-label-green-outline);
+}
+.mp-label--orange.mp-label--outlined {
+  border-color: var(--mp-label-orange);
+  color: var(--mp-label-orange);
+}
+
+/* --------------------------------------------------------------------------
+   Status バリアント — ドット付きピル型
+   -------------------------------------------------------------------------- */
+
+.mp-label-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 2px 4px;
+  background: var(--mp-label-status-bg);
+  border-radius: var(--mp-label-radius);
+  font-family: var(--mp-label-font-family);
+  font-weight: 300;
+  line-height: var(--mp-label-line-height);
+  color: var(--mp-label-text-on-light);
+  white-space: nowrap;
+  cursor: default;
+}
+
+.mp-label-status--size-s {
+  height: 22px;
+  font-size: 12px;
+}
+.mp-label-status--size-ss {
+  height: 16px;
+  font-size: 10px;
+}
+
+.mp-label-status__dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.mp-label-status--on  .mp-label-status__dot { background: var(--mp-label-status-on); }
+.mp-label-status--off .mp-label-status__dot { background: var(--mp-label-status-off); }

@@ -1,0 +1,164 @@
+/* =============================================================================
+ * Manabi Pocket Design System — Scrollbar
+ * Figma "スクロールバー" セクションから抽出。
+ * 値の変更は scrollbar.md を更新してから行うこと。
+ * ============================================================================= */
+
+:root {
+  /* --- Track ------------------------------------------------------------ */
+  --mp-scroll-track:           #EFEFEF;
+  --mp-scroll-track-size:      15px;
+
+  /* --- Thumb ------------------------------------------------------------ */
+  --mp-scroll-thumb:           #BCBDBD;
+  --mp-scroll-thumb-hover:     #909398;
+  --mp-scroll-thumb-radius:    4px;
+  --mp-scroll-thumb-width:     7px;
+  --mp-scroll-thumb-min:       44px;
+  --mp-scroll-thumb-padding:   4px;
+}
+
+/* =============================================================================
+ * ScrollArea wrapper — custom container approach
+ * ============================================================================= */
+
+.mp-scroll {
+  position: relative;
+  overflow: hidden;
+}
+
+.mp-scroll--vertical {
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+
+.mp-scroll--horizontal {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+/* =============================================================================
+ * Webkit scrollbar styling (Chrome, Safari, Edge)
+ * ============================================================================= */
+
+/* --- Vertical ----------------------------------------------------------- */
+
+.mp-scroll--vertical::-webkit-scrollbar {
+  width: var(--mp-scroll-track-size);
+}
+
+.mp-scroll--vertical::-webkit-scrollbar-track {
+  background: var(--mp-scroll-track);
+}
+
+.mp-scroll--vertical::-webkit-scrollbar-thumb {
+  background: var(--mp-scroll-thumb);
+  border-radius: var(--mp-scroll-thumb-radius);
+  border: var(--mp-scroll-thumb-padding) solid var(--mp-scroll-track);
+  min-height: var(--mp-scroll-thumb-min);
+}
+
+.mp-scroll--vertical::-webkit-scrollbar-thumb:hover {
+  background: var(--mp-scroll-thumb-hover);
+}
+
+/* --- Horizontal --------------------------------------------------------- */
+
+.mp-scroll--horizontal::-webkit-scrollbar {
+  height: var(--mp-scroll-track-size);
+}
+
+.mp-scroll--horizontal::-webkit-scrollbar-track {
+  background: var(--mp-scroll-track);
+}
+
+.mp-scroll--horizontal::-webkit-scrollbar-thumb {
+  background: var(--mp-scroll-thumb);
+  border-radius: var(--mp-scroll-thumb-radius);
+  border: var(--mp-scroll-thumb-padding) solid var(--mp-scroll-track);
+  min-width: var(--mp-scroll-thumb-min);
+}
+
+.mp-scroll--horizontal::-webkit-scrollbar-thumb:hover {
+  background: var(--mp-scroll-thumb-hover);
+}
+
+/* =============================================================================
+ * Firefox scrollbar styling
+ * ============================================================================= */
+
+.mp-scroll--vertical,
+.mp-scroll--horizontal {
+  scrollbar-width: thin;
+  scrollbar-color: var(--mp-scroll-thumb) var(--mp-scroll-track);
+}
+
+/* =============================================================================
+ * Standalone track + thumb (JS-driven custom scrollbar)
+ * ============================================================================= */
+
+.mp-scroll-track {
+  background: var(--mp-scroll-track);
+}
+
+.mp-scroll-track--vertical {
+  width: var(--mp-scroll-track-size);
+  height: 100%;
+}
+
+.mp-scroll-track--horizontal {
+  width: 100%;
+  height: var(--mp-scroll-track-size);
+}
+
+.mp-scroll-thumb {
+  background: var(--mp-scroll-thumb);
+  border-radius: var(--mp-scroll-thumb-radius);
+  transition: background-color 120ms ease;
+  cursor: pointer;
+}
+
+.mp-scroll-thumb:hover,
+.mp-scroll-thumb--dragging {
+  background: var(--mp-scroll-thumb-hover);
+}
+
+.mp-scroll-thumb--vertical {
+  width: var(--mp-scroll-thumb-width);
+  min-height: var(--mp-scroll-thumb-min);
+  margin: 0 auto;
+}
+
+.mp-scroll-thumb--horizontal {
+  height: var(--mp-scroll-thumb-width);
+  min-width: var(--mp-scroll-thumb-min);
+  margin: auto 0;
+}
+
+/* =============================================================================
+ * Utility: apply manabi scrollbar to any element
+ * ============================================================================= */
+
+.mp-scrollable-y {
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--mp-scroll-thumb) var(--mp-scroll-track);
+}
+
+.mp-scrollable-y::-webkit-scrollbar       { width: var(--mp-scroll-track-size); }
+.mp-scrollable-y::-webkit-scrollbar-track  { background: var(--mp-scroll-track); }
+.mp-scrollable-y::-webkit-scrollbar-thumb  { background: var(--mp-scroll-thumb); border-radius: var(--mp-scroll-thumb-radius); border: var(--mp-scroll-thumb-padding) solid var(--mp-scroll-track); }
+.mp-scrollable-y::-webkit-scrollbar-thumb:hover { background: var(--mp-scroll-thumb-hover); }
+
+.mp-scrollable-x {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--mp-scroll-thumb) var(--mp-scroll-track);
+}
+
+.mp-scrollable-x::-webkit-scrollbar       { height: var(--mp-scroll-track-size); }
+.mp-scrollable-x::-webkit-scrollbar-track  { background: var(--mp-scroll-track); }
+.mp-scrollable-x::-webkit-scrollbar-thumb  { background: var(--mp-scroll-thumb); border-radius: var(--mp-scroll-thumb-radius); border: var(--mp-scroll-thumb-padding) solid var(--mp-scroll-track); }
+.mp-scrollable-x::-webkit-scrollbar-thumb:hover { background: var(--mp-scroll-thumb-hover); }

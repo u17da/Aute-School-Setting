@@ -1,0 +1,130 @@
+/* =============================================================================
+ * Manabi Pocket Design System — Avatar
+ * Figma "アバター" セクションから抽出。
+ * 値の変更は avatar.md を更新してから行うこと。
+ * ============================================================================= */
+
+:root {
+  /* --- Sizes ------------------------------------------------------------ */
+  --mp-avatar-size-s:          24px;
+  --mp-avatar-size-m:          36px;
+  --mp-avatar-size-l:          48px;
+
+  /* --- Fallback (initial) ----------------------------------------------- */
+  --mp-avatar-fallback-bg:     #008299;
+  --mp-avatar-fallback-text:   #FFFFFF;
+  --mp-avatar-fallback-weight: 600;
+
+  /* --- Fallback font sizes per size ------------------------------------- */
+  --mp-avatar-initial-s:       14px;
+  --mp-avatar-initial-m:       21px;
+  --mp-avatar-initial-l:       28px;
+
+  /* --- Name text -------------------------------------------------------- */
+  --mp-avatar-name-color:      #283148;
+  --mp-avatar-name-weight:     300;
+  --mp-avatar-name-size-s:     14px;
+  --mp-avatar-name-size-m:     16px;
+  --mp-avatar-name-size-l:     18px;
+
+  /* --- Gap (icon ↔ name) ------------------------------------------------ */
+  --mp-avatar-gap-s:           4px;
+  --mp-avatar-gap-m:           8px;
+  --mp-avatar-gap-l:           16px;
+
+  /* --- Typography ------------------------------------------------------- */
+  --mp-avatar-font:            'Hiragino Kaku Gothic Pro', 'ヒラギノ角ゴ Pro W3',
+                               'Meiryo', 'メイリオ', system-ui, sans-serif;
+  --mp-avatar-line-height:     1.5;
+}
+
+/* =============================================================================
+ * Named wrapper (icon + name)
+ * ============================================================================= */
+
+.mp-avatar-named {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--mp-avatar-font);
+}
+
+.mp-avatar-named--s { gap: var(--mp-avatar-gap-s); }
+.mp-avatar-named--m { gap: var(--mp-avatar-gap-m); }
+.mp-avatar-named--l { gap: var(--mp-avatar-gap-l); }
+
+/* =============================================================================
+ * Icon (circle)
+ * ============================================================================= */
+
+.mp-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+/* Sizes */
+.mp-avatar--s { width: var(--mp-avatar-size-s); height: var(--mp-avatar-size-s); }
+.mp-avatar--m { width: var(--mp-avatar-size-m); height: var(--mp-avatar-size-m); }
+.mp-avatar--l { width: var(--mp-avatar-size-l); height: var(--mp-avatar-size-l); }
+
+/* Image */
+.mp-avatar__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* =============================================================================
+ * Fallback (initial letter)
+ * ============================================================================= */
+
+.mp-avatar--fallback {
+  background: var(--mp-avatar-fallback-bg);
+  color: var(--mp-avatar-fallback-text);
+  font-family: var(--mp-avatar-font);
+  font-weight: var(--mp-avatar-fallback-weight);
+  line-height: 1;
+  user-select: none;
+}
+
+.mp-avatar--fallback.mp-avatar--s { font-size: var(--mp-avatar-initial-s); }
+.mp-avatar--fallback.mp-avatar--m { font-size: var(--mp-avatar-initial-m); }
+.mp-avatar--fallback.mp-avatar--l { font-size: var(--mp-avatar-initial-l); }
+
+/* =============================================================================
+ * Name text
+ * ============================================================================= */
+
+.mp-avatar__name {
+  color: var(--mp-avatar-name-color);
+  font-weight: var(--mp-avatar-name-weight);
+  line-height: var(--mp-avatar-line-height);
+  white-space: nowrap;
+}
+
+.mp-avatar-named--s .mp-avatar__name { font-size: var(--mp-avatar-name-size-s); }
+.mp-avatar-named--m .mp-avatar__name { font-size: var(--mp-avatar-name-size-m); }
+.mp-avatar-named--l .mp-avatar__name { font-size: var(--mp-avatar-name-size-l); }
+
+/* =============================================================================
+ * Interactive state (clickable avatar)
+ * ============================================================================= */
+
+.mp-avatar--clickable {
+  cursor: pointer;
+  transition: opacity 120ms ease;
+}
+
+.mp-avatar--clickable:hover {
+  opacity: 0.85;
+}
+
+.mp-avatar--clickable:focus-visible {
+  outline: 2px solid var(--mp-avatar-fallback-bg);
+  outline-offset: 2px;
+}

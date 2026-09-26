@@ -1,0 +1,138 @@
+/* =========================================================================
+   Accordion — まなびポケット Design System
+   ========================================================================= */
+
+:root {
+  /* --- Accordion tokens --- */
+  --mp-accordion-font-family: 'Hiragino Kaku Gothic Pro', sans-serif;
+
+  /* Trigger */
+  --mp-accordion-trigger-width: 40px;
+  --mp-accordion-trigger-height: 46px;
+  --mp-accordion-trigger-radius: 6px;
+  --mp-accordion-trigger-padding: 16px;
+  --mp-accordion-trigger-bg: #FFFFFF;
+  --mp-accordion-trigger-bg-hover: #F5F7F8;
+  --mp-accordion-trigger-border: #E9EBEC;
+  --mp-accordion-trigger-icon-size: 24px;
+  --mp-accordion-trigger-icon-color: #283148;
+
+  /* Panel */
+  --mp-accordion-panel-transition: max-height 250ms ease, opacity 200ms ease;
+
+  /* Focus */
+  --mp-accordion-focus-ring: 2px solid #008299;
+}
+
+/* ---- Accordion container ---- */
+.mp-accordion {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* ---- AccordionItem ---- */
+.mp-accordion-item {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---- Trigger button ---- */
+.mp-accordion-trigger {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: var(--mp-accordion-trigger-width);
+  height: var(--mp-accordion-trigger-height);
+  padding: var(--mp-accordion-trigger-padding);
+  gap: 8px;
+  background: var(--mp-accordion-trigger-bg);
+  border: 1px solid var(--mp-accordion-trigger-border);
+  border-radius: var(--mp-accordion-trigger-radius);
+  cursor: pointer;
+  transition: background-color 150ms ease;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.mp-accordion-trigger:hover {
+  background: var(--mp-accordion-trigger-bg-hover);
+}
+
+.mp-accordion-trigger:focus-visible {
+  outline: var(--mp-accordion-focus-ring);
+  outline-offset: 2px;
+}
+
+/* ---- Trigger icon ---- */
+.mp-accordion-trigger__icon {
+  width: var(--mp-accordion-trigger-icon-size);
+  height: var(--mp-accordion-trigger-icon-size);
+  color: var(--mp-accordion-trigger-icon-color);
+  transition: transform 250ms ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* ---- Icon rotation by direction × open state ---- */
+.mp-accordion-trigger--down .mp-accordion-trigger__icon {
+  transform: rotate(0deg);
+}
+.mp-accordion-trigger--down[aria-expanded='true'] .mp-accordion-trigger__icon {
+  transform: rotate(180deg);
+}
+
+.mp-accordion-trigger--right .mp-accordion-trigger__icon {
+  transform: rotate(-90deg);
+}
+.mp-accordion-trigger--right[aria-expanded='true'] .mp-accordion-trigger__icon {
+  transform: rotate(0deg);
+}
+
+.mp-accordion-trigger--up .mp-accordion-trigger__icon {
+  transform: rotate(180deg);
+}
+.mp-accordion-trigger--up[aria-expanded='true'] .mp-accordion-trigger__icon {
+  transform: rotate(0deg);
+}
+
+.mp-accordion-trigger--left .mp-accordion-trigger__icon {
+  transform: rotate(90deg);
+}
+.mp-accordion-trigger--left[aria-expanded='true'] .mp-accordion-trigger__icon {
+  transform: rotate(0deg);
+}
+
+/* ---- Wide trigger (full-width with label) ---- */
+.mp-accordion-trigger--wide {
+  width: 100%;
+  justify-content: space-between;
+  padding: 12px 16px;
+}
+
+.mp-accordion-trigger--wide .mp-accordion-trigger__label {
+  font-family: var(--mp-accordion-font-family);
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #283148;
+  flex: 1;
+  text-align: left;
+}
+
+/* ---- Panel ---- */
+.mp-accordion-panel {
+  overflow: hidden;
+  transition: var(--mp-accordion-panel-transition);
+}
+
+.mp-accordion-panel--closed {
+  max-height: 0;
+  opacity: 0;
+}
+
+.mp-accordion-panel--open {
+  opacity: 1;
+}

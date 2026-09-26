@@ -6,24 +6,27 @@
   <title>利用ガイド | まなびポケット 学校設定 一括変更 Operator Console</title>
   <style>
     :root {
-      --primary: #1a73e8;
-      --primary-hover: #1557b0;
-      --primary-bg: #e8f0fe;
-      --success: #1e8e3e;
-      --success-hover: #137333;
-      --success-bg: #e6f4ea;
-      --danger: #d93025;
-      --danger-hover: #b31412;
-      --danger-bg: #fce8e6;
-      --warning: #f29900;
-      --warning-bg: #fef7e0;
-      --bg-main: #f8f9fa;
-      --bg-card: #ffffff;
-      --text-main: #202124;
-      --text-muted: #5f6368;
-      --border-color: #dadce0;
-      --border-focus: #4285f4;
-      --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
+      --header-bg: #2D4A6F;
+      --header-accent: #5BC0DE;
+      --primary: #008299;
+      --primary-hover: #00606D;
+      --primary-bg: #E1F7FD;
+      --success: #388E3C;
+      --success-hover: #2E7D32;
+      --success-bg: #E6F4EA;
+      --danger: #C53F3F;
+      --danger-hover: #A7322F;
+      --danger-bg: #FCECEF;
+      --warning: #FF6B35;
+      --warning-dark: #EF6C00;
+      --warning-bg: #FEF7E0;
+      --bg-main: #F5F7F8;
+      --bg-card: #FFFFFF;
+      --text-main: #283148;
+      --text-muted: #61646C;
+      --border-color: #E9EBEC;
+      --border-focus: #008299;
+      --font-family: 'Hiragino Kaku Gothic Pro', 'ヒラギノ角ゴ Pro W3', 'Meiryo', 'メイリオ', 'Noto Sans JP', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       --font-mono: SFMono-Regular, Consolas, "Liberation Mono", Menlo, Courier, monospace;
     }
 
@@ -38,22 +41,23 @@
       background-color: var(--bg-main);
       color: var(--text-main);
       line-height: 1.65;
-      font-size: 15px;
+      font-size: 16px;
     }
 
     /* ヘッダー */
     .guide-header {
-      background-color: var(--bg-card);
-      border-bottom: 2px solid var(--primary);
+      background-color: var(--header-bg);
+      border-bottom: 3px solid var(--header-accent);
       position: sticky;
       top: 0;
       z-index: 100;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+      color: #FFFFFF;
     }
     .guide-header-container {
       max-width: 1200px;
       margin: 0 auto;
-      padding: 0.85rem 1.5rem;
+      padding: 0.95rem 1.75rem;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -63,44 +67,45 @@
     .guide-title-area {
       display: flex;
       align-items: center;
-      gap: 0.75rem;
+      gap: 0.85rem;
     }
     .guide-title-area h1 {
-      font-size: 1.25rem;
+      font-size: 1.35rem;
       font-weight: 700;
-      color: var(--text-main);
+      color: #FFFFFF;
     }
     .badge {
       display: inline-block;
-      padding: 0.25rem 0.6rem;
-      font-size: 0.75rem;
+      padding: 0.25rem 0.65rem;
+      font-size: 0.8rem;
       font-weight: 700;
-      border-radius: 4px;
-      letter-spacing: 0.05em;
+      border-radius: 100px;
+      letter-spacing: 0.03em;
     }
     .badge-primary { background-color: var(--primary-bg); color: var(--primary); }
     .badge-success { background-color: var(--success-bg); color: var(--success); }
     .badge-danger { background-color: var(--danger-bg); color: var(--danger); }
-    .badge-warning { background-color: var(--warning-bg); color: #b06000; }
-    .badge-gray { background-color: #f1f3f4; color: var(--text-muted); }
+    .badge-warning { background-color: var(--warning-bg); color: var(--warning-dark); }
+    .badge-gray { background-color: #EDF0F2; color: var(--text-muted); }
 
     .btn-back {
       display: inline-flex;
       align-items: center;
       gap: 0.4rem;
-      background-color: #fff;
-      color: var(--primary);
-      border: 1px solid var(--border-color);
-      padding: 0.45rem 0.9rem;
+      background-color: rgba(255, 255, 255, 0.15);
+      color: #FFFFFF;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      padding: 0.45rem 1rem;
       border-radius: 6px;
       text-decoration: none;
       font-weight: 600;
-      font-size: 0.85rem;
-      transition: all 0.15s ease;
+      font-size: 0.9rem;
+      transition: all 0.2s ease;
     }
     .btn-back:hover {
-      background-color: var(--primary-bg);
-      border-color: var(--primary);
+      background-color: #FFFFFF;
+      color: var(--header-bg);
+      border-color: #FFFFFF;
     }
 
     /* レイアウト */
@@ -421,10 +426,10 @@
       <ul>
         <li><a href="#sec1">1. 本ツールの概要と全体ワークフロー</a></li>
         <li><a href="#sec2">2. 事前準備と起動方法 (Excel CSV作成)</a></li>
-        <li><a href="#sec3">3. 画面1: Setup & Validation (設定エディタと検証)</a></li>
-        <li><a href="#sec4">4. 画面2: Preflight Progress (進捗監視と安全停止)</a></li>
-        <li><a href="#sec5">5. 画面3: Results & Distribution (結果分析とリスク判定)</a></li>
-        <li><a href="#sec6">6. 画面4: Production Apply (非破壊本番適用 v1)</a></li>
+        <li><a href="#sec3">3. 画面1: 設定と事前検証 (学校一覧と設定指定)</a></li>
+        <li><a href="#sec4">4. 画面2: 検証の進行状況 (進捗監視と安全停止)</a></li>
+        <li><a href="#sec5">5. 画面3: 検証結果と内訳 (結果分析とリスク判定)</a></li>
+        <li><a href="#sec6">6. 画面4: 設定の反映・適用 (安全な本番反映)</a></li>
         <li><a href="#sec7">7. 読取失敗・中断時の再開と再試行</a></li>
         <li><a href="#sec8">8. トラブルシューティング & よくある質問 (FAQ)</a></li>
         <li><a href="#sec9">9. ステータスコード・エラー用語早見表</a></li>
@@ -444,22 +449,22 @@
         <!-- ワークフローマップ -->
         <div class="workflow-flow">
           <div class="workflow-step">
-            <div class="workflow-step-title">① Setup & Validation</div>
-            <div class="workflow-step-desc">CSV投入・設定編集・事前検証</div>
+            <div class="workflow-step-title">① 設定と事前検証</div>
+            <div class="workflow-step-desc">CSV投入・設定指定・入力チェック</div>
           </div>
           <div class="workflow-arrow">&rarr;</div>
           <div class="workflow-step">
-            <div class="workflow-step-title">② Read-only Preflight</div>
+            <div class="workflow-step-title">② 検証の進行状況</div>
             <div class="workflow-step-desc">全校の現在値を安全に読取 (保存なし)</div>
           </div>
           <div class="workflow-arrow">&rarr;</div>
           <div class="workflow-step">
-            <div class="workflow-step-title">③ Results & Distribution</div>
+            <div class="workflow-step-title">③ 検証結果と内訳</div>
             <div class="workflow-step-desc">差分・破壊的変更・未契約の確認</div>
           </div>
           <div class="workflow-arrow">&rarr;</div>
           <div class="workflow-step active">
-            <div class="workflow-step-title">④ Production Apply</div>
+            <div class="workflow-step-title">④ 設定の反映・適用</div>
             <div class="workflow-step-desc">非破壊変更のみを安全に本番適用</div>
           </div>
         </div>

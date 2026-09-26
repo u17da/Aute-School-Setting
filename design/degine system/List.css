@@ -1,0 +1,240 @@
+/* =========================================================================
+   List — まなびポケット Design System
+   ========================================================================= */
+
+:root {
+  --mp-list-font-family: 'Hiragino Kaku Gothic Pro', sans-serif;
+
+  /* Text */
+  --mp-list-text-primary: #283148;
+  --mp-list-text-secondary: #61646C;
+  --mp-list-text-disabled: #909398;
+  --mp-list-text-alert: #C53F3F;
+
+  /* Backgrounds */
+  --mp-list-bg-default: #FFFFFF;
+  --mp-list-bg-hover: #F5F7F8;
+  --mp-list-bg-focus: #F5F7F8;
+
+  /* Border */
+  --mp-list-border: #CCCCCC;
+
+  /* Checkbox */
+  --mp-list-check-unchecked: #CCCCCC;
+  --mp-list-check-checked: #008299;
+  --mp-list-check-disabled: #EDF0F2;
+
+  /* Sizes — Large */
+  --mp-list-lg-height: 56px;
+  --mp-list-lg-padding: 8px 16px 8px 8px;
+  --mp-list-lg-font-size: 16px;
+  --mp-list-lg-checkbox-size: 46px;
+
+  /* Sizes — Medium */
+  --mp-list-md-height: 48px;
+  --mp-list-md-padding: 4px 16px;
+  --mp-list-md-font-size: 16px;
+  --mp-list-md-checkbox-size: 46px;
+
+  /* Sizes — Small */
+  --mp-list-sm-height: 40px;
+  --mp-list-sm-padding: 4px 16px;
+  --mp-list-sm-font-size-header: 14px;
+  --mp-list-sm-font-size-cell: 12px;
+  --mp-list-sm-checkbox-size: 38px;
+
+  /* Toggle (header) */
+  --mp-list-toggle-slide-bg: #16ABCE;
+  --mp-list-toggle-knob-bg: #008299;
+
+  /* Transition */
+  --mp-list-transition: background-color 150ms ease;
+}
+
+/* ---- List container ---- */
+.mp-list {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+/* ================================================================
+   Shared row styles
+   ================================================================ */
+.mp-list-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--mp-list-border);
+  font-family: var(--mp-list-font-family);
+  transition: var(--mp-list-transition);
+}
+
+/* ---- Size modifiers ---- */
+.mp-list-row--large {
+  height: var(--mp-list-lg-height);
+  padding: var(--mp-list-lg-padding);
+  font-size: var(--mp-list-lg-font-size);
+}
+
+.mp-list-row--medium {
+  height: var(--mp-list-md-height);
+  padding: var(--mp-list-md-padding);
+  font-size: var(--mp-list-md-font-size);
+}
+
+.mp-list-row--small {
+  height: var(--mp-list-sm-height);
+  padding: var(--mp-list-sm-padding);
+}
+
+/* ================================================================
+   HEADER
+   ================================================================ */
+.mp-list-header {
+  background: var(--mp-list-bg-default);
+}
+
+.mp-list-header__checkbox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.mp-list-header__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--mp-list-text-secondary);
+  flex: 1;
+}
+
+.mp-list-header__sort-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--mp-list-text-secondary);
+  cursor: pointer;
+}
+
+.mp-list-header__search {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: var(--mp-list-text-secondary);
+}
+
+.mp-list-header__search:hover {
+  background: var(--mp-list-bg-hover);
+}
+
+.mp-list-header__toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 8px;
+}
+
+.mp-list-header__toggle-label {
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--mp-list-text-secondary);
+}
+
+.mp-list-header--small .mp-list-header__label {
+  font-size: var(--mp-list-sm-font-size-header);
+}
+
+/* ================================================================
+   CELL
+   ================================================================ */
+.mp-list-cell {
+  background: var(--mp-list-bg-default);
+  color: var(--mp-list-text-primary);
+  cursor: default;
+}
+
+.mp-list-cell--small {
+  font-size: var(--mp-list-sm-font-size-cell);
+}
+
+/* States */
+.mp-list-cell--hovered,
+.mp-list-cell:hover:not(.mp-list-cell--disabled) {
+  background: var(--mp-list-bg-hover);
+}
+
+.mp-list-cell--focused {
+  background: var(--mp-list-bg-focus);
+}
+
+.mp-list-cell--disabled {
+  color: var(--mp-list-text-disabled);
+  cursor: not-allowed;
+}
+
+/* Inner elements */
+.mp-list-cell__checkbox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.mp-list-cell__indent {
+  flex-shrink: 0;
+}
+
+.mp-list-cell__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+}
+
+.mp-list-cell__data {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  font-weight: 300;
+  line-height: 1.5;
+}
+
+.mp-list-cell__attention {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.mp-list-cell__attention-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--mp-list-text-alert);
+}
+
+.mp-list-cell__attention-text {
+  font-family: var(--mp-list-font-family);
+  font-weight: 600;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--mp-list-text-alert);
+}
+
+/* ---- Focus-visible ---- */
+.mp-list-row:focus-visible {
+  outline: 2px solid #008299;
+  outline-offset: -2px;
+}

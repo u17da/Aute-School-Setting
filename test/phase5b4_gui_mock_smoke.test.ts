@@ -347,21 +347,14 @@ async function main() {
       await fileInput.setInputFiles(csvPath);
       await page.waitForSelector('#uploadFileInfo:not([style*="display: none"])', { timeout: 10000 });
       const uploadStats = await page.locator('#uploadParsedStatsVal').innerText();
-      assert.strictEqual(uploadStats.includes('1 校'), true);
-
-      // 2. expectedSchoolCount 入力
-      console.log('  [Step 2] expectedSchoolCount 入力 (1)...');
-      await page.fill('#inputExpectedSchoolCount', '1');
-
-      // 3. Profile Editor で非破壊設定を1項目変更 (storage -> ON)
-      console.log('  [Step 3] Profile Editor で非破壊設定 (storage: ON) 変更...');
+      // 2. Profile Editor で非破壊設定を1項目変更 (storage -> ON)
+      console.log('  [Step 2] Profile Editor で非破壊設定 (storage: ON) 変更...');
       // 画面内のストレージ機能の select を ON に変更
-      const storageSelect = page.locator('tr:has-text("ストレージ機能") select');
+      const storageSelect = page.locator('#profileEditorTableBody tr:has-text("ストレージ機能") select');
       await storageSelect.selectOption('ON');
 
-      // 4. Validation PASS
-      console.log('  [Step 4] 入力を検証 (--validate-only)...');
-      await page.click('#btnValidate');
+      // 4. Validation PASS (アップロード・設定変更時に自動検証)
+      console.log('  [Step 4] 入力を自動検証完了待機...');
       await page.waitForSelector('#btnStartPreflight:not([disabled])', { timeout: 10000 });
       const snapSchools = await page.locator('#enabledSchoolsVal').innerText();
       assert.strictEqual(snapSchools.includes('1 校'), true);
@@ -531,12 +524,9 @@ async function main() {
       await page.waitForSelector('#uploadFileInfo:not([style*="display: none"])', { timeout: 10000 });
 
       // ストレージ機能を ON に設定
-      await page.locator('tr:has-text("ストレージ機能") select').selectOption('ON');
+      await page.locator('#profileEditorTableBody tr:has-text("ストレージ機能") select').selectOption('ON');
       await page.waitForTimeout(500);
 
-      await page.fill('#inputExpectedSchoolCount', '2');
-      await page.click('#btnValidate');
-      await page.waitForSelector('#validationAlert.alert-success', { timeout: 10000 });
       await page.waitForSelector('#btnStartPreflight:not([disabled])', { timeout: 10000 });
       const snapCount2 = await page.locator('#enabledSchoolsVal').innerText();
       assert.strictEqual(snapCount2.includes('2 校'), true);

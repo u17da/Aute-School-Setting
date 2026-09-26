@@ -1,0 +1,214 @@
+/* =============================================================================
+ * Manabi Pocket Design System — Message (Toast)
+ * Figma "通知 / バナー" セクションから抽出。
+ * 値の変更は message.md を更新してから行うこと。
+ * ============================================================================= */
+
+:root {
+  /* --- Type colors (icon fill) ----------------------------------------- */
+  --mp-msg-info:       #0083B1;
+  --mp-msg-success:    #388E3C;
+  --mp-msg-error:      #C53F3F;
+  --mp-msg-warning:    #EF6C00;
+
+  /* --- Surface ---------------------------------------------------------- */
+  --mp-msg-bg:         #FFFFFF;
+  --mp-msg-shadow:     0px 2px 12px rgba(0, 0, 0, 0.1);
+  --mp-msg-radius:     8px;
+
+  /* --- Text ------------------------------------------------------------- */
+  --mp-msg-text:       #283148;
+  --mp-msg-text-sp:    #283148;
+  --mp-msg-close:      #61646C;
+
+  /* --- Typography ------------------------------------------------------- */
+  --mp-msg-font:       'Hiragino Kaku Gothic Pro', 'ヒラギノ角ゴ Pro W3',
+                       'Meiryo', 'メイリオ', system-ui, sans-serif;
+  --mp-msg-font-weight-pc: 600;
+  --mp-msg-font-weight-sp: 300;
+  --mp-msg-line-height: 1.5;
+
+  /* --- Sizing (PC) ------------------------------------------------------ */
+  --mp-msg-padding-pc:    16px 24px;
+  --mp-msg-font-size-pc:  16px;
+  --mp-msg-min-width-pc:  444px;
+  --mp-msg-height-pc:     64px;
+  --mp-msg-icon-size:     24px;
+  --mp-msg-close-size:    32px;
+  --mp-msg-gap-icon:      8px;
+  --mp-msg-gap-section:   16px;
+
+  /* --- Sizing (SP) ------------------------------------------------------ */
+  --mp-msg-padding-sp:    8px;
+  --mp-msg-font-size-sp:  14px;
+  --mp-msg-min-width-sp:  358px;
+  --mp-msg-height-sp:     48px;
+
+  /* --- Animation -------------------------------------------------------- */
+  --mp-msg-duration-in:   200ms;
+  --mp-msg-duration-out:  150ms;
+  --mp-msg-auto-success:  3000;
+  --mp-msg-auto-default:  5000;
+}
+
+/* =============================================================================
+ * Base
+ * ============================================================================= */
+
+.mp-msg {
+  display: flex;
+  align-items: center;
+  padding: var(--mp-msg-padding-pc);
+  gap: var(--mp-msg-gap-section);
+  min-width: var(--mp-msg-min-width-pc);
+  min-height: var(--mp-msg-height-pc);
+  background: var(--mp-msg-bg);
+  box-shadow: var(--mp-msg-shadow);
+  border-radius: var(--mp-msg-radius);
+  font-family: var(--mp-msg-font);
+  font-size: var(--mp-msg-font-size-pc);
+  font-weight: var(--mp-msg-font-weight-pc);
+  line-height: var(--mp-msg-line-height);
+  color: var(--mp-msg-text);
+  box-sizing: border-box;
+  animation: mp-msg-slide-in var(--mp-msg-duration-in) ease-out;
+}
+
+/* =============================================================================
+ * Icon + Text row
+ * ============================================================================= */
+
+.mp-msg__body {
+  display: flex;
+  align-items: center;
+  gap: var(--mp-msg-gap-icon);
+  flex: 1;
+  min-width: 0;
+}
+
+.mp-msg__icon {
+  flex-shrink: 0;
+  width: var(--mp-msg-icon-size);
+  height: var(--mp-msg-icon-size);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mp-msg__icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.mp-msg__text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* =============================================================================
+ * Close button
+ * ============================================================================= */
+
+.mp-msg__close {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--mp-msg-close-size);
+  height: var(--mp-msg-close-size);
+  padding: 4px;
+  border: none;
+  background: transparent;
+  border-radius: var(--mp-msg-radius);
+  color: var(--mp-msg-close);
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.mp-msg__close:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.mp-msg__close:focus-visible {
+  outline: 2px solid var(--mp-msg-info);
+  outline-offset: 2px;
+}
+
+.mp-msg__close svg {
+  width: 21px;
+  height: 21px;
+}
+
+/* =============================================================================
+ * Type variants (icon color)
+ * ============================================================================= */
+
+.mp-msg--info    .mp-msg__icon { color: var(--mp-msg-info); }
+.mp-msg--success .mp-msg__icon { color: var(--mp-msg-success); }
+.mp-msg--error   .mp-msg__icon { color: var(--mp-msg-error); }
+.mp-msg--warning .mp-msg__icon { color: var(--mp-msg-warning); }
+
+/* =============================================================================
+ * Size: SP (mobile)
+ * ============================================================================= */
+
+.mp-msg--sp {
+  padding: var(--mp-msg-padding-sp);
+  min-width: var(--mp-msg-min-width-sp);
+  min-height: var(--mp-msg-height-sp);
+  font-size: var(--mp-msg-font-size-sp);
+  font-weight: var(--mp-msg-font-weight-sp);
+  gap: 8px;
+}
+
+/* =============================================================================
+ * Animation
+ * ============================================================================= */
+
+@keyframes mp-msg-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.mp-msg--exiting {
+  animation: mp-msg-slide-out var(--mp-msg-duration-out) ease-in forwards;
+}
+
+@keyframes mp-msg-slide-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+}
+
+/* =============================================================================
+ * Container (positioning wrapper for stacking)
+ * ============================================================================= */
+
+.mp-msg-container {
+  position: fixed;
+  top: 72px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 900;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.mp-msg-container .mp-msg {
+  pointer-events: auto;
+}

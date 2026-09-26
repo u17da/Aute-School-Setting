@@ -1,0 +1,291 @@
+/* =============================================================================
+ * Manabi Pocket Design System — Tour
+ * Figma "ツアー" セクションから抽出。
+ * 値の変更は tour.md を更新してから行うこと。
+ * ============================================================================= */
+
+:root {
+  /* --- Surface ---------------------------------------------------------- */
+  --mp-tour-bg:              #FFFFFF;
+  --mp-tour-shadow:          0px 2px 12px rgba(0, 0, 0, 0.1);
+  --mp-tour-radius:          8px;
+
+  /* --- Sizing ----------------------------------------------------------- */
+  --mp-tour-width:           444px;
+  --mp-tour-padding-center:  24px;
+  --mp-tour-padding:         16px;
+  --mp-tour-gap:             16px;
+
+  /* --- Typography ------------------------------------------------------- */
+  --mp-tour-font:            'Hiragino Kaku Gothic Pro', 'ヒラギノ角ゴ Pro W3',
+                             'Meiryo', 'メイリオ', system-ui, sans-serif;
+  --mp-tour-title-size:      16px;
+  --mp-tour-title-weight:    600;
+  --mp-tour-body-size:       14px;
+  --mp-tour-body-weight:     300;
+  --mp-tour-line-height:     1.5;
+
+  /* --- Colors ----------------------------------------------------------- */
+  --mp-tour-text:            #283148;
+  --mp-tour-link:            #008299;
+
+  /* --- Graphic slot ----------------------------------------------------- */
+  --mp-tour-graphic-bg:      #F5F5F5;
+  --mp-tour-graphic-height:  240px;
+
+  /* --- Stepper ---------------------------------------------------------- */
+  --mp-tour-dot-size:        8px;
+  --mp-tour-dot-gap:         4px;
+  --mp-tour-dot-active:      #008299;
+  --mp-tour-dot-inactive:    #EDF0F2;
+
+  /* --- Arrow (triangle) ------------------------------------------------- */
+  --mp-tour-arrow-w:         24px;
+  --mp-tour-arrow-h:         16px;
+
+  /* --- Buttons ---------------------------------------------------------- */
+  --mp-tour-btn-primary:     #008299;
+  --mp-tour-btn-negative:    #878F96;
+  --mp-tour-btn-text:        #FFFFFF;
+  --mp-tour-btn-radius:      8px;
+  --mp-tour-btn-height:      40px;
+  --mp-tour-btn-min-width:   80px;
+  --mp-tour-btn-font-size:   16px;
+  --mp-tour-btn-font-weight: 600;
+}
+
+/* =============================================================================
+ * Base panel
+ * ============================================================================= */
+
+.mp-tour {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  width: var(--mp-tour-width);
+  padding: var(--mp-tour-padding);
+  gap: var(--mp-tour-gap);
+  background: var(--mp-tour-bg);
+  box-shadow: var(--mp-tour-shadow);
+  border-radius: var(--mp-tour-radius);
+  font-family: var(--mp-tour-font);
+  color: var(--mp-tour-text);
+  box-sizing: border-box;
+  z-index: 1050;
+}
+
+.mp-tour--center {
+  padding: var(--mp-tour-padding-center);
+}
+
+/* =============================================================================
+ * Title
+ * ============================================================================= */
+
+.mp-tour__title {
+  font-size: var(--mp-tour-title-size);
+  font-weight: var(--mp-tour-title-weight);
+  line-height: var(--mp-tour-line-height);
+  margin: 0;
+}
+
+/* =============================================================================
+ * Graphic slot
+ * ============================================================================= */
+
+.mp-tour__graphic {
+  width: 100%;
+  height: var(--mp-tour-graphic-height);
+  background: var(--mp-tour-graphic-bg);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.mp-tour__graphic img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* =============================================================================
+ * Body text
+ * ============================================================================= */
+
+.mp-tour__body {
+  font-size: var(--mp-tour-body-size);
+  font-weight: var(--mp-tour-body-weight);
+  line-height: var(--mp-tour-line-height);
+}
+
+/* =============================================================================
+ * Footer (stepper + buttons)
+ * ============================================================================= */
+
+.mp-tour__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.mp-tour__buttons {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  flex: 1;
+}
+
+/* --- Skip link ---------------------------------------------------------- */
+
+.mp-tour__skip {
+  padding: 0 4px;
+  border: none;
+  background: transparent;
+  font-family: var(--mp-tour-font);
+  font-size: var(--mp-tour-btn-font-size);
+  font-weight: var(--mp-tour-btn-font-weight);
+  line-height: var(--mp-tour-line-height);
+  color: var(--mp-tour-link);
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.mp-tour__skip:hover  { text-decoration: underline; }
+.mp-tour__skip:focus-visible {
+  outline: 2px solid var(--mp-tour-link);
+  outline-offset: 2px;
+}
+
+/* --- Nav buttons -------------------------------------------------------- */
+
+.mp-tour__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--mp-tour-btn-min-width);
+  height: var(--mp-tour-btn-height);
+  padding: 8px 16px;
+  border: none;
+  border-radius: var(--mp-tour-btn-radius);
+  font-family: var(--mp-tour-font);
+  font-size: var(--mp-tour-btn-font-size);
+  font-weight: var(--mp-tour-btn-font-weight);
+  line-height: var(--mp-tour-line-height);
+  color: var(--mp-tour-btn-text);
+  cursor: pointer;
+  transition: background-color 120ms ease;
+  box-sizing: border-box;
+}
+
+.mp-tour__btn--prev {
+  background: var(--mp-tour-btn-negative);
+}
+.mp-tour__btn--prev:hover { background: #717C86; }
+
+.mp-tour__btn--next {
+  background: var(--mp-tour-btn-primary);
+}
+.mp-tour__btn--next:hover { background: #00606D; }
+
+.mp-tour__btn:focus-visible {
+  outline: 2px solid var(--mp-tour-btn-primary);
+  outline-offset: 2px;
+}
+
+/* =============================================================================
+ * Stepper (dot indicator)
+ * ============================================================================= */
+
+.mp-tour-stepper {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--mp-tour-dot-gap);
+}
+
+.mp-tour-stepper__dot {
+  width: var(--mp-tour-dot-size);
+  height: var(--mp-tour-dot-size);
+  border-radius: 50%;
+  background: var(--mp-tour-dot-inactive);
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.mp-tour-stepper__dot--active {
+  background: var(--mp-tour-dot-active);
+}
+
+.mp-tour-stepper__dot:focus-visible {
+  outline: 2px solid var(--mp-tour-dot-active);
+  outline-offset: 2px;
+}
+
+/* =============================================================================
+ * Arrow (placement triangle)
+ * ============================================================================= */
+
+.mp-tour__arrow {
+  position: absolute;
+  width: 0;
+  height: 0;
+  border-style: solid;
+}
+
+/* left placement → arrow on right edge, pointing right */
+.mp-tour--left .mp-tour__arrow {
+  right: calc(-1 * var(--mp-tour-arrow-h));
+  top: 50%;
+  transform: translateY(-50%);
+  border-width: calc(var(--mp-tour-arrow-w) / 2) 0 calc(var(--mp-tour-arrow-w) / 2) var(--mp-tour-arrow-h);
+  border-color: transparent transparent transparent var(--mp-tour-bg);
+}
+
+/* right placement → arrow on left edge, pointing left */
+.mp-tour--right .mp-tour__arrow {
+  left: calc(-1 * var(--mp-tour-arrow-h));
+  top: 50%;
+  transform: translateY(-50%);
+  border-width: calc(var(--mp-tour-arrow-w) / 2) var(--mp-tour-arrow-h) calc(var(--mp-tour-arrow-w) / 2) 0;
+  border-color: transparent var(--mp-tour-bg) transparent transparent;
+}
+
+/* under placement → arrow on top edge, pointing up */
+.mp-tour--under .mp-tour__arrow {
+  top: calc(-1 * var(--mp-tour-arrow-h));
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 0 calc(var(--mp-tour-arrow-w) / 2) var(--mp-tour-arrow-h) calc(var(--mp-tour-arrow-w) / 2);
+  border-color: transparent transparent var(--mp-tour-bg) transparent;
+}
+
+/* top placement → arrow on bottom edge, pointing down */
+.mp-tour--top .mp-tour__arrow {
+  bottom: calc(-1 * var(--mp-tour-arrow-h));
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: var(--mp-tour-arrow-h) calc(var(--mp-tour-arrow-w) / 2) 0 calc(var(--mp-tour-arrow-w) / 2);
+  border-color: var(--mp-tour-bg) transparent transparent transparent;
+}
+
+/* center → no arrow */
+
+/* =============================================================================
+ * Spotlight overlay (optional)
+ * ============================================================================= */
+
+.mp-tour-spotlight {
+  position: fixed;
+  inset: 0;
+  z-index: 1049;
+  pointer-events: none;
+}
+
+.mp-tour-spotlight__hole {
+  position: absolute;
+  border-radius: 4px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}

@@ -64,7 +64,11 @@ export async function runSchoolPhase2A(cliOptions: RawCliOptions): Promise<Execu
     if (authObs.resolvedProvider === 'LOCAL' && effectiveOptions.authMode === 'A') {
       await loginPage.loginWithLocalPassword(envConfig.userId, envConfig.password);
     } else {
-      await loginPage.waitForExternalIdpLogin(envConfig.externalIdpTimeoutMs);
+      if (envConfig.password) {
+        await loginPage.loginWithExternalIdp(envConfig.userId, envConfig.password, envConfig.externalIdpTimeoutMs);
+      } else {
+        await loginPage.waitForExternalIdpLogin(envConfig.externalIdpTimeoutMs);
+      }
     }
 
     // 8. ホーム画面での厳格な学校照合 (完全一致)

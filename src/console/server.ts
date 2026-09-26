@@ -645,6 +645,52 @@ export class ConsoleServer {
       return;
     }
 
+    // 10.5 POST /api/results/reset (過去データのリセット・初期化)
+    if (method === 'POST' && pathname === '/api/results/reset') {
+      const state = this.adapter.getJobState();
+      if (state === 'RUNNING' || state === 'STOPPING') {
+        this.sendJson(res, 409, { error: 'JOB_CONFLICT', message: '処理実行中はリセットできません' });
+        return;
+      }
+
+      try {
+        const rootDir = process.cwd();
+        const archiveDir = path.join(rootDir, 'archive');
+        if (!fs.existsSync(archiveDir)) {
+          fs.mkdirSync(archiveDir, { recursive: true });
+        }
+
+        const targetDirs = ['reports', 'checkpoints', 'logs'];
+        for (const dirName of targetDirs) {
+          const dirPath = path.join(rootDir, dirName);
+          if (fs.existsSync(dirPath)) {
+            const files = fs.readdirSync(dirPath).filter((f) => f.endsWith('.json'));
+            for (const file of files) {
+              const src = path.join(dirPath, file);
+              const dest = path.join(archiveDir, `${Date.now()}-${file}`);
+              try {
+                fs.renameSync(src, dest);
+              } catch {
+                // 移動失敗時はコピー後削除
+                try {
+                  fs.copyFileSync(src, dest);
+                  fs.unlinkSync(src);
+                } catch {
+                  // 無視
+                }
+              }
+            }
+          }
+        }
+
+        this.adapter.resetAllResults();
+        this.sendJson(res, 200, { success: true, message: '過去の実行結果をリセットしました' });
+      } catch (err: any) {
+        this.sendJson(res, 500, { error: 'RESET_FAILED', message: `リセット処理中にエラーが発生しました: ${err.message}` });
+      }
+      return;
+    }
+
     // 11. POST /api/apply/prepare (指示5: 2段階 Confirmation Token API - 第1段階)
     if (method === 'POST' && pathname === '/api/apply/prepare') {
       const state = this.adapter.getJobState();
@@ -670,7 +716,8 @@ export class ConsoleServer {
       }
 
       try {
-        const result = this.adapter.prepareProductionApply();
+        const includeDestructive = Boolean(body.includeDestructiveSchools);
+        const result = this.adapter.prepareProductionApply(undefined, undefined, includeDestructive);
         this.sendJson(res, 200, {
           status: 'PREPARED',
           manifest: result.manifest,
@@ -727,12 +774,15 @@ export class ConsoleServer {
       }
 
       try {
-        this.adapter.startProductionApplyProcess(body.confirmationToken);
+        const includeDestructive = Boolean(body.includeDestructiveSchools);
+        this.adapter.startProductionApplyProcess(body.confirmationToken, includeDestructive);
         this.sendJson(res, 200, {
           status: 'STARTED',
           mode: 'PRODUCTION_WRITE',
           runId: this.adapter.getCurrentRunId(),
-          message: '非破壊本番適用プロセスを開始しました (PRODUCTION_WRITE)'
+          message: includeDestructive
+            ? '本番適用プロセスを開始しました（予約投稿削除リスクを含む全対象校）'
+            : '非破壊本番適用プロセスを開始しました (PRODUCTION_WRITE)'
         });
       } catch (err: any) {
         const statusCode =

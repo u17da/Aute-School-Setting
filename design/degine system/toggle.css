@@ -1,0 +1,139 @@
+/* =============================================================================
+ * まなびポケット Design System — Toggle
+ * 設定の即時オン/オフ切替に使用
+ * ============================================================================= */
+
+:root {
+  /* Track (slide bar) */
+  --mp-toggle-track-on: #16ABCE;
+  --mp-toggle-track-off: #909398;
+  --mp-toggle-track-disable: #EFEFEF;
+
+  /* Knob (handle) */
+  --mp-toggle-knob-on: #008299;
+  --mp-toggle-knob-off: #FFFFFF;
+  --mp-toggle-knob-disable: #D7D7D7;
+
+  /* Label */
+  --mp-toggle-label-default: #283148;
+  --mp-toggle-label-secondary: #61646C;
+  --mp-toggle-label-disable: #909398;
+
+  /* Sizing */
+  --mp-toggle-track-w: 34px;
+  --mp-toggle-track-h: 14px;
+  --mp-toggle-knob-size: 20px;
+  --mp-toggle-hit-w: 46px;
+  --mp-toggle-hit-h: 28px;
+
+  /* Motion */
+  --mp-toggle-duration: 180ms;
+  --mp-toggle-easing: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Wrapper: ラベル + スイッチを横並び */
+.mp-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'Hiragino Kaku Gothic Pro', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--mp-toggle-label-default);
+  cursor: pointer;
+  user-select: none;
+}
+
+.mp-toggle--disabled {
+  cursor: not-allowed;
+  color: var(--mp-toggle-label-disable);
+}
+
+/* ネイティブ input は視覚的に隠す（A11y のためアクセス可能には保つ） */
+.mp-toggle__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* スイッチ本体（クリックヒット領域含む） */
+.mp-toggle__switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--mp-toggle-hit-w);
+  height: var(--mp-toggle-hit-h);
+  flex-shrink: 0;
+}
+
+/* トラック（横バー） */
+.mp-toggle__track {
+  width: var(--mp-toggle-track-w);
+  height: var(--mp-toggle-track-h);
+  border-radius: 999px;
+  background: var(--mp-toggle-track-off);
+  transition: background-color var(--mp-toggle-duration) var(--mp-toggle-easing);
+}
+
+/* ノブ（つまみ） */
+.mp-toggle__knob {
+  position: absolute;
+  top: 50%;
+  left: 6px;
+  width: var(--mp-toggle-knob-size);
+  height: var(--mp-toggle-knob-size);
+  border-radius: 50%;
+  background: var(--mp-toggle-knob-off);
+  box-shadow:
+    0px 2px 1px -1px rgba(0, 0, 0, 0.2),
+    0px 1px 1px rgba(0, 0, 0, 0.14),
+    0px 1px 3px rgba(0, 0, 0, 0.12);
+  transform: translateY(-50%);
+  transition: transform var(--mp-toggle-duration) var(--mp-toggle-easing),
+              background-color var(--mp-toggle-duration) var(--mp-toggle-easing);
+}
+
+/* =============================================================================
+ * State: ON
+ * ============================================================================= */
+.mp-toggle__input:checked + .mp-toggle__switch .mp-toggle__track {
+  background: var(--mp-toggle-track-on);
+}
+.mp-toggle__input:checked + .mp-toggle__switch .mp-toggle__knob {
+  background: var(--mp-toggle-knob-on);
+  transform: translate(20px, -50%);
+}
+
+/* =============================================================================
+ * State: Disabled
+ * ============================================================================= */
+.mp-toggle__input:disabled + .mp-toggle__switch .mp-toggle__track {
+  background: var(--mp-toggle-track-disable);
+}
+.mp-toggle__input:disabled + .mp-toggle__switch .mp-toggle__knob {
+  background: var(--mp-toggle-knob-disable);
+  box-shadow: none;
+}
+
+/* =============================================================================
+ * Focus
+ * ============================================================================= */
+.mp-toggle__input:focus-visible + .mp-toggle__switch .mp-toggle__knob {
+  outline: 2px solid #008299;
+  outline-offset: 2px;
+}
+
+/* =============================================================================
+ * Hover (有効時のみ)
+ * ============================================================================= */
+.mp-toggle:not(.mp-toggle--disabled):hover .mp-toggle__track {
+  filter: brightness(0.95);
+}

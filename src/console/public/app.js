@@ -8,6 +8,7 @@ let profilePresets = [];
 let currentProfileSettings = {};
 let currentConfirmationToken = null;
 let currentApplyManifest = null;
+let includeDestructiveSchools = false;
 
 document.addEventListener('DOMContentLoaded', () => {
   fetchStatus();
@@ -67,13 +68,13 @@ async function onSourceChange(source) {
 
   if (source === 'UPLOAD') {
     uploadContainer.style.display = 'block';
-    sourceValEl.textContent = 'CSV アップロード (1本化)';
+    if (sourceValEl) sourceValEl.textContent = 'CSV アップロード (1本化)';
   } else {
     uploadContainer.style.display = 'none';
-    sourceValEl.textContent = 'ローカル既定ファイル (config/schools.live.csv)';
+    if (sourceValEl) sourceValEl.textContent = 'ローカル既定ファイル (config/schools.live.csv)';
   }
 
-  // 指示8: ソース変更時は Validation Snapshot を即座に無効化
+  // ソース変更時は Validation Snapshot を即座に無効化
   invalidateSnapshot('入力ソースが変更されました。再度「入力を検証」を実行してください。');
 
   try {
@@ -94,20 +95,20 @@ async function onFileSelected(files) {
   if (!files || files.length === 0) return;
   const file = files[0];
 
-  // 指示4: .xlsx 対象外チェック
+  // .xlsx 対象外チェック
   if (!file.name.toLowerCase().endsWith('.csv')) {
     alert('【ファイル形式エラー】\n選択されたファイルは .csv ではありません。\nExcel で「CSV UTF-8（コンマ区切り）（*.csv）」として保存した .csv ファイルをご利用ください（.xlsx は対象外です）。');
     return;
   }
 
-  // 指示11: 最大 5MB チェック
+  // 最大 5MB チェック
   if (file.size > 5 * 1024 * 1024) {
     alert('【サイズ超過エラー】\nファイルサイズが上限 (5MB) を超過しています。');
     return;
   }
 
   const alertBox = document.getElementById('validationAlert');
-  alertBox.style.display = 'none';
+  if (alertBox) alertBox.style.display = 'none';
 
   try {
     const csvText = await file.text();
@@ -128,30 +129,33 @@ async function onFileSelected(files) {
       return;
     }
 
-    // 指示6: 秘密情報を一切返さない安全な表示
+    // 秘密情報を一切返さない安全な表示
     document.getElementById('uploadFileInfo').style.display = 'block';
     document.getElementById('uploadFileNameVal').textContent = data.originalFileName;
     document.getElementById('uploadFileSizeVal').textContent = `(${(data.fileSize / 1024).toFixed(1)} KB)`;
     document.getElementById('uploadParsedStatsVal').textContent = `全 ${data.totalSchools} 校 (有効: ${data.enabledSchools} 校) / 認証情報: 解決完了`;
 
-    // Preview テーブル描画 (schoolCode / schoolName のみ、パスワードはゼロ)
+    const sourceValEl = document.getElementById('currentSourceVal');
+    if (sourceValEl) sourceValEl.textContent = 'CSV アップロード (1本化)';
+
+    // Preview テーブル描画 (schoolCode / schoolName のみ、パスワードは非表示)
     const previewBody = document.getElementById('uploadPreviewBody');
-    previewBody.innerHTML = '';
-    (data.preview || []).forEach((s, idx) => {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td>${idx + 1}</td>
-        <td><strong>${escapeHtml(s.schoolCode)}</strong></td>
-        <td>${escapeHtml(s.schoolName)}</td>
-        <td><span class="badge badge-success">OK (解決済)</span></td>
-      `;
-      previewBody.appendChild(tr);
-    });
+    if (previewBody) {
+      previewBody.innerHTML = '';
+      (data.preview || []).forEach((s, idx) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${idx + 1}</td>
+          <td><strong>${escapeHtml(s.schoolCode)}</strong></td>
+          <td>${escapeHtml(s.schoolName)}</td>
+          <td><span class="badge badge-success">OK (解決済)</span></td>
+        `;
+        previewBody.appendChild(tr);
+      });
+    }
 
-    // 指示8: 新規 Upload 時は以前の Validation Snapshot を無効化
-    invalidateSnapshot(`新しい CSV (${data.originalFileName}) がアップロードされました。Preflight を開始する前に「入力を検証」を実行してください。`);
-
-    onExpectedCountInput();
+    // 新規 Upload 時は自動的に入力検証を実行
+    await runValidation();
   } catch (err) {
     alert(`アップロード通信エラー: ${err.message}`);
   }
@@ -159,49 +163,31 @@ async function onFileSelected(files) {
 
 function invalidateSnapshot(reasonMessage) {
   currentSnapshotData = null;
-  document.getElementById('btnStartPreflight').disabled = true;
-  document.getElementById('enabledSchoolsVal').textContent = '-';
-  document.getElementById('schoolsHashVal').textContent = '-';
-  document.getElementById('credResolvedVal').textContent = '-';
-  document.getElementById('profileHashVal').textContent = '-';
+  const btnPreflight = document.getElementById('btnStartPreflight');
+  if (btnPreflight) btnPreflight.disabled = true;
+  const elEnabled = document.getElementById('enabledSchoolsVal');
+  if (elEnabled) elEnabled.textContent = '-';
+  const elSchoolsHash = document.getElementById('schoolsHashVal');
+  if (elSchoolsHash) elSchoolsHash.textContent = '-';
+  const elCredResolved = document.getElementById('credResolvedVal');
+  if (elCredResolved) elCredResolved.textContent = '-';
+  const elCredMissing = document.getElementById('credMissingVal');
+  if (elCredMissing) elCredMissing.textContent = '-';
+  const elProfileHash = document.getElementById('profileHashVal');
+  if (elProfileHash) elProfileHash.textContent = '-';
 
   if (reasonMessage) {
     const alertBox = document.getElementById('validationAlert');
-    alertBox.className = 'alert-box alert-warning mt-3';
-    alertBox.textContent = `⚠️ ${reasonMessage}`;
-    alertBox.style.display = 'block';
+    if (alertBox) {
+      alertBox.className = 'alert-box alert-warning mt-3';
+      alertBox.textContent = `⚠️ ${reasonMessage}`;
+      alertBox.style.display = 'block';
+    }
   }
 }
 
 function onExpectedCountInput() {
-  const inputEl = document.getElementById('inputExpectedSchoolCount');
-  const badgeEl = document.getElementById('expectedMatchBadge');
-  const enteredVal = parseInt(inputEl.value, 10);
-
-  if (isNaN(enteredVal) || enteredVal <= 0) {
-    badgeEl.textContent = '未入力';
-    badgeEl.className = 'badge badge-idle';
-    return;
-  }
-
-  // 現在の有効学校数を取得 (Snapshot または Upload または DOM)
-  let currentEnabled = null;
-  if (currentSnapshotData) {
-    currentEnabled = currentSnapshotData.enabledSchoolCount;
-  }
-
-  if (currentEnabled !== null) {
-    if (enteredVal === currentEnabled) {
-      badgeEl.textContent = `MATCH (${currentEnabled}校)`;
-      badgeEl.className = 'badge badge-success';
-    } else {
-      badgeEl.textContent = `MISMATCH (実: ${currentEnabled}校)`;
-      badgeEl.className = 'badge badge-danger';
-    }
-  } else {
-    badgeEl.textContent = `想定: ${enteredVal}校 (検証待ち)`;
-    badgeEl.className = 'badge badge-idle';
-  }
+  // 誤操作防止チェック削除に伴い安全な no-op
 }
 
 async function fetchStatus() {
@@ -214,26 +200,36 @@ async function fetchStatus() {
 
     if (data.inputSource) {
       currentInputSource = data.inputSource;
-      const sourceValEl = document.getElementById('currentSourceVal');
-      if (sourceValEl) {
-        sourceValEl.textContent = data.inputSource === 'UPLOAD'
-          ? 'CSV アップロード (1本化)'
-          : 'ローカル既定ファイル (config/schools.live.csv)';
-      }
     }
 
     if (data.activeUpload) {
-      document.getElementById('uploadFileInfo').style.display = 'block';
-      document.getElementById('uploadFileNameVal').textContent = data.activeUpload.originalFileName;
-      document.getElementById('uploadFileSizeVal').textContent = `(${(data.activeUpload.fileSize / 1024).toFixed(1)} KB)`;
-      document.getElementById('uploadParsedStatsVal').textContent = `全 ${data.activeUpload.totalSchools} 校 (有効: ${data.activeUpload.enabledSchools} 校) / 認証情報: 解決完了`;
+      const uploadFileInfo = document.getElementById('uploadFileInfo');
+      if (uploadFileInfo) uploadFileInfo.style.display = 'block';
+      const uploadFileNameVal = document.getElementById('uploadFileNameVal');
+      if (uploadFileNameVal) uploadFileNameVal.textContent = data.activeUpload.originalFileName;
+      const uploadFileSizeVal = document.getElementById('uploadFileSizeVal');
+      if (uploadFileSizeVal) uploadFileSizeVal.textContent = `(${(data.activeUpload.fileSize / 1024).toFixed(1)} KB)`;
+      const uploadParsedStatsVal = document.getElementById('uploadParsedStatsVal');
+      if (uploadParsedStatsVal) uploadParsedStatsVal.textContent = `全 ${data.activeUpload.totalSchools} 校 (有効: ${data.activeUpload.enabledSchools} 校) / ログイン情報: 確認完了`;
+
+      const sourceValEl = document.getElementById('currentSourceVal');
+      if (sourceValEl) {
+        sourceValEl.textContent = 'CSVファイル アップロード';
+      }
+    } else if (data.snapshot) {
+      const sourceValEl = document.getElementById('currentSourceVal');
+      if (sourceValEl) {
+        sourceValEl.textContent = data.inputSource === 'UPLOAD'
+          ? 'CSVファイル アップロード'
+          : 'ローカル既定ファイル (config/schools.live.csv)';
+      }
     }
 
     if (data.snapshot) {
       currentSnapshotData = data.snapshot;
       updateSnapshotUi(data.snapshot);
-      document.getElementById('btnStartPreflight').disabled = false;
-      onExpectedCountInput();
+      const btnPreflight = document.getElementById('btnStartPreflight');
+      if (btnPreflight) btnPreflight.disabled = false;
     }
 
     if (data.recentLogs && data.recentLogs.length > 0) {
@@ -253,7 +249,15 @@ function updateJobStateBadge(state) {
   const badge = document.getElementById('jobStateBadge');
   if (!badge) return;
 
-  badge.textContent = state;
+  const stateLabels = {
+    'IDLE': '待機中 (IDLE)',
+    'RUNNING': '実行中 (RUNNING)',
+    'COMPLETED': '完了 (COMPLETED)',
+    'READY': '準備完了 (READY)',
+    'FAILED': 'エラー停止 (FAILED)'
+  };
+
+  badge.textContent = stateLabels[state] || state;
   badge.className = 'badge';
 
   if (state === 'RUNNING') {
@@ -348,12 +352,12 @@ function renderProfileEditor() {
     // 依存関係メッセージ (指示8)
     let dependencyNote = '';
     if (isTimelineOff && (def.key === 'allChannel' || def.key === 'parentChannel')) {
-      dependencyNote = `<span class="badge badge-idle" style="margin-left: 0.5rem;">※タイムラインOFF連動</span>`;
+      dependencyNote = `<span class="badge badge-danger" style="margin-left: 0.5rem;">※タイムラインOFF連動</span>`;
     }
 
     // オプション選択肢HTML
     const optionsHtml = [
-      `<option value="__UNMANAGED__" ${isUnmanaged ? 'selected' : ''}>UNMANAGED (変更なし)</option>`,
+      `<option value="__UNMANAGED__" ${isUnmanaged ? 'selected' : ''}>UNMANAGED (変更しない)</option>`,
       ...def.options.map((opt) => {
         const isSelected = !isUnmanaged && String(currentVal) === String(opt.value);
         return `<option value="${escapeHtml(opt.value)}" ${isSelected ? 'selected' : ''}>${escapeHtml(opt.label)} (${escapeHtml(opt.value)})</option>`;
@@ -363,20 +367,20 @@ function renderProfileEditor() {
     // ステータス / リスク表示HTML
     let statusHtml = '';
     if (isUnmanaged) {
-      statusHtml = `<span class="text-muted">変更なし (UNMANAGED)</span>`;
+      statusHtml = `<span class="text-muted font-bold">変更しない (UNMANAGED)</span>`;
     } else if (isDestructive) {
-      statusHtml = `<span class="badge badge-danger">⚠️ 予約投稿削除リスク (Destructive)</span>`;
+      statusHtml = `<span class="badge badge-danger">⚠️ 予約投稿削除リスク</span>`;
     } else {
-      statusHtml = `<span class="badge badge-success">変更 (MANAGED)</span>`;
+      statusHtml = `<span class="badge badge-success">変更する (MANAGED)</span>`;
     }
 
     tr.innerHTML = `
       <td>
         <strong>${escapeHtml(def.label)}</strong>
-        <div class="text-muted" style="font-size: 0.75rem; font-family: monospace;">${escapeHtml(def.key)}</div>
+        <div class="text-muted" style="font-size: 0.8rem; font-family: monospace;">${escapeHtml(def.key)}</div>
       </td>
       <td>
-        <select class="input-select" onchange="onSettingChange('${def.key}', this.value)" style="width: 100%; padding: 0.35rem 0.5rem; border: 1px solid var(--border-color); border-radius: 4px;">
+        <select class="input-select" onchange="onSettingChange('${def.key}', this.value)" style="width: 100%; font-size: 15px;">
           ${optionsHtml}
         </select>
       </td>
@@ -390,7 +394,7 @@ function renderProfileEditor() {
     tbody.appendChild(tr);
   });
 
-  // 破壊的変更リスクリアルタイム警告バナーの制御 (指示1)
+  // 破壊的変更リスクリアルタイム警告バナーの制御
   const warningEl = document.getElementById('editorDestructiveWarning');
   const listEl = document.getElementById('editorDestructiveFieldsList');
   if (warningEl && listEl) {
@@ -401,6 +405,21 @@ function renderProfileEditor() {
       warningEl.style.display = 'none';
     }
   }
+
+  // 親子機能の依存関係リアルタイムチェック (タイムラインOFFなのにチャンネルON)
+  const hasDependencyConflict = isTimelineOff && (currentProfileSettings['allChannel'] === 'ON' || currentProfileSettings['parentChannel'] === 'ON');
+  const depWarningEl = document.getElementById('editorDependencyWarning');
+  if (depWarningEl) {
+    depWarningEl.style.display = hasDependencyConflict ? 'block' : 'none';
+  }
+  const preflightDepWarningEl = document.getElementById('preflightDependencyWarning');
+  if (preflightDepWarningEl) {
+    preflightDepWarningEl.style.display = hasDependencyConflict ? 'block' : 'none';
+  }
+  const btnStartPreflight = document.getElementById('btnStartPreflight');
+  if (btnStartPreflight && hasDependencyConflict) {
+    btnStartPreflight.disabled = true;
+  }
 }
 
 async function onSettingChange(key, value) {
@@ -410,7 +429,7 @@ async function onSettingChange(key, value) {
     currentProfileSettings[key] = value;
   }
 
-  // サーバーへ即座に Invalidation を通知 (指示4)
+  // サーバーへ即座に Invalidation を通知
   try {
     await fetch('/api/profile/invalidate', {
       method: 'POST',
@@ -420,17 +439,35 @@ async function onSettingChange(key, value) {
     console.error('Failed to notify invalidate:', err);
   }
 
-  invalidateSnapshot('プロファイル設定が変更されました。Preflight を開始する前に「入力を検証」を実行してください。');
   renderProfileEditor();
+
+  // 学校一覧が読み込まれている場合は自動で再検証を実行
+  const hasSchoolSource = document.getElementById('uploadFileInfo')?.style.display !== 'none' ||
+    currentInputSource === 'LOCAL_LIVE' || currentSnapshotData !== null;
+  if (hasSchoolSource) {
+    await runValidation();
+  }
 }
 
 async function applyPreset(presetId) {
   const preset = profilePresets.find((p) => p.id === presetId);
-  if (!preset) return;
+  if (preset && preset.settings) {
+    currentProfileSettings = { ...preset.settings };
+  } else if (presetId === 'RECOMMENDED' || presetId === 'DEFAULT') {
+    currentProfileSettings = {};
+    settingDefinitions.forEach((d) => {
+      currentProfileSettings[d.key] = d.defaultValue;
+    });
+  } else if (presetId === 'UNMANAGED_ALL') {
+    currentProfileSettings = {};
+    settingDefinitions.forEach((d) => {
+      currentProfileSettings[d.key] = null;
+    });
+  } else {
+    return;
+  }
 
-  currentProfileSettings = { ...preset.settings };
-
-  // サーバーへ即座に Invalidation を通知 (指示4)
+  // サーバーへ即座に Invalidation を通知
   try {
     await fetch('/api/profile/invalidate', {
       method: 'POST',
@@ -440,8 +477,14 @@ async function applyPreset(presetId) {
     console.error('Failed to notify invalidate:', err);
   }
 
-  invalidateSnapshot(`プリセット「${preset.name}」を適用しました。Preflight を開始する前に「入力を検証」を実行してください。`);
   renderProfileEditor();
+
+  // 学校一覧が読み込まれている場合は自動で再検証を実行
+  const hasSchoolSource = document.getElementById('uploadFileInfo')?.style.display !== 'none' ||
+    currentInputSource === 'LOCAL_LIVE' || currentSnapshotData !== null;
+  if (hasSchoolSource) {
+    await runValidation();
+  }
 }
 
 async function exportProfileJson() {
@@ -506,18 +549,27 @@ async function onProfileJsonSelected(files) {
 
 async function runValidation() {
   const alertBox = document.getElementById('validationAlert');
-  alertBox.style.display = 'none';
+  if (alertBox) alertBox.style.display = 'none';
   document.getElementById('btnValidate').disabled = true;
   document.getElementById('btnStartPreflight').disabled = true;
 
-  const expectedInput = document.getElementById('inputExpectedSchoolCount');
-  const expectedCountVal = parseInt(expectedInput.value, 10);
+  // 親子機能の依存関係チェック（早期拒絶）
+  if (currentProfileSettings['timelineChannel'] === 'OFF' &&
+      (currentProfileSettings['allChannel'] === 'ON' || currentProfileSettings['parentChannel'] === 'ON')) {
+    currentSnapshotData = null;
+    if (alertBox) {
+      alertBox.className = 'alert-box alert-danger mt-3';
+      alertBox.innerHTML = '<strong>✗ 入力設定エラー (DEPENDENCY_CONFLICT)</strong>: 「タイムライン・チャンネル機能」がOFFの場合、子機能（全体チャンネル・保護者チャンネル）をONに設定することはできません。設定を見直してください。';
+      alertBox.style.display = 'block';
+    }
+    document.getElementById('btnStartPreflight').disabled = true;
+    document.getElementById('btnValidate').disabled = false;
+    return;
+  }
+
   const bodyPayload = {
     profile: currentProfileSettings
   };
-  if (!isNaN(expectedCountVal) && expectedCountVal > 0) {
-    bodyPayload.expectedSchoolCount = expectedCountVal;
-  }
 
   try {
     const res = await fetch('/api/validate', {
@@ -532,26 +584,30 @@ async function runValidation() {
     const data = await res.json();
     if (data.status === 'PASS') {
       currentSnapshotData = data.snapshot;
-      alertBox.className = 'alert-box alert-success mt-3';
-      alertBox.textContent = `✓ 入力検証に合格しました (Validation PASS: ${data.enabledCount} 校有効 / 資格情報 100% 解決)。Preflight を開始できます。`;
-      alertBox.style.display = 'block';
+      if (alertBox) {
+        alertBox.className = 'alert-box alert-success mt-3';
+        alertBox.textContent = `✓ 入力検証に合格しました (Validation PASS: ${data.enabledCount} 校有効 / 資格情報 100% 解決)。事前検証を開始できます。`;
+        alertBox.style.display = 'block';
+      }
 
       updateSnapshotUi(data.snapshot, data.schoolsPath);
-      onExpectedCountInput();
       document.getElementById('btnStartPreflight').disabled = false;
     } else {
       currentSnapshotData = null;
-      alertBox.className = 'alert-box alert-danger mt-3';
-      alertBox.innerHTML = `<strong>✗ 入力検証エラー (${data.error?.code || 'VALIDATION_FAILED'})</strong>: ${escapeHtml(data.error?.message || data.message || '不明なエラー')}`;
-      alertBox.style.display = 'block';
+      if (alertBox) {
+        alertBox.className = 'alert-box alert-danger mt-3';
+        alertBox.innerHTML = `<strong>✗ 入力検証エラー (${data.error?.code || 'VALIDATION_FAILED'})</strong>: ${escapeHtml(data.error?.message || data.message || '不明なエラー')}`;
+        alertBox.style.display = 'block';
+      }
       document.getElementById('btnStartPreflight').disabled = true;
-      onExpectedCountInput();
     }
   } catch (err) {
     currentSnapshotData = null;
-    alertBox.className = 'alert-box alert-danger mt-3';
-    alertBox.textContent = `通信エラー: ${err.message}`;
-    alertBox.style.display = 'block';
+    if (alertBox) {
+      alertBox.className = 'alert-box alert-danger mt-3';
+      alertBox.textContent = `通信エラー: ${err.message}`;
+      alertBox.style.display = 'block';
+    }
   } finally {
     document.getElementById('btnValidate').disabled = false;
   }
@@ -686,7 +742,13 @@ function subscribeSse() {
   eventSource.addEventListener('stateChange', (e) => {
     const data = JSON.parse(e.data);
     updateJobStateBadge(data.state);
-    if (data.state === 'COMPLETED' || data.state === 'FAILED') {
+    if (data.state === 'COMPLETED') {
+      loadLatestResults();
+      const progressScreen = document.getElementById('screenProgress');
+      if (progressScreen && progressScreen.classList.contains('active')) {
+        switchTab('results');
+      }
+    } else if (data.state === 'FAILED') {
       loadLatestResults();
     }
   });
@@ -793,6 +855,7 @@ async function loadLatestResults() {
 
     renderSummaryMetrics(report);
     renderActionsDistribution(report);
+    renderMergedDistribution(report);
     renderCurrentStateDistribution(report);
     renderPlannedChangeDistribution(report);
     renderDestructiveWarnings(report);
@@ -807,14 +870,63 @@ async function loadLatestResults() {
 function renderSummaryMetrics(r) {
   const s = r;
   const formatVal = (v) => (v !== undefined && v !== null ? v : 'N/A');
-  document.getElementById('resTotal').textContent = formatVal(s.totalSchools ?? s.total);
-  document.getElementById('resReadSuccess').textContent = formatVal(s.readSuccess);
-  document.getElementById('resReadFailed').textContent = formatVal(s.readFailed);
-  document.getElementById('resAlreadyConfigured').textContent = formatVal(s.alreadyConfigured);
-  document.getElementById('resRequiresChange').textContent = formatVal(s.requiresChange);
-  document.getElementById('resPlanBlocked').textContent = formatVal(s.planBlocked);
-  document.getElementById('resDestructiveSchools').textContent = formatVal(s.destructiveChangeSchools);
-  document.getElementById('resWriteEligible').textContent = formatVal(s.writeEligible ?? s.writeEligibleNonDestructive);
+  const setEl = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = formatVal(val);
+  };
+
+  setEl('resTotal', s.totalSchools ?? s.total);
+  setEl('resReadSuccess', s.readSuccess);
+  setEl('resReadFailed', s.readFailed);
+  setEl('resAlreadyConfigured', s.alreadyConfigured);
+  setEl('resRequiresChange', s.requiresChange);
+  setEl('resPlanBlocked', s.planBlocked);
+  setEl('resDestructiveSchools', s.destructiveChangeSchools);
+  setEl('resWriteEligible', s.writeEligible ?? s.writeEligibleNonDestructive);
+}
+
+function renderMergedDistribution(r) {
+  const tbody = document.getElementById('mergedDistributionTableBody');
+  if (!tbody) return;
+
+  const curDist = r.currentStateDistribution || {};
+  const planDist = r.plannedChangeDistribution || {};
+
+  const keys = settingDefinitions.length > 0
+    ? settingDefinitions.map((d) => d.key)
+    : Array.from(new Set([...Object.keys(curDist), ...Object.keys(planDist)]));
+
+  if (keys.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted">データなし</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = '';
+  keys.forEach((key) => {
+    const def = settingDefinitions.find((d) => d.key === key);
+    const displayLabel = def ? def.label : key;
+
+    const curEntries = Object.entries(curDist[key] || {});
+    const curStr = curEntries.length > 0
+      ? curEntries.map(([val, cnt]) => `<strong>${escapeHtml(val)}</strong>: ${cnt}校`).join(' / ')
+      : '<span class="text-muted">なし (0校)</span>';
+
+    const planEntries = Object.entries(planDist[key] || {});
+    const planStr = planEntries.length > 0
+      ? planEntries.map(([val, cnt]) => `<strong>${escapeHtml(val)}</strong>: ${cnt}校`).join(' / ')
+      : '<span class="text-muted">なし (0校)</span>';
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>
+        <strong>${escapeHtml(displayLabel)}</strong>
+        <div class="text-muted" style="font-size: 0.8rem; font-family: monospace;">${escapeHtml(key)}</div>
+      </td>
+      <td>${curStr}</td>
+      <td>${planStr}</td>
+    `;
+    tbody.appendChild(tr);
+  });
 }
 
 function renderActionsDistribution(r) {
@@ -835,7 +947,7 @@ function renderCurrentStateDistribution(r) {
   if (!tbody) return;
 
   if (!dist || Object.keys(dist).length === 0) {
-    tbody.innerHTML = '<tr><td colspan="2" class="text-center text-muted">データなし (N/A)</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="2" class="text-center text-muted">データなし</td></tr>';
     return;
   }
 
@@ -843,11 +955,16 @@ function renderCurrentStateDistribution(r) {
   for (const [key, counts] of Object.entries(dist)) {
     const tr = document.createElement('tr');
     const entries = Object.entries(counts);
+    const def = settingDefinitions.find((d) => d.key === key);
+    const displayLabel = def ? def.label : key;
     const countsStr = entries.length > 0
       ? entries.map(([val, cnt]) => `<strong>${escapeHtml(val)}</strong>: ${cnt}校`).join(' / ')
       : '<span class="text-muted">なし (0校)</span>';
     tr.innerHTML = `
-      <td><strong>${escapeHtml(key)}</strong></td>
+      <td>
+        <strong>${escapeHtml(displayLabel)}</strong>
+        <div class="text-muted" style="font-size: 0.8rem; font-family: monospace;">${escapeHtml(key)}</div>
+      </td>
       <td>${countsStr}</td>
     `;
     tbody.appendChild(tr);
@@ -860,7 +977,7 @@ function renderPlannedChangeDistribution(r) {
   if (!tbody) return;
 
   if (!dist || Object.keys(dist).length === 0) {
-    tbody.innerHTML = '<tr><td colspan="2" class="text-center text-muted">データなし (N/A)</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="2" class="text-center text-muted">データなし</td></tr>';
     return;
   }
 
@@ -868,11 +985,16 @@ function renderPlannedChangeDistribution(r) {
   for (const [key, counts] of Object.entries(dist)) {
     const tr = document.createElement('tr');
     const entries = Object.entries(counts);
+    const def = settingDefinitions.find((d) => d.key === key);
+    const displayLabel = def ? def.label : key;
     const countsStr = entries.length > 0
       ? entries.map(([val, cnt]) => `<strong>${escapeHtml(val)}</strong>: ${cnt}校`).join(' / ')
       : '<span class="text-muted">なし (0校)</span>';
     tr.innerHTML = `
-      <td><strong>${escapeHtml(key)}</strong></td>
+      <td>
+        <strong>${escapeHtml(displayLabel)}</strong>
+        <div class="text-muted" style="font-size: 0.8rem; font-family: monospace;">${escapeHtml(key)}</div>
+      </td>
       <td>${countsStr}</td>
     `;
     tbody.appendChild(tr);
@@ -1016,11 +1138,14 @@ function clearResultsUi() {
     if (el) el.textContent = '0 校';
   });
 
+  const mergedBody = document.getElementById('mergedDistributionTableBody');
+  if (mergedBody) mergedBody.innerHTML = '<tr><td colspan="3" class="text-center text-muted">事前検証が完了するとここに集計が表示されます</td></tr>';
+
   const curBody = document.getElementById('currentStateTableBody');
-  if (curBody) curBody.innerHTML = '<tr><td colspan="2" class="text-center text-muted">Preflight完了後に集計が表示されます</td></tr>';
+  if (curBody) curBody.innerHTML = '<tr><td colspan="2" class="text-center text-muted">事前検証が完了するとここに集計が表示されます</td></tr>';
 
   const planBody = document.getElementById('plannedChangeTableBody');
-  if (planBody) planBody.innerHTML = '<tr><td colspan="2" class="text-center text-muted">Preflight完了後に集計が表示されます</td></tr>';
+  if (planBody) planBody.innerHTML = '<tr><td colspan="2" class="text-center text-muted">事前検証が完了するとここに集計が表示されます</td></tr>';
 
   const failBody = document.getElementById('failedSchoolsTableBody');
   if (failBody) failBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">失敗校はありません</td></tr>';
@@ -1037,11 +1162,11 @@ function renderGlobalGateAndApplyStatus(report, data) {
   if (!report || report.status !== 'COMPLETE') {
     if (tabApplyBtn) tabApplyBtn.disabled = true;
     if (gateBadge) {
-      gateBadge.textContent = 'Preflight 未完了';
+      gateBadge.textContent = '事前検証 未完了';
       gateBadge.className = 'badge badge-idle';
     }
     if (gateIcon) gateIcon.textContent = '⏳';
-    if (gateSummary) gateSummary.textContent = 'Preflight が完了していません。先に「Read-only Preflight を実行」を行ってください。';
+    if (gateSummary) gateSummary.textContent = '事前検証が完了していません。先に「事前検証を開始する」を行ってください。';
     if (btnPrepare) btnPrepare.disabled = true;
     if (manifestBox) manifestBox.style.display = 'none';
     return;
@@ -1054,15 +1179,15 @@ function renderGlobalGateAndApplyStatus(report, data) {
   if (isStale || hasFailures || hasBlocks) {
     if (tabApplyBtn) tabApplyBtn.disabled = true;
     if (gateBadge) {
-      gateBadge.textContent = 'Gate 不合格 (Blocked)';
+      gateBadge.textContent = 'チェック不合格 (反映不可)';
       gateBadge.className = 'badge badge-danger';
     }
     if (gateIcon) gateIcon.textContent = '❌';
     let reasons = [];
-    if (isStale) reasons.push('入力ファイルまたはプロファイルがPreflight後に変更されています');
-    if (hasFailures) reasons.push(`読取失敗校が存在します (${report.readFailed}校)`);
+    if (isStale) reasons.push('学校一覧または設定目標値が検証後に変更されています');
+    if (hasFailures) reasons.push(`読み取り失敗校が存在します (${report.readFailed}校)`);
     if (hasBlocks) reasons.push(`計画ブロック校が存在します (${report.planBlocked}校)`);
-    if (gateSummary) gateSummary.textContent = `本番適用を開始できません: ${reasons.join('、')}`;
+    if (gateSummary) gateSummary.textContent = `本番反映を開始できません: ${reasons.join('、')}`;
     if (btnPrepare) btnPrepare.disabled = true;
     if (manifestBox) manifestBox.style.display = 'none';
     return;
@@ -1071,12 +1196,17 @@ function renderGlobalGateAndApplyStatus(report, data) {
   // 合格
   if (tabApplyBtn) tabApplyBtn.disabled = false;
   if (gateBadge) {
-    gateBadge.textContent = 'Gate 合格 (Eligible)';
+    gateBadge.textContent = 'チェック合格 (反映可能)';
     gateBadge.className = 'badge badge-success';
   }
   if (gateIcon) gateIcon.textContent = '✅';
+  
+  const eligibleCount = includeDestructiveSchools
+    ? (report.writeEligible ?? 0) + (report.destructiveChangeSchools ?? 0)
+    : (report.writeEligible ?? 0);
+
   if (gateSummary) {
-    gateSummary.textContent = `Global Gate 検証に合格しました。非破壊変更の対象校 (${report.writeEligible ?? 0}校) に対する本番適用が可能です。`;
+    gateSummary.textContent = `反映前チェックに合格しました。安全に変更可能な対象校 (${eligibleCount}校) への設定反映が可能です。`;
   }
   if (btnPrepare) btnPrepare.disabled = false;
 
@@ -1088,11 +1218,17 @@ function renderGlobalGateAndApplyStatus(report, data) {
     const alreadyEl = document.getElementById('applyAlreadyConfiguredVal');
     const hashEl = document.getElementById('applyTargetHashVal');
 
-    if (targetCountEl) targetCountEl.textContent = `${report.writeEligible ?? report.requiresChange ?? 0} 校`;
-    if (skippedEl) skippedEl.textContent = `${report.destructiveChangeSchools ?? 0} 校`;
+    if (targetCountEl) targetCountEl.textContent = `${eligibleCount} 校`;
+    if (skippedEl) skippedEl.textContent = includeDestructiveSchools ? '0 校 (許可済)' : `${report.destructiveChangeSchools ?? 0} 校`;
     if (alreadyEl) alreadyEl.textContent = `${report.alreadyConfigured ?? 0} 校`;
-    if (hashEl) hashEl.textContent = report.applyTargetHash || '(Prepare 時に確定)';
+    if (hashEl) hashEl.textContent = report.applyTargetHash || '(反映準備時に確定)';
   }
+}
+
+function onAllowDestructiveChanged(checked) {
+  includeDestructiveSchools = Boolean(checked);
+  // 表示の即時再同期
+  loadLatestResults();
 }
 
 async function prepareProductionApply() {
@@ -1107,7 +1243,7 @@ async function prepareProductionApply() {
         'Content-Type': 'application/json',
         'x-csrf-nonce': csrfToken
       },
-      body: JSON.stringify({})
+      body: JSON.stringify({ includeDestructiveSchools })
     });
 
     const data = await res.json();
@@ -1124,11 +1260,24 @@ async function prepareProductionApply() {
     currentApplyManifest = data.manifest;
 
     // モーダルを開いて値を反映
-    document.getElementById('modalTargetCount').textContent = `${data.targetCount} 校`;
-    document.getElementById('modalSkippedDestructive').textContent = `${data.skippedDestructiveCount} 校`;
-    document.getElementById('modalAlreadyConfigured').textContent = `${data.alreadyConfiguredCount} 校`;
-    document.getElementById('modalApplyTargetHashVal').textContent = data.manifest.applyTargetHash;
-    document.getElementById('modalProfileHashVal').textContent = data.manifest.profileHash;
+    const modalTargetCount = document.getElementById('modalTargetCount');
+    if (modalTargetCount) modalTargetCount.textContent = `${data.targetCount} 校`;
+    const modalSkippedDestructive = document.getElementById('modalSkippedDestructive');
+    if (modalSkippedDestructive) modalSkippedDestructive.textContent = `${data.skippedDestructiveCount} 校`;
+    const modalAlreadyConfigured = document.getElementById('modalAlreadyConfigured');
+    if (modalAlreadyConfigured) modalAlreadyConfigured.textContent = `${data.alreadyConfiguredCount} 校`;
+
+    const riskWarningEl = document.getElementById('modalRiskWarningText');
+    if (riskWarningEl) {
+      riskWarningEl.textContent = includeDestructiveSchools
+        ? '⚠️ 予約投稿削除リスクの学校も含めて本番反映を行います。チャンネル非表示化により予約投稿が自動削除される可能性があります。'
+        : '実際の環境への設定変更を書き込みます（予約投稿削除リスクの学校は安全のため除外されます）。';
+    }
+
+    const modalApplyHash = document.getElementById('modalApplyTargetHashVal');
+    if (modalApplyHash) modalApplyHash.textContent = data.manifest.applyTargetHash;
+    const modalProfileHash = document.getElementById('modalProfileHashVal');
+    if (modalProfileHash) modalProfileHash.textContent = data.manifest.profileHash;
 
     const chk = document.getElementById('modalConfirmCheckbox');
     if (chk) chk.checked = false;
@@ -1162,7 +1311,7 @@ function closeApplyModal() {
 
 async function executeProductionApply() {
   if (!currentConfirmationToken) {
-    alert('confirmationToken が存在しません。再度「本番適用を確認する」を実行してください。');
+    alert('confirmationToken が存在しません。再度「反映内容を確認する」を実行してください。');
     return;
   }
 
@@ -1177,7 +1326,10 @@ async function executeProductionApply() {
         'Content-Type': 'application/json',
         'x-csrf-nonce': csrfToken
       },
-      body: JSON.stringify({ confirmationToken: currentConfirmationToken })
+      body: JSON.stringify({
+        confirmationToken: currentConfirmationToken,
+        includeDestructiveSchools
+      })
     });
 
     const data = await res.json();
@@ -1196,7 +1348,7 @@ async function executeProductionApply() {
     const applyProgress = document.getElementById('applyProgressSection');
     if (applyProgress) applyProgress.style.display = 'block';
     const applyLogConsole = document.getElementById('applyLogConsole');
-    if (applyLogConsole) applyLogConsole.textContent = `[INFO] 本番非破壊書き込みを開始しました (RunId: ${data.runId})\n`;
+    if (applyLogConsole) applyLogConsole.textContent = `[INFO] 本番設定反映を開始しました (RunId: ${data.runId})\n`;
   } catch (err) {
     if (modalAlert) {
       modalAlert.style.display = 'block';
@@ -1204,5 +1356,48 @@ async function executeProductionApply() {
       modalAlert.textContent = `通信エラー: ${err.message}`;
     }
     if (btn) btn.disabled = false;
+  }
+}
+
+async function resetAllResults() {
+  if (!confirm('過去の検証・反映結果およびレポートをリセットし、初期状態に戻しますか？\n（過去のログ・レポートファイルは archive フォルダーに安全に退避されます）')) {
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/results/reset', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Nonce': csrfToken
+      }
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      alert(`リセットエラー: ${data.message || data.error}`);
+      return;
+    }
+
+    clearResultsUi();
+    invalidateSnapshot();
+    const sourceValEl = document.getElementById('currentSourceVal');
+    if (sourceValEl) sourceValEl.textContent = '-';
+    const schoolsFileVal = document.getElementById('schoolsFileVal');
+    if (schoolsFileVal) schoolsFileVal.textContent = '-';
+    const uploadFileInfo = document.getElementById('uploadFileInfo');
+    if (uploadFileInfo) uploadFileInfo.style.display = 'none';
+
+    // ログコンソールもクリア
+    const consoleEl = document.getElementById('logConsole');
+    if (consoleEl) consoleEl.textContent = '';
+    const applyConsoleEl = document.getElementById('applyLogConsole');
+    if (applyConsoleEl) applyConsoleEl.textContent = '';
+
+    await fetchStatus();
+    switchTab('setup');
+    alert('過去の実行結果をリセットしました。');
+  } catch (err) {
+    alert(`通信エラー: ${err.message}`);
   }
 }
