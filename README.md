@@ -1,11 +1,8 @@
 # まなびポケット「9.2 学校設定」ブラウザ自動化 PoC / Production Batch & Operator Console
 
 > [!IMPORTANT]
-> **【Phase 5A COMPLETE & CSV Excel Compatibility 完了 (CODE FREEZE)】**
-> 本ツールは、Phase 1〜4C の Production Batch 基盤、Phase 5A の Local Read-only Operator Console（Windows 信頼性強化 Phase 5A.1、stdin 制御による安全停止プロトコル Phase 5A.2、中断状態意味論の適正化 Phase 5A.3）、および Windows Excel 互換性対応（UTF-8 BOM / CRLF サポート）の全要件を完了し、全テスト通過および実 3 デモ校での検証成功をもって、**完全コードフリーズ（CODE FREEZE）** 状態にあります。
-> 
-> **今後の Write 開始前 Hard Blocker:**
-> 将来的な Canary Write / Production Write への着手前に、`SAVE_OUTCOME_UNKNOWN` および `RESTORE_OUTCOME_UNKNOWN` の状態管理・自動 retry 禁止・read-only recovery を必ず実装・検証する必要があります。
+> **【Phase 5B/5C 完了 & Windows x64 自己完結 Portable ZIP 配布基盤対応】**
+> 本ツールは、Phase 1〜4C の Production Batch 基盤、Phase 5A の Local Operator Console に加え、Phase 5B（プロファイルGUIエディタ、動的Preflight設定、管理された本番反映モーダル・二重承認Gate、SAVE_OUTCOME_UNKNOWN安全リカバリ）、および **Windows x64 自己完結 Portable ZIP 配布基盤（会社PC向け事前環境構築ゼロ・Node/Chromium同梱）** を完了しています。
 
 まなびポケットの学校管理者アカウントでログインし、操作マニュアル **9.2「学校設定」p.197〜200** に記載されている11項目の学校設定を安全・確実に自動変更・検証するPlaywright自動化ツールおよびローカル運用コンソールです。
 
@@ -201,14 +198,9 @@ npm start -- --batch --apply --allow-live-write --batch-apply --schools config/s
 
 ---
 
-## 7. Local Read-only Operator Console (Phase 5A Web UI)
+## 7. Operator Console (Web UI)
 
-教育委員会や運用担当者が、400校Batch処理の入力検証・Read-only Preflight監視・現状設定分布・変更予定・リスク判定を直感的に確認・操作するためのローカル専用Web UIです。
-
-> [!IMPORTANT]
-> **Read-only 専用コンソール**
-> 本コンソールは **事前検証（Static Validation）および Read-only Preflight の実行・監視・分析専用** です。
-> 誤操作による予期せぬ更新事故を防止するため、UI からの Write 操作（Canary Write、本番一括書き込み等）を実行する機能および API は一切存在しません。書き込みの適用は CLI から多重安全 Gate を通してのみ実行可能です。
+教育委員会や運用担当者が、400校Batch処理の入力検証・プロファイルGUI編集・Read-only Preflight監視・現状設定分布・変更予定・リスク判定・安全な本番反映を直感的に確認・操作するためのローカルWeb UIです。
 
 ### 7.1 起動方法
 
@@ -222,12 +214,12 @@ npm run console
 
 ※ ポート番号を変更したい場合は、環境変数 `CONSOLE_PORT=8080 npm run console` を指定します。
 
-### 7.2 画面構成 (3画面 SPA)
+### 7.2 画面構成 (4画面 SPA)
 
 1. **画面 1: 設定・入力検証画面 (Setup / Validation)**
-   - 設定ファイル（schools.csv, production-profile.json, credentials.json）の指定
-   - 想定学校数（`expectedSchoolCount`）の指定
-   - 11項目の統一設定プロファイル（MANAGED / UNMANAGED、設定値）の可視化
+   - 学校一覧CSVの指定およびExcel互換ファイルアップロード
+   - **プロファイルGUIエディタ**: 11項目の学校設定をラジオボタン・選択肢で直感的に編集、親子依存関係（タイムラインOFF時の子チャンネル連動等）を自動判定・リアルタイム警告
+   - 動的Preflightパラメータ（遅延時間、タイムアウト、対象校絞り込み、Limit）の設定
    - **「入力を検証」ボタン**: 静的検証を実行し、ハッシュ値（`profileHash`, `schoolsHash`, `toolFingerprint`）および有効学校数を確認。検証 PASS で「Preflight を開始」がアンロックされます。
 2. **画面 2: Preflight 実行・監視画面 (Preflight Progress)**
    - **Read-only 安全バッジ表示**: `Read-only Dry Run: 設定の変更・保存は行いません`
@@ -243,11 +235,16 @@ npm run console
    - **失敗校リスト (Failed Schools)**: 読取失敗校の学校コード、学校名、エラーコード、安全なエラーメッセージ
    - **レポートプレビュー & ダウンロード**: Preflight Report、Summary Report、Checkpoint のサニタイズ済み JSON ダウンロード
    - **再開 / 再試行**: 未処理校・中断校をまとめて再開する `[Preflightを再開]`（1回の呼出しで自動再開）、失敗校のみの `[失敗校のみ再読取]`
+4. **画面 4: 設定の反映・本番適用 (Production Apply)**
+   - **Preflight 厳格紐付け Gate**: Preflight Report（`COMPLETE`, `writeGateEligible: true`, 全校読取100%成功、有効期限24時間以内）が存在する場合のみアンロック
+   - **二重安全確認モーダル**: 対象学校数・変更アクション件数・ハッシュ値の明示確認と確認チェックボックス
+   - **破壊的変更の明示的許可**: 予約投稿削除リスク（チャンネル非表示化）の学校を含む場合のオプトインチェックボックス
+   - **SAVE_OUTCOME_UNKNOWN 防護**: 保存結果が確定できない学校が発生した場合、自動Retryを物理的に禁止し、次校以降を安全停止、チェックポイントに隔離記録
 
 ### 7.3 セキュリティ & 安全アーキテクチャ
 
 1. **完全なプロセス境界 (Process Boundary)**:
-   - Console Server は Production Domain コードを直接改変せず、`process.execPath` (node.exe) + `ts-node/dist/bin.js` 直接起動（`shell: false`）により子プロセスを実行します。引数に `--apply` などの Write フラグは物理的に含めません。
+   - Console Server は Production Domain コードを直接改変せず、`process.execPath` (node.exe) + `ts-node/dist/bin.js` 直接起動（`shell: false`）により子プロセスを実行します。
 2. **二重安全 Gate (Validation Snapshot)**:
    - 検証 PASS 時にハッシュ（`profileHash`, `schoolsHash`, `toolFingerprint` 等）のスナップショットを保持。Preflight 開始直前に再度ハッシュを計算し、一致しない場合は `VALIDATION_STALE` で起動を拒絶します。
 3. **Single Job Guard**:
@@ -263,7 +260,36 @@ npm run console
 
 ---
 
-## 8. テスト実行コマンド (PowerShell)
+## 8. Windows x64 自己完結 Portable ZIP 配布基盤
+
+会社PCへの導入を容易にするため、Node.js / npm / Playwright / Git などの事前インストールが一切不要な「自己完結型 Portable パッケージ」として配布可能です。
+
+### 8.1 会社PCでの利用体験（セットアップゼロ）
+1. 配布された ZIP ファイル（例: `Manapoke-School-Settings-v1.0.0-win-x64.zip`）を任意のフォルダに解凍します。
+2. フォルダ内の `Start-Manapoke.cmd` をダブルクリックします。
+3. 自動的に自己診断（Self-Check）が行われ、Console Server が起動して既定ブラウザで `http://127.0.0.1:3000` が開きます。
+4. 終了時は `Stop-Manapoke.cmd` をダブルクリックするだけで安全に停止します。
+
+### 8.2 パッケージ生成コマンド（開発環境）
+```powershell
+npm run package:win
+```
+- 出力先: `dist-package/Manapoke-School-Settings-v1.0.0-win-x64.zip`
+- 実行内容:
+  - Allow-list によるアプリファイル（`src/**`, sample config, `node_modules`）の収集
+  - `playwright-core/browsers.json` から動的に Chromium / chromium-headless-shell を抽出し `runtime/browsers` へ同梱
+  - 秘密情報（.env, credentials.json, live csv, 実デモ校コード等）の自動スキャン & 排除
+  - 同梱 Chromium の実起動テスト
+  - 空の `data/` ディレクトリ構造（reports, checkpoints, logs, screenshots）の生成
+  - `Start-Manapoke.cmd` / `Stop-Manapoke.cmd` / `VERSION.txt` / `はじめに.txt` の自動生成と ZIP 圧縮
+
+### 8.3 継続アップデート設計
+- 今後 `src/**`、GUI、設定ロジック等を変更した場合でも、**Portable基盤そのものを改修する必要はなく**、`npm run package:win` の再実行だけで新ZIPを生成できます。
+- 会社PC側でのバージョン更新時は、新ZIPの `app/` フォルダを上書きするか、新パッケージに旧パッケージの `data/` フォルダ（`.runtime` は除外）を移動するだけで、過去の実行レポートやチェックポイントを維持したままアップデートが完了します。
+
+---
+
+## 9. テスト実行コマンド (PowerShell)
 
 ```powershell
 # 1. ドメインロジック単体テスト (Phase 1)
@@ -284,13 +310,20 @@ npm run test:console
 # 6. Windows ファイルシステム並行競合負荷テスト (100 Writes + 300+ Reads)
 npx ts-node -T test/windows_fs_stress.test.ts
 
-# 7. TypeScript 型チェック
+# 7. GUI Mock Smoke テスト (Phase 5B.4 Headless Chromium)
+npm run test:gui-mock
+
+# 8. Windows x64 Portable ZIP ビルド & パッケージ検証テスト (Test A - W)
+npm run package:win
+npm run test:portable
+
+# 9. TypeScript 型チェック
 npx tsc --noEmit
 ```
 
 ---
 
-## 9. ステータスコード一覧 (SSOT)
+## 10. ステータスコード一覧 (SSOT)
 
 | ステータスコード | 分類 | 説明 |
 |---|---|---|
@@ -330,7 +363,7 @@ npx tsc --noEmit
 
 ---
 
-## 10. スクリーンショット Allow-list ポリシー (機密情報・資格情報保護)
+## 11. スクリーンショット Allow-list ポリシー (機密情報・資格情報保護)
 
 本ツールでは、機密情報（パスワード、ID、認証画面DOM、学校一覧画面等）がログや成果物に流出する事故を防止するため、**厳格な Allow-list 判定** を適用しています。
 
@@ -349,7 +382,7 @@ npx tsc --noEmit
 
 ---
 
-## 11. 主要 CLI オプション一覧
+## 12. 主要 CLI オプション一覧
 
 | オプション | 型 / デフォルト | 説明 |
 |---|---|---|

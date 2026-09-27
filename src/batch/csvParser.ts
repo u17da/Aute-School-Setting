@@ -7,7 +7,7 @@ export interface ParsedCsvBundle {
   credentials: Record<string, SchoolCredential>;
   totalCount: number;
   enabledCount: number;
-  preview: { schoolCode: string; schoolName: string }[];
+  preview: { schoolCode: string; schoolName: string; hasCredential: boolean }[];
 }
 
 const ALLOWED_UNIFIED_HEADERS = new Set(['schoolCode', 'schoolName', 'userId', 'password', 'enabled']);
@@ -183,7 +183,8 @@ export function parseAndSeparateSchoolsCsv(csvContent: string): ParsedCsvBundle 
   const enabledSchools = schools.filter((s) => s.enabled);
   const preview = schools.slice(0, 20).map((s) => ({
     schoolCode: s.schoolCode,
-    schoolName: s.schoolName
+    schoolName: s.schoolName,
+    hasCredential: !!(s.credentialRef && credentials[s.credentialRef])
   }));
 
   return {

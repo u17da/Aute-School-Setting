@@ -3,15 +3,13 @@ import * as path from 'path';
 import { ExecutionPlan, ExecutionPlanEvaluation, ExecutionResult } from '../types/plan';
 import { SettingKey } from '../types/settings';
 import { SETTING_DEFINITIONS } from '../settings/definitions';
+import { getLogsDir } from '../runtime/paths';
 
 export class Logger {
   private logDir: string;
 
   constructor() {
-    this.logDir = path.resolve(process.cwd(), 'logs');
-    if (!fs.existsSync(this.logDir)) {
-      fs.mkdirSync(this.logDir, { recursive: true });
-    }
+    this.logDir = getLogsDir();
   }
 
   info(msg: string) {

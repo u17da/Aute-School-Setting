@@ -5,11 +5,16 @@ import * as crypto from 'crypto';
 import { BatchProcessAdapter } from './adapter';
 import {
   ValidateRequestSchema,
+  TargetValidateRequestSchema,
+  DraftProfileRequestSchema,
+  ProfileConfirmRequestSchema,
   EmptyActionRequestSchema,
   FORBIDDEN_WRITE_FIELDS,
   ConsoleJobState,
-  ActiveUploadedBatch
+  ActiveUploadedBatch,
+  ConsoleError
 } from './types';
+import { normalizeExecutionResult } from './resultsNormalizer';
 import { sanitizeObject } from './sanitizer';
 import { SETTING_DEFINITIONS } from '../settings/definitions';
 import { SettingKey } from '../types/settings';
@@ -18,11 +23,19 @@ import { parseAndSeparateSchoolsCsv } from '../batch/csvParser';
 import { AutomationError } from '../types/errors';
 import { RequestedSettingsSchema } from '../config/schema';
 import { generateSettingsHash, getToolVersion } from '../utils/hash';
+import { getReportsDir, getCheckpointsDir, getLogsDir, getDataRootDir } from '../runtime/paths';
+import { readCurrentLedger } from './ledger';
 
 export interface ConsoleServerOptions {
   port?: number;
   host?: string;
   adapter?: BatchProcessAdapter;
+}
+
+interface CachedAsset {
+  contentType: string;
+  buffer: Buffer;
+  hash: string;
 }
 
 export class ConsoleServer {
@@ -31,6 +44,10 @@ export class ConsoleServer {
   private port: number;
   private host: string;
   private csrfToken: string;
+  private serverInstanceId: string;
+  private serverStartedAt: string;
+  private serverBuildFingerprint: string = 'unknown';
+  private cachedStaticAssets: Map<string, CachedAsset> = new Map();
   private sseClients: Set<http.ServerResponse> = new Set();
 
   constructor(options: ConsoleServerOptions = {}) {
@@ -38,6 +55,11 @@ export class ConsoleServer {
     this.host = options.host ?? '127.0.0.1'; // 127.0.0.1 のみバインド (指示19)
     this.adapter = options.adapter ?? new BatchProcessAdapter();
     this.csrfToken = crypto.randomBytes(16).toString('hex'); // CSRF nonce (指示7)
+    this.serverInstanceId = `srv-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+    this.serverStartedAt = new Date().toISOString();
+
+    // 起動時に静的アセットをメモリへ完全固定 (Immutable In-Memory Generation)
+    this.loadAndCacheStaticAssets();
 
     this.setupAdapterEvents();
   }
@@ -54,6 +76,64 @@ export class ConsoleServer {
     return this.csrfToken;
   }
 
+  getServerInstanceId(): string {
+    return this.serverInstanceId;
+  }
+
+  getServerStartedAt(): string {
+    return this.serverStartedAt;
+  }
+
+  getServerBuildFingerprint(): string {
+    return this.serverBuildFingerprint;
+  }
+
+  private loadAndCacheStaticAssets(): void {
+    const publicDir = path.resolve(__dirname, 'public');
+    const assetDefs: Array<{ route: string; file: string; contentType: string }> = [
+      { route: '/index.html', file: 'index.html', contentType: 'text/html; charset=utf-8' },
+      { route: '/guide.html', file: 'guide.html', contentType: 'text/html; charset=utf-8' },
+      { route: '/styles.css', file: 'styles.css', contentType: 'text/css; charset=utf-8' },
+      { route: '/app.js', file: 'app.js', contentType: 'application/javascript; charset=utf-8' }
+    ];
+
+    const hash = crypto.createHash('sha256');
+
+    for (const def of assetDefs) {
+      const fullPath = path.join(publicDir, def.file);
+      if (fs.existsSync(fullPath)) {
+        const raw = fs.readFileSync(fullPath);
+        const fileHash = crypto.createHash('sha256').update(raw).digest('hex');
+        this.cachedStaticAssets.set(def.route, {
+          contentType: def.contentType,
+          buffer: raw,
+          hash: fileHash
+        });
+        hash.update(def.file);
+        hash.update(raw);
+      }
+    }
+
+    this.serverBuildFingerprint = hash.digest('hex').substring(0, 16);
+
+    // index.html には serverInstanceId と serverBuildFingerprint のメタタグを事前注入してメモリ固定
+    const indexAsset = this.cachedStaticAssets.get('/index.html');
+    if (indexAsset) {
+      let html = indexAsset.buffer.toString('utf-8');
+      const metaInjection = `<meta name="server-instance-id" content="${this.serverInstanceId}">\n  <meta name="server-build-fingerprint" content="${this.serverBuildFingerprint}">`;
+      if (html.includes('<head>')) {
+        html = html.replace('<head>', `<head>\n  ${metaInjection}`);
+      }
+      const updatedBuffer = Buffer.from(html, 'utf-8');
+      const updatedAsset: CachedAsset = {
+        ...indexAsset,
+        buffer: updatedBuffer
+      };
+      this.cachedStaticAssets.set('/index.html', updatedAsset);
+      this.cachedStaticAssets.set('/', updatedAsset);
+    }
+  }
+
   private setupAdapterEvents(): void {
     this.adapter.on('stateChange', (data) => {
       this.broadcastSse('stateChange', data);
@@ -65,6 +145,18 @@ export class ConsoleServer {
 
     this.adapter.on('log', (line) => {
       this.broadcastSse('log', { line });
+    });
+
+    this.adapter.on('productionApplyCompleted', (data) => {
+      this.broadcastSse('productionApplyCompleted', data);
+    });
+
+    this.adapter.on('discoveryCompleted', (data) => {
+      this.broadcastSse('discoveryCompleted', data);
+    });
+
+    this.adapter.on('finalPreflightCompleted', (data) => {
+      this.broadcastSse('finalPreflightCompleted', data);
     });
   }
 
@@ -237,23 +329,18 @@ export class ConsoleServer {
       return;
     }
 
-    // 1. 静的ファイル配信
+    // 1. 静的ファイル配信 (Immutable In-Memory Static Assets Generation)
     if (method === 'GET') {
-      const publicDir = path.resolve(__dirname, 'public');
-      if (pathname === '/' || pathname === '/index.html') {
-        this.sendFile(res, path.join(publicDir, 'index.html'), 'text/html; charset=utf-8');
-        return;
-      }
-      if (pathname === '/guide.html') {
-        this.sendFile(res, path.join(publicDir, 'guide.html'), 'text/html; charset=utf-8');
-        return;
-      }
-      if (pathname === '/styles.css') {
-        this.sendFile(res, path.join(publicDir, 'styles.css'), 'text/css; charset=utf-8');
-        return;
-      }
-      if (pathname === '/app.js') {
-        this.sendFile(res, path.join(publicDir, 'app.js'), 'application/javascript; charset=utf-8');
+      const cached = this.cachedStaticAssets.get(pathname);
+      if (cached) {
+        res.writeHead(200, {
+          'Content-Type': cached.contentType,
+          'Content-Length': cached.buffer.length,
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'X-Server-Instance-Id': this.serverInstanceId,
+          'X-Server-Build-Fingerprint': this.serverBuildFingerprint
+        });
+        res.end(cached.buffer);
         return;
       }
       if (pathname === '/favicon.ico') {
@@ -263,16 +350,34 @@ export class ConsoleServer {
       }
     }
 
-    // 2. GET /api/status (指示4, 5, 7, 8)
+    // 2. GET /api/status (指示4, 5, 7, 8 & Phase 6A: Server Instance Binding)
     if (method === 'GET' && pathname === '/api/status') {
       const state = this.adapter.getJobState();
       const snapshot = this.adapter.getSnapshot();
       const activeUpload = this.adapter.getActiveUpload();
+      const applyReady = this.adapter.isApplyReady();
+      const workflowCapabilities = this.adapter.getWorkflowCapabilities();
+      const activeFinalPreflightContext = this.adapter.getActiveFinalPreflightContext();
+
       this.sendJson(res, 200, {
+        serverInstanceId: this.serverInstanceId,
+        serverStartedAt: this.serverStartedAt,
+        serverBuildFingerprint: this.serverBuildFingerprint,
+        canPrepareApply: workflowCapabilities.canPrepareApply,
         jobState: state,
         csrfToken: this.csrfToken,
+        applyReady,
+        workflowCapabilities,
+        activeFinalPreflightContext,
         snapshot,
+        targetSnapshot: this.adapter.getTargetSnapshot(),
+        observationSnapshot: this.adapter.getObservationSnapshot(),
+        draftProfile: this.adapter.getDraftProfile(),
         activeProfileSnapshot: this.adapter.getActiveProfileSnapshot(),
+        finalValidationSnapshot: this.adapter.getFinalValidationSnapshot(),
+        activeFinalPreflightReport: this.adapter.getActiveFinalPreflightReport(),
+        activeFinalSummaryReport: this.adapter.getActiveFinalSummaryReport(),
+        currentExecutionPurpose: this.adapter.getCurrentExecutionPurpose(),
         inputSource: this.adapter.getInputSource(),
         activeUpload: activeUpload
           ? {
@@ -288,7 +393,7 @@ export class ConsoleServer {
             ? {
                 runId: this.adapter.getCurrentRunId(),
                 startedAt: this.adapter.getStartedAt(),
-                mode: 'PREFLIGHT_DRY_RUN'
+                mode: this.adapter.getCurrentExecutionPurpose() || 'PREFLIGHT_DRY_RUN'
               }
             : undefined,
         recentLogs: this.adapter.getRecentLogs()
@@ -491,7 +596,212 @@ export class ConsoleServer {
       return;
     }
 
-    // 3. POST /api/validate (指示2, 6)
+    // Phase 6A: POST /api/target/validate (Target確定・検証)
+    if (method === 'POST' && pathname === '/api/target/validate') {
+      const state = this.adapter.getJobState();
+      if (state === 'RUNNING' || state === 'STOPPING') {
+        this.sendJson(res, 409, { error: 'JOB_CONFLICT', message: 'ジョブ実行中または停止処理中は検証を実行できません' });
+        return;
+      }
+
+      let body: any;
+      try {
+        body = await this.parseJsonBody(req);
+      } catch (err: any) {
+        this.sendJson(res, 400, { error: 'INVALID_JSON', message: err.message });
+        return;
+      }
+
+      for (const field of FORBIDDEN_WRITE_FIELDS) {
+        if (field in body) {
+          this.sendJson(res, 400, { error: 'WRITE_FORBIDDEN', message: `Write関連フィールド '${field}' は許可されていません` });
+          return;
+        }
+      }
+
+      const parseRes = TargetValidateRequestSchema.safeParse(body);
+      if (!parseRes.success) {
+        this.sendJson(res, 400, {
+          error: 'CONFIG_INVALID',
+          message: `リクエスト検証エラー: ${parseRes.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', ')}`
+        });
+        return;
+      }
+
+      try {
+        const valRes = this.adapter.executeTargetValidation(parseRes.data);
+        this.sendJson(res, 200, {
+          status: 'PASS',
+          targetSnapshot: valRes.targetSnapshot,
+          schoolsCount: valRes.schoolsCount,
+          enabledCount: valRes.enabledCount,
+          schoolsPath: valRes.schoolsPath
+        });
+      } catch (err: any) {
+        this.sendJson(res, 200, {
+          status: 'FAIL',
+          error: {
+            code: err.issueCode || err.status || 'VALIDATION_FAILED',
+            message: err.message,
+            details: sanitizeObject(err.details || {})
+          }
+        });
+      }
+      return;
+    }
+
+    // Phase 6A: Discovery エンドポイント群
+    if (method === 'POST' && pathname === '/api/discovery/start') {
+      await this.handleDiscoveryStart(req, res, 'START');
+      return;
+    }
+    if (method === 'POST' && pathname === '/api/discovery/resume') {
+      await this.handleDiscoveryStart(req, res, 'RESUME');
+      return;
+    }
+    if (method === 'POST' && pathname === '/api/discovery/retry-failed') {
+      await this.handleDiscoveryStart(req, res, 'RETRY_FAILED');
+      return;
+    }
+    if (method === 'POST' && pathname === '/api/discovery/stop') {
+      try {
+        this.adapter.stopDiscoveryProcess();
+        this.sendJson(res, 200, { status: 'STOPPING', message: '安全停止要求を送信しました' });
+      } catch (err: any) {
+        const code = err.status === 'JOB_NOT_RUNNING' ? 400 : 500;
+        this.sendJson(res, code, { error: err.status || 'ERROR', message: err.message });
+      }
+      return;
+    }
+    if (method === 'GET' && pathname === '/api/observation/latest') {
+      const obs = this.adapter.getObservationSnapshot() || this.adapter.loadLatestObservationSnapshot();
+      if (!obs) {
+        this.sendJson(res, 404, { error: 'OBSERVATION_NOT_FOUND', message: '最新の現状調査データが見つかりません' });
+        return;
+      }
+      this.sendJson(res, 200, obs);
+      return;
+    }
+
+    // Phase 6A: Decide / Draft Profile & Preview & Confirm エンドポイント群
+    if (method === 'GET' && pathname === '/api/profile/draft') {
+      const draft = this.adapter.getDraftProfile();
+      this.sendJson(res, 200, { draftProfile: draft });
+      return;
+    }
+    if (method === 'POST' && pathname === '/api/profile/draft') {
+      const state = this.adapter.getJobState();
+      if (state === 'RUNNING' || state === 'STOPPING') {
+        this.sendJson(res, 409, { error: 'JOB_CONFLICT', message: 'ジョブ実行中または停止処理中は設定を変更できません' });
+        return;
+      }
+      let body: any;
+      try {
+        body = await this.parseJsonBody(req);
+      } catch (err: any) {
+        this.sendJson(res, 400, { error: 'INVALID_JSON', message: err.message });
+        return;
+      }
+      for (const field of FORBIDDEN_WRITE_FIELDS) {
+        if (field in body) {
+          this.sendJson(res, 400, { error: 'WRITE_FORBIDDEN', message: `Write関連フィールド '${field}' は許可されていません` });
+          return;
+        }
+      }
+      const parseRes = DraftProfileRequestSchema.safeParse(body);
+      if (!parseRes.success) {
+        this.sendJson(res, 400, {
+          error: 'CONFIG_INVALID',
+          message: `リクエスト検証エラー: ${parseRes.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', ')}`
+        });
+        return;
+      }
+      try {
+        const updated = this.adapter.updateDraftProfile(parseRes.data.settings, {
+          targetSnapshotId: parseRes.data.targetSnapshotId,
+          observationSnapshotId: parseRes.data.observationSnapshotId,
+          expectedDraftRevision: parseRes.data.expectedDraftRevision
+        });
+        this.sendJson(res, 200, { status: 'UPDATED', draftProfile: updated });
+      } catch (err: any) {
+        const code = err.status === 'JOB_CONFLICT' || err.status === 'LINEAGE_MISMATCH' || err.status === 'DRAFT_STALE'
+          ? 409
+          : (err.status === 'VALIDATION_REQUIRED' || err.issueCode === 'CONFIG_INVALID' ? 400 : 500);
+        this.sendJson(res, code, { error: err.issueCode || err.status || 'DRAFT_UPDATE_FAILED', message: err.message });
+      }
+      return;
+    }
+    if (method === 'POST' && pathname === '/api/preview/calculate') {
+      const state = this.adapter.getJobState();
+      if (state === 'RUNNING' || state === 'STOPPING') {
+        this.sendJson(res, 409, { error: 'JOB_CONFLICT', message: 'ジョブ実行中はプレビューを計算できません' });
+        return;
+      }
+      let body: any = {};
+      try {
+        body = await this.parseJsonBody(req);
+      } catch {}
+
+      try {
+        const preview = this.adapter.calculatePreview(
+          body?.observationSnapshotId,
+          body?.draftRevision,
+          body?.draftHash
+        );
+        this.sendJson(res, 200, preview);
+      } catch (err: any) {
+        const code = err.status === 'LINEAGE_MISMATCH' || err.status === 'DRAFT_STALE'
+          ? 409
+          : (err.status === 'VALIDATION_REQUIRED' ? 400 : 500);
+        this.sendJson(res, code, { error: err.issueCode || err.status || 'PREVIEW_CALCULATION_FAILED', message: err.message });
+      }
+      return;
+    }
+    if (method === 'POST' && pathname === '/api/profile/confirm') {
+      const state = this.adapter.getJobState();
+      if (state === 'RUNNING' || state === 'STOPPING') {
+        this.sendJson(res, 409, { error: 'JOB_CONFLICT', message: 'ジョブ実行中または停止処理中はプロファイルを確定できません' });
+        return;
+      }
+      let body: any;
+      try {
+        body = await this.parseJsonBody(req);
+      } catch (err: any) {
+        this.sendJson(res, 400, { error: 'INVALID_JSON', message: err.message });
+        return;
+      }
+      for (const field of FORBIDDEN_WRITE_FIELDS) {
+        if (field in body) {
+          this.sendJson(res, 400, { error: 'WRITE_FORBIDDEN', message: `Write関連フィールド '${field}' は許可されていません` });
+          return;
+        }
+      }
+      const parseRes = ProfileConfirmRequestSchema.safeParse(body);
+      if (!parseRes.success) {
+        this.sendJson(res, 400, {
+          error: 'CONFIG_INVALID',
+          message: `リクエスト検証エラー: ${parseRes.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', ')}`
+        });
+        return;
+      }
+      try {
+        const snap = this.adapter.confirmProfile(
+          parseRes.data.expectedDraftRevision,
+          parseRes.data.expectedDraftHash,
+          parseRes.data.targetSnapshotId,
+          parseRes.data.observationSnapshotId
+        );
+        this.sendJson(res, 200, { status: 'CONFIRMED', profileSnapshot: snap });
+      } catch (err: any) {
+        const code = err.status === 'JOB_CONFLICT' || err.status === 'LINEAGE_MISMATCH' || err.status === 'DRAFT_STALE'
+          ? 409
+          : (err.status === 'VALIDATION_REQUIRED' ? 400 : 500);
+        this.sendJson(res, code, { error: err.status || 'CONFIRM_FAILED', message: err.message });
+      }
+      return;
+    }
+
+    // 3. POST /api/validate (既存後方互換用)
     if (method === 'POST' && pathname === '/api/validate') {
       const state = this.adapter.getJobState();
       if (state === 'RUNNING' || state === 'STOPPING') {
@@ -558,28 +868,25 @@ export class ConsoleServer {
       return;
     }
 
-    // 4. POST /api/preflight/start (指示3, 7, 8)
-    if (method === 'POST' && pathname === '/api/preflight/start') {
-      await this.handleBatchStart(req, res, 'START');
+    // Phase 6A: Final Preflight エンドポイント群 & 既存互換
+    if (method === 'POST' && (pathname === '/api/final-preflight/start' || pathname === '/api/preflight/start')) {
+      await this.handleFinalPreflightStart(req, res, 'START');
       return;
     }
 
-    // 5. POST /api/preflight/resume (指示4, 17)
-    if (method === 'POST' && pathname === '/api/preflight/resume') {
-      await this.handleBatchStart(req, res, 'RESUME');
+    if (method === 'POST' && (pathname === '/api/final-preflight/resume' || pathname === '/api/preflight/resume')) {
+      await this.handleFinalPreflightStart(req, res, 'RESUME');
       return;
     }
 
-    // 6. POST /api/preflight/retry-failed (指示4, 18)
-    if (method === 'POST' && pathname === '/api/preflight/retry-failed') {
-      await this.handleBatchStart(req, res, 'RETRY_FAILED');
+    if (method === 'POST' && (pathname === '/api/final-preflight/retry-failed' || pathname === '/api/preflight/retry-failed')) {
+      await this.handleFinalPreflightStart(req, res, 'RETRY_FAILED');
       return;
     }
 
-    // 7. POST /api/preflight/stop (指示10)
-    if (method === 'POST' && pathname === '/api/preflight/stop') {
+    if (method === 'POST' && (pathname === '/api/final-preflight/stop' || pathname === '/api/preflight/stop')) {
       try {
-        this.adapter.stopBatchProcess();
+        this.adapter.stopFinalPreflightProcess();
         this.sendJson(res, 200, { status: 'STOPPING', message: '安全停止要求を送信しました' });
       } catch (err: any) {
         const code = err.status === 'JOB_NOT_RUNNING' ? 400 : 500;
@@ -604,44 +911,185 @@ export class ConsoleServer {
       return;
     }
 
-    // 9. GET /api/reports/latest (指示11, 12, 13, 14, 15, 16)
-    if (method === 'GET' && pathname === '/api/reports/latest') {
-      const reports = this.loadLatestReports();
-      this.sendJson(res, 200, reports);
+    // 9A. GET /api/results/latest (Phase 6A: Current Production Execution Result 厳格SSOT, No Disk Fallback)
+    if (method === 'GET' && pathname === '/api/results/latest') {
+      let execCtx = this.adapter.getActiveExecutionResultContext();
+      if (!execCtx) {
+        // 再起動時等の Ledger からの安全復元を試行
+        this.adapter.restoreProductionResultFromLedger();
+        execCtx = this.adapter.getActiveExecutionResultContext();
+      }
+
+      if (execCtx) {
+        this.sendJson(res, 200, {
+          status: 'AVAILABLE',
+          ok: true,
+          hasResults: true,
+          mode: 'PRODUCTION_WRITE',
+          result: execCtx.viewModel,
+          summary: execCtx.summary,
+          detail: execCtx.summary,
+          deploymentId: execCtx.deploymentId,
+          runId: execCtx.runId,
+          completedAt: execCtx.completedAt
+        });
+        return;
+      }
+
+      // Memory Context がなく復元もできなかった場合、Ledger を確認
+      const ledger = readCurrentLedger();
+      if (ledger && (ledger.state === 'RUNNING' || ledger.state === 'STARTING')) {
+        this.sendJson(res, 200, {
+          status: 'RUNNING',
+          ok: true,
+          hasResults: false,
+          state: ledger.state,
+          executionId: ledger.executionId,
+          message: '本番反映を実行中です...'
+        });
+        return;
+      }
+
+      if (ledger && (ledger.state === 'RESULT_INVALID' || ledger.state === 'OUTCOME_UNKNOWN' || ledger.state === 'INTERRUPTED')) {
+        this.sendJson(res, 200, {
+          status: 'FAILED',
+          ok: false,
+          hasResults: false,
+          state: ledger.state,
+          executionId: ledger.executionId,
+          message: ledger.errorMessage || `本番反映は正常完了しませんでした (状態: ${ledger.state})`
+        });
+        return;
+      }
+
+      // 該当なし (Fail-Closed: 過去の推測レポート探索は行わない)
+      this.sendJson(res, 200, {
+        status: 'NOT_AVAILABLE',
+        ok: false,
+        hasResults: false,
+        reason: 'RESULT_CONTEXT_NOT_AVAILABLE',
+        message: '現在の実行コンテキストにおける本番反映結果は存在しません'
+      });
       return;
     }
 
-    // 10. GET /api/reports/download/:type (指示6, 16)
+    // 9B. GET /api/reports/latest (レポートファイル閲覧用フォールバック)
+    if (method === 'GET' && pathname === '/api/reports/latest') {
+      const execCtx = this.adapter.getActiveExecutionResultContext();
+      if (execCtx) {
+        this.sendJson(res, 200, {
+          ok: true,
+          mode: 'PRODUCTION_WRITE',
+          hasResults: true,
+          result: execCtx.viewModel,
+          summary: execCtx.summary,
+          detail: execCtx.summary,
+          deploymentId: execCtx.deploymentId,
+          runId: execCtx.runId
+        });
+        return;
+      }
+
+      const reports = this.loadLatestReports();
+      const hasResults = Boolean(reports.summary || reports.preflight || reports.checkpoint);
+
+      if (reports.summary && reports.summary.mode === 'PRODUCTION_WRITE') {
+        let resultViewModel = null;
+        try {
+          resultViewModel = normalizeExecutionResult(reports.summary);
+        } catch (e: any) {
+          console.error('[ConsoleServer] Failed to normalize production summary:', e);
+        }
+
+        this.sendJson(res, 200, {
+          ok: true,
+          mode: 'PRODUCTION_WRITE',
+          hasResults,
+          result: resultViewModel,
+          summary: reports.summary,
+          detail: reports.summary,
+          checkpoint: reports.checkpoint,
+          normalized: reports.normalized
+        });
+        return;
+      }
+
+      this.sendJson(res, 200, {
+        ...reports,
+        hasResults,
+        mode: 'PREFLIGHT_DRY_RUN',
+        detail: reports.preflight || reports.summary
+      });
+      return;
+    }
+
+    // 10. GET /api/reports/download/:type (指示6, 16: Exact Artifact Download, mtime探索完全撤廃)
     if (method === 'GET' && pathname.startsWith('/api/reports/download/')) {
       const type = pathname.replace('/api/reports/download/', '').toLowerCase();
-      // Allow-list 厳格検証 (summary, preflight, checkpoint のみ)
-      const ALLOWED_TYPES = ['summary', 'preflight', 'checkpoint'];
+      // Allow-list 厳格検証 (summary, preflight, checkpoint, observation)
+      const ALLOWED_TYPES = ['summary', 'preflight', 'checkpoint', 'observation'];
       if (!ALLOWED_TYPES.includes(type)) {
         this.sendJson(res, 400, { error: 'INVALID_REPORT_TYPE', message: `許可されていないレポート種別です: ${type}` });
         return;
       }
 
-      const filePath = this.resolveLatestReportPath(type);
-      if (!filePath || !fs.existsSync(filePath)) {
-        this.sendJson(res, 404, { error: 'REPORT_NOT_FOUND', message: `レポートファイルが見つかりません: ${type}` });
+      let payload: any = null;
+
+      if (type === 'summary') {
+        const execCtx = this.adapter.getActiveExecutionResultContext();
+        if (execCtx?.summary) {
+          payload = execCtx.summary;
+        } else {
+          const finalSummary = this.adapter.getActiveFinalSummaryReport();
+          if (finalSummary) {
+            payload = finalSummary;
+          } else {
+            const ledger = readCurrentLedger();
+            if (ledger?.summaryPath && fs.existsSync(ledger.summaryPath)) {
+              try {
+                payload = JSON.parse(fs.readFileSync(ledger.summaryPath, 'utf-8'));
+              } catch {}
+            }
+          }
+        }
+      } else if (type === 'preflight') {
+        const pf = this.adapter.getActiveFinalPreflightReport();
+        if (pf) {
+          payload = pf;
+        }
+      } else if (type === 'observation') {
+        const obs = this.adapter.getObservationSnapshot();
+        if (obs) {
+          payload = obs;
+        }
+      } else if (type === 'checkpoint') {
+        const pfCtx = this.adapter.getActiveFinalPreflightContext();
+        const execCtx = this.adapter.getActiveExecutionResultContext();
+        const runId = execCtx?.runId || pfCtx?.runId || this.adapter.getCurrentRunId();
+        if (runId) {
+          const cpPath = path.join(getCheckpointsDir(), `checkpoint-${runId}.json`);
+          if (fs.existsSync(cpPath)) {
+            try {
+              payload = JSON.parse(fs.readFileSync(cpPath, 'utf-8'));
+            } catch {}
+          }
+        }
+      }
+
+      if (!payload) {
+        this.sendJson(res, 404, { error: 'REPORT_NOT_FOUND', message: `レポートデータが見つかりません: ${type}` });
         return;
       }
 
-      const raw = fs.readFileSync(filePath, 'utf-8');
-      try {
-        const parsed = JSON.parse(raw);
-        const sanitized = sanitizeObject(parsed);
-        const jsonStr = JSON.stringify(sanitized, null, 2);
-        const filename = `${type}-sanitized-${Date.now()}.json`;
+      const sanitized = sanitizeObject(payload);
+      const jsonStr = JSON.stringify(sanitized, null, 2);
+      const filename = `${type}-sanitized-${Date.now()}.json`;
 
-        res.writeHead(200, {
-          'Content-Type': 'application/json; charset=utf-8',
-          'Content-Disposition': `attachment; filename="${filename}"`
-        });
-        res.end(jsonStr);
-      } catch {
-        this.sendJson(res, 500, { error: 'PARSE_ERROR', message: 'レポートJSONのパースに失敗しました' });
-      }
+      res.writeHead(200, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Content-Disposition': `attachment; filename="${filename}"`
+      });
+      res.end(jsonStr);
       return;
     }
 
@@ -654,15 +1102,14 @@ export class ConsoleServer {
       }
 
       try {
-        const rootDir = process.cwd();
+        const rootDir = getDataRootDir();
         const archiveDir = path.join(rootDir, 'archive');
         if (!fs.existsSync(archiveDir)) {
           fs.mkdirSync(archiveDir, { recursive: true });
         }
 
-        const targetDirs = ['reports', 'checkpoints', 'logs'];
-        for (const dirName of targetDirs) {
-          const dirPath = path.join(rootDir, dirName);
+        const targetDirs = [getReportsDir(), getCheckpointsDir(), getLogsDir()];
+        for (const dirPath of targetDirs) {
           if (fs.existsSync(dirPath)) {
             const files = fs.readdirSync(dirPath).filter((f) => f.endsWith('.json'));
             for (const file of files) {
@@ -691,11 +1138,11 @@ export class ConsoleServer {
       return;
     }
 
-    // 11. POST /api/apply/prepare (指示5: 2段階 Confirmation Token API - 第1段階)
+    // 11. POST /api/apply/prepare (指示5 & Phase 6A: Confirmation Token 発行, Override禁止)
     if (method === 'POST' && pathname === '/api/apply/prepare') {
       const state = this.adapter.getJobState();
       if (state === 'RUNNING' || state === 'STOPPING') {
-        this.sendJson(res, 409, { error: 'JOB_CONFLICT', message: 'すでに別のバッチ処理が実行中または停止処理中です' });
+        this.sendJson(res, 409, { error: 'JOB_CONFLICT', message: 'すでに別のジョブが実行中または停止処理中です' });
         return;
       }
 
@@ -716,8 +1163,7 @@ export class ConsoleServer {
       }
 
       try {
-        const includeDestructive = Boolean(body.includeDestructiveSchools);
-        const result = this.adapter.prepareProductionApply(undefined, undefined, includeDestructive);
+        const result = this.adapter.prepareProductionApply();
         this.sendJson(res, 200, {
           status: 'PREPARED',
           manifest: result.manifest,
@@ -743,11 +1189,11 @@ export class ConsoleServer {
       return;
     }
 
-    // 12. POST /api/apply/start (Phase 5B.3: 本番非破壊書き込みプロセスの起動)
+    // 12. POST /api/apply/start (Phase 5B.3 & Phase 6A: 本番非破壊書き込みプロセスの起動, Override完全禁止)
     if (method === 'POST' && pathname === '/api/apply/start') {
       const state = this.adapter.getJobState();
       if (state === 'RUNNING' || state === 'STOPPING') {
-        this.sendJson(res, 409, { error: 'JOB_CONFLICT', message: 'すでに別のバッチ処理が実行中または停止処理中です' });
+        this.sendJson(res, 409, { error: 'JOB_CONFLICT', message: 'すでに別のジョブが実行中または停止処理中です' });
         return;
       }
 
@@ -774,15 +1220,12 @@ export class ConsoleServer {
       }
 
       try {
-        const includeDestructive = Boolean(body.includeDestructiveSchools);
-        this.adapter.startProductionApplyProcess(body.confirmationToken, includeDestructive);
+        this.adapter.startProductionApplyProcess(body.confirmationToken);
         this.sendJson(res, 200, {
           status: 'STARTED',
           mode: 'PRODUCTION_WRITE',
           runId: this.adapter.getCurrentRunId(),
-          message: includeDestructive
-            ? '本番適用プロセスを開始しました（予約投稿削除リスクを含む全対象校）'
-            : '非破壊本番適用プロセスを開始しました (PRODUCTION_WRITE)'
+          message: '非破壊本番適用プロセスを開始しました (PRODUCTION_WRITE)'
         });
       } catch (err: any) {
         const statusCode =
@@ -803,6 +1246,102 @@ export class ConsoleServer {
 
     // 未知のエンドポイント
     this.sendJson(res, 404, { error: 'NOT_FOUND', message: `Endpoint not found: ${method} ${pathname}` });
+  }
+
+  private async handleDiscoveryStart(req: http.IncomingMessage, res: http.ServerResponse, mode: 'START' | 'RESUME' | 'RETRY_FAILED'): Promise<void> {
+    const state = this.adapter.getJobState();
+    if (state === 'RUNNING' || state === 'STOPPING') {
+      this.sendJson(res, 409, { error: 'JOB_CONFLICT', message: 'すでに別のジョブが実行中または停止処理中です' });
+      return;
+    }
+
+    let body: any;
+    try {
+      body = await this.parseJsonBody(req);
+    } catch (err: any) {
+      this.sendJson(res, 400, { error: 'INVALID_JSON', message: err.message });
+      return;
+    }
+
+    for (const field of FORBIDDEN_WRITE_FIELDS) {
+      if (field in body) {
+        this.sendJson(res, 400, { error: 'WRITE_FORBIDDEN', message: `Write関連フィールド '${field}' は許可されていません` });
+        return;
+      }
+    }
+
+    const parseRes = EmptyActionRequestSchema.safeParse(body);
+    if (!parseRes.success) {
+      this.sendJson(res, 400, {
+        error: 'INVALID_REQUEST',
+        message: `リクエスト検証エラー: 未知のフィールドが存在します: ${parseRes.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', ')}`
+      });
+      return;
+    }
+
+    try {
+      this.adapter.startDiscoveryProcess(mode, {});
+      this.sendJson(res, 200, {
+        status: 'STARTED',
+        mode: 'DISCOVERY',
+        runId: this.adapter.getCurrentRunId(),
+        message: '現状調査プロセスを開始しました (DISCOVERY: Read-only)'
+      });
+    } catch (err: any) {
+      const code = err.status === 'JOB_CONFLICT' ? 409 : (err.status === 'SAMPLE_DATA_BLOCKED' || err.status === 'VALIDATION_REQUIRED' ? 400 : 500);
+      this.sendJson(res, code, {
+        error: err.issueCode || err.status || 'SPAWN_FAILED',
+        message: err.message
+      });
+    }
+  }
+
+  private async handleFinalPreflightStart(req: http.IncomingMessage, res: http.ServerResponse, mode: 'START' | 'RESUME' | 'RETRY_FAILED'): Promise<void> {
+    const state = this.adapter.getJobState();
+    if (state === 'RUNNING' || state === 'STOPPING') {
+      this.sendJson(res, 409, { error: 'JOB_CONFLICT', message: 'すでに別のジョブが実行中または停止処理中です' });
+      return;
+    }
+
+    let body: any;
+    try {
+      body = await this.parseJsonBody(req);
+    } catch (err: any) {
+      this.sendJson(res, 400, { error: 'INVALID_JSON', message: err.message });
+      return;
+    }
+
+    for (const field of FORBIDDEN_WRITE_FIELDS) {
+      if (field in body) {
+        this.sendJson(res, 400, { error: 'WRITE_FORBIDDEN', message: `Write関連フィールド '${field}' は許可されていません` });
+        return;
+      }
+    }
+
+    const parseRes = EmptyActionRequestSchema.safeParse(body);
+    if (!parseRes.success) {
+      this.sendJson(res, 400, {
+        error: 'INVALID_REQUEST',
+        message: `リクエスト検証エラー: 未知のフィールドが存在します: ${parseRes.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', ')}`
+      });
+      return;
+    }
+
+    try {
+      this.adapter.startFinalPreflightProcess(mode, {});
+      this.sendJson(res, 200, {
+        status: 'STARTED',
+        mode: 'FINAL_PREFLIGHT',
+        runId: this.adapter.getCurrentRunId(),
+        message: 'Final Preflight プロセスを開始しました (FINAL_PREFLIGHT: Read-only)'
+      });
+    } catch (err: any) {
+      const code = err.status === 'JOB_CONFLICT' ? 409 : (err.status === 'SAMPLE_DATA_BLOCKED' || err.status === 'VALIDATION_REQUIRED' ? 400 : 500);
+      this.sendJson(res, code, {
+        error: err.issueCode || err.status || 'SPAWN_FAILED',
+        message: err.message
+      });
+    }
   }
 
   private async handleBatchStart(req: http.IncomingMessage, res: http.ServerResponse, mode: 'START' | 'RESUME' | 'RETRY_FAILED'): Promise<void> {
@@ -854,22 +1393,40 @@ export class ConsoleServer {
   }
 
   private resolveLatestReportPath(type: string): string | null {
-    if (type === 'checkpoint') {
-      const dir = path.resolve(process.cwd(), 'checkpoints');
-      if (!fs.existsSync(dir)) return null;
-      const files = fs.readdirSync(dir).filter((f) => f.startsWith('checkpoint-') && f.endsWith('.json'));
-      if (files.length === 0) return null;
-      files.sort((a, b) => fs.statSync(path.join(dir, b)).mtimeMs - fs.statSync(path.join(dir, a)).mtimeMs);
-      return path.join(dir, files[0]);
+    if (type === 'summary') {
+      const execCtx = this.adapter.getActiveExecutionResultContext();
+      if (execCtx?.productionExecutionId) {
+        const exactPath = path.join(getReportsDir(), `summary-${execCtx.productionExecutionId}.json`);
+        if (fs.existsSync(exactPath)) return exactPath;
+      }
+      const ledger = readCurrentLedger();
+      if (ledger?.summaryPath && fs.existsSync(ledger.summaryPath)) {
+        return ledger.summaryPath;
+      }
+      return null;
     }
 
-    const dir = path.resolve(process.cwd(), 'reports');
-    if (!fs.existsSync(dir)) return null;
-    const prefix = type === 'summary' ? 'summary-' : 'preflight-';
-    const files = fs.readdirSync(dir).filter((f) => f.startsWith(prefix) && f.endsWith('.json'));
-    if (files.length === 0) return null;
-    files.sort((a, b) => fs.statSync(path.join(dir, b)).mtimeMs - fs.statSync(path.join(dir, a)).mtimeMs);
-    return path.join(dir, files[0]);
+    if (type === 'preflight') {
+      const fpCtx = this.adapter.getActiveFinalPreflightContext();
+      if (fpCtx?.executionId) {
+        const exactPath = path.join(getReportsDir(), `preflight-${fpCtx.executionId}.json`);
+        if (fs.existsSync(exactPath)) return exactPath;
+      }
+      return null;
+    }
+
+    if (type === 'checkpoint') {
+      const execCtx = this.adapter.getActiveExecutionResultContext();
+      const fpCtx = this.adapter.getActiveFinalPreflightContext();
+      const runId = execCtx?.runId || fpCtx?.runId || this.adapter.getCurrentRunId();
+      if (runId) {
+        const exactPath = path.join(getCheckpointsDir(), `checkpoint-${runId}.json`);
+        if (fs.existsSync(exactPath)) return exactPath;
+      }
+      return null;
+    }
+
+    return null;
   }
 
   private loadLatestReports(): any {

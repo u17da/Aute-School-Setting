@@ -321,13 +321,24 @@ async function main() {
     }
   });
 
+  page.on('response', (res) => {
+    if (res.status() >= 400) {
+      console.log(`  [HTTP:${res.status()}] ${res.url()}`);
+    }
+  });
+
+  page.on('dialog', async (dialog) => {
+    console.log(`  [BROWSER_DIALOG] ${dialog.type()}: ${dialog.message()}`);
+    await dialog.dismiss();
+  });
+
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gui-mock-smoke-'));
 
   try {
     // -------------------------------------------------------------------------
-    // Case 1: SUCCESS の 15 ステップ E2E フロー
+    // Case 1: Phase 6A 6ステップ E2E -> SUCCESS
     // -------------------------------------------------------------------------
-    await runTest('Case 1: 最終GUI Mock Smoke (15ステップ E2E -> SUCCESS)', async () => {
+    await runTest('Case 1: Phase 6A GUI 6ステップ E2E (Target -> Observe -> Decide -> Preview -> Apply -> Result)', async () => {
       mockPortal.resetMetrics();
       mockPortal.setSchool('SCH_GUI_OK', 'GUIモック小学校', {
         storage: 'OFF',
@@ -339,122 +350,128 @@ async function main() {
       fs.writeFileSync(csvPath, 'schoolCode,schoolName,userId,password,enabled\nSCH_GUI_OK,GUIモック小学校,user1,pass1,true\n', 'utf-8');
 
       // Console UI へアクセス
-      await page.goto(consoleBaseUrl, { waitUntil: 'networkidle' });
+      await page.goto(consoleBaseUrl, { waitUntil: 'domcontentloaded' });
 
-      // 1. CSV Upload
-      console.log('  [Step 1] CSV Upload...');
+      // STEP 1: Target - CSV Upload & Validate
+      console.log('  [STEP 1] Target: CSV Upload & Validate...');
       const fileInput = page.locator('#schoolsFileInput');
       await fileInput.setInputFiles(csvPath);
       await page.waitForSelector('#uploadFileInfo:not([style*="display: none"])', { timeout: 10000 });
-      const uploadStats = await page.locator('#uploadParsedStatsVal').innerText();
-      // 2. Profile Editor で非破壊設定を1項目変更 (storage -> ON)
-      console.log('  [Step 2] Profile Editor で非破壊設定 (storage: ON) 変更...');
-      // 画面内のストレージ機能の select を ON に変更
-      const storageSelect = page.locator('#profileEditorTableBody tr:has-text("ストレージ機能") select');
-      await storageSelect.selectOption('ON');
 
-      // 4. Validation PASS (アップロード・設定変更時に自動検証)
-      console.log('  [Step 4] 入力を自動検証完了待機...');
-      await page.waitForSelector('#btnStartPreflight:not([disabled])', { timeout: 10000 });
-      const snapSchools = await page.locator('#enabledSchoolsVal').innerText();
-      assert.strictEqual(snapSchools.includes('1 校'), true);
+      await page.click('#targetValidateBtn');
+      await page.waitForSelector('#targetSnapshotBox:not([style*="display: none"])', { timeout: 10000 });
+      await page.waitForFunction(() => {
+        const el = document.getElementById('targetSchoolsCountVal');
+        return el && el.textContent && el.textContent.includes('校');
+      }, null, { timeout: 10000 });
+      const snapCount = await page.locator('#targetSchoolsCountVal').innerText();
+      assert.ok(snapCount.replace(/\s+/g, '').includes('1校'), `Expected snapCount to include '1校', received: '${snapCount}'`);
 
-      // 5. Read-only Preflight 実行
-      console.log('  [Step 5] Read-only Preflight 実行...');
-      await page.click('#btnStartPreflight');
+      // STEP 2: Observe - Discovery
+      console.log('  [STEP 2] Observe: Discovery 実行...');
+      await page.click('#tabObserveBtn');
+      await page.waitForSelector('#screenObserve.active', { timeout: 5000 });
+      await page.click('#discoveryStartBtn');
 
-      // 進捗完了を待機 (Job State が COMPLETED になるまで待機)
-      console.log('  [Step 6] Preflight 完了待機...');
+      // Discovery 完了待機
       await page.waitForFunction(() => {
         const badge = document.getElementById('jobStateBadge');
-        return badge && badge.textContent && badge.textContent.includes('COMPLETED');
-      }, { timeout: 60000 });
+        return badge && (badge.textContent?.includes('COMPLETED') || badge.textContent?.includes('完了') || badge.getAttribute('data-state') === 'COMPLETED');
+      }, null, { timeout: 60000 });
 
-      // 6. Results 確認
-      console.log('  [Step 6b] Results 確認...');
-      await page.click('#tabResultsBtn');
-      await page.waitForSelector('#screenResults.active', { timeout: 5000 });
-      const resSuccess = await page.locator('#resReadSuccess').innerText();
-      const resRequires = await page.locator('#resRequiresChange').innerText();
-      assert.strictEqual(resSuccess, '1');
-      assert.strictEqual(resRequires, '1');
+      await page.waitForSelector('#observationResultBox:not([style*="display: none"])', { timeout: 5000 });
+      const obsCount = await page.locator('#obsTotalSchoolsVal').innerText();
+      assert.strictEqual(obsCount, '1');
 
-      // 7. Production Apply タブ活性化
-      console.log('  [Step 7] Production Apply タブ活性化確認...');
-      await page.waitForSelector('#tabApplyBtn:not([disabled])', { timeout: 10000 });
+      // STEP 3: Decide - Draft Profile 編集 (storage: ON)
+      console.log('  [STEP 3] Decide: Profile Editor で非破壊設定 (storage: ON) 指定...');
+      await page.click('#tabDecideBtn');
+      await page.waitForSelector('#screenDecide.active', { timeout: 5000 });
+      await page.selectOption('select[data-key="storage"]', 'ON');
+
+      // STEP 4: Preview 算出
+      console.log('  [STEP 4] Preview 算出...');
+      await page.click('#calculatePreviewBtn');
+      await page.waitForFunction(() => {
+        const el = document.getElementById('previewTargetVal');
+        return el && el.textContent && el.textContent.replace(/\s+/g, '').includes('1校');
+      }, null, { timeout: 10000 });
+      const prevTarget = await page.locator('#previewTargetVal').innerText();
+      assert.ok(prevTarget.replace(/\s+/g, '').includes('1校'), `Expected prevTarget to include '1校', received: '${prevTarget}'`);
+
+      // Profile 確定
+      console.log('  [STEP 4b] Profile 確定...');
+      await page.click('#profileConfirmBtn');
+      await page.waitForSelector('#finalPreflightSection:not([style*="display: none"])', { timeout: 10000 });
+
+      // Final Preflight 実行
+      console.log('  [STEP 4c] Final Preflight 完了待機...');
+      const pfBtn = page.locator('#finalPreflightStartBtn');
+      if (await pfBtn.count() > 0 && await pfBtn.isVisible()) {
+        await pfBtn.click();
+      }
+      await page.waitForFunction(() => {
+        const badge = document.getElementById('jobStateBadge');
+        return badge && (badge.textContent?.includes('COMPLETED') || badge.textContent?.includes('完了') || badge.getAttribute('data-state') === 'COMPLETED');
+      }, null, { timeout: 60000 });
+
+      // STEP 5: Apply
+      console.log('  [STEP 5] Production Apply 準備...');
       await page.click('#tabApplyBtn');
       await page.waitForSelector('#screenApply.active', { timeout: 5000 });
-      await page.waitForSelector('#btnPrepareApply:not([disabled])', { timeout: 10000 });
-      const gateBadge = await page.locator('#applyGateBadge').innerText();
-      assert.strictEqual(gateBadge.includes('合格') || gateBadge.includes('Ready') || gateBadge.includes('Gate 通過'), true);
+      const prepBtn = page.locator('#applyPrepareBtn');
+      if (await prepBtn.count() > 0 && await prepBtn.isVisible()) {
+        await prepBtn.click();
+      }
+      await page.waitForSelector('#applyPreparedBox:not([style*="display: none"])', { timeout: 10000 });
 
-      // 8. 「本番適用の準備」
-      console.log('  [Step 8] 「本番適用の準備」クリック...');
-      await page.click('#btnPrepareApply');
+      const applyTargetCount = await page.locator('#applyTargetCountVal').innerText();
+      assert.ok(applyTargetCount.replace(/\s+/g, '').includes('1校'), `Expected applyTargetCount to include '1校', received: '${applyTargetCount}'`);
 
-      // 9. Apply 確認モーダル表示
-      console.log('  [Step 9] Apply 確認モーダル表示確認...');
+      console.log('  [STEP 5b] 本番適用モーダル表示 & 実行...');
+      await page.click('#applyExecuteBtn');
       await page.waitForSelector('#applyConfirmModal[style*="display: flex"]', { timeout: 10000 });
+      await page.click('#modalApplyStartBtn');
 
-      // 10. Preflight / Manifest との一致検証
-      console.log('  [Step 10] Manifest 指標照合...');
-      const modalTargetCount = await page.locator('#modalTargetCount').innerText();
-      const modalSkipped = await page.locator('#modalSkippedDestructive').innerText();
-      const modalAlready = await page.locator('#modalAlreadyConfigured').innerText();
-      const modalTargetHash = await page.locator('#modalApplyTargetHashVal').innerText();
-      const modalProfileHash = await page.locator('#modalProfileHashVal').innerText();
-
-      assert.strictEqual(modalTargetCount, '1 校');
-      assert.strictEqual(modalSkipped, '0 校');
-      assert.strictEqual(modalAlready, '0 校');
-      assert.strictEqual(modalTargetHash.length > 10, true);
-      assert.strictEqual(modalProfileHash.length > 10, true);
-
-      // 11. 確認 checkbox OFF 時は Apply button disabled
-      console.log('  [Step 11] Checkbox OFF 時の Apply ボタン非活性確認...');
-      const isBtnDisabledBefore = await page.locator('#btnExecuteApply').isDisabled();
-      assert.strictEqual(isBtnDisabledBefore, true);
-
-      // 12. checkbox ON 時のみ Apply button enabled
-      console.log('  [Step 12] Checkbox ON 時の Apply ボタン活性化確認...');
-      await page.check('#modalConfirmCheckbox');
-      const isBtnEnabledAfter = await page.locator('#btnExecuteApply').isEnabled();
-      assert.strictEqual(isBtnEnabledAfter, true);
-
-      // 13. 「非破壊変更を本番適用する」
-      console.log('  [Step 13] 「非破壊変更を本番適用する」クリック...');
-      await page.click('#btnExecuteApply');
-
-      // 14. Mock Production Apply 完了待機 (RUNNING -> COMPLETED)
-      console.log('  [Step 14] Production Apply 完了待機...');
+      // ジョブ完了待機 (RUNNING -> COMPLETED)
       await page.waitForFunction(() => {
         const badge = document.getElementById('jobStateBadge');
-        return badge && badge.textContent && badge.textContent.includes('RUNNING');
+        return badge && (badge.textContent?.includes('RUNNING') || badge.textContent?.includes('中') || badge.getAttribute('data-state') === 'RUNNING');
       }, null, { timeout: 10000 });
       await page.waitForFunction(() => {
         const badge = document.getElementById('jobStateBadge');
-        return badge && badge.textContent && badge.textContent.includes('COMPLETED');
+        return badge && (badge.textContent?.includes('COMPLETED') || badge.textContent?.includes('完了') || badge.getAttribute('data-state') === 'COMPLETED');
       }, null, { timeout: 60000 });
 
-      // 15. Results 画面で最終 status 確認
-      console.log('  [Step 15] Results 画面で最終 status 確認 (SUCCESS)...');
-      await page.click('#tabResultsBtn');
-      await page.waitForSelector('#screenResults.active', { timeout: 5000 });
-      await page.click('button:has-text("最新結果を取得")');
+      // STEP 6: Result 確認
+      console.log('  [STEP 6] Result 確認...');
+      await page.click('#tabResultBtn');
+      await page.waitForSelector('#screenResult.active', { timeout: 5000 });
       await page.waitForTimeout(1000);
+      await page.waitForFunction(() => {
+        const body = document.getElementById('resultSchoolsBody');
+        return body && body.innerText && body.innerText.includes('SCH_GUI_OK');
+      }, null, { timeout: 15000 });
 
       // スクリーンショット保存
-      const ssSuccess = path.join(screenshotsDir, 'phase5b4_gui_mock_success.png');
+      const ssSuccess = path.join(screenshotsDir, 'phase6a_gui_mock_success.png');
       await page.screenshot({ path: ssSuccess, fullPage: true });
       console.log(`  [Screenshot] Saved: ${ssSuccess}`);
+
+      // GUI 画面上の成功数およびテーブル表示の検証 (要件 18: Case A)
+      const successCountText = await page.locator('#resultSuccessVal').innerText();
+      assert.strictEqual(successCountText.trim(), '1', '設定変更成功数が 1 と表示されること');
+      const tableText = await page.locator('#resultSchoolsBody').innerText();
+      assert.ok(tableText.includes('SCH_GUI_OK'), '学校別テーブルに SCH_GUI_OK が表示されること');
+      assert.ok(tableText.includes('成功'), 'ステータスバッジが成功と表示されること');
 
       assert.strictEqual(mockPortal.savePostCounts['SCH_GUI_OK'], 1, 'Mock Server に Save POST が 1 回送信されたこと');
     });
 
     // -------------------------------------------------------------------------
-    // Case 2: SAVE_FAILED_KNOWN の GUI 結果画面確認
+    // Case 2: SAVE_FAILED_KNOWN の GUI 結果確認
     // -------------------------------------------------------------------------
-    await runTest('Case 2: SAVE_FAILED_KNOWN の GUI 結果画面確認', async () => {
+    await runTest('Case 2: SAVE_FAILED_KNOWN の GUI 結果確認', async () => {
       mockPortal.resetMetrics();
       mockPortal.setSchool('SCH_GUI_OK', 'GUIモック小学校', {
         storage: 'OFF',
@@ -466,28 +483,31 @@ async function main() {
       // Apply を再実行
       await page.click('#tabApplyBtn');
       await page.waitForSelector('#screenApply.active', { timeout: 5000 });
-      await page.click('#btnPrepareApply');
+      const prepBtn2 = page.locator('#applyPrepareBtn');
+      if (await prepBtn2.count() > 0 && await prepBtn2.isVisible()) {
+        await prepBtn2.click();
+      }
+      await page.waitForSelector('#applyPreparedBox:not([style*="display: none"])', { timeout: 10000 });
+      await page.click('#applyExecuteBtn');
       await page.waitForSelector('#applyConfirmModal[style*="display: flex"]', { timeout: 10000 });
-      await page.check('#modalConfirmCheckbox');
-      await page.click('#btnExecuteApply');
+      await page.click('#modalApplyStartBtn');
 
       // ジョブ終了待機 (RUNNING -> COMPLETED)
       await page.waitForFunction(() => {
         const badge = document.getElementById('jobStateBadge');
-        return badge && badge.textContent && badge.textContent.includes('RUNNING');
+        return badge && (badge.textContent?.includes('RUNNING') || badge.textContent?.includes('中') || badge.getAttribute('data-state') === 'RUNNING');
       }, null, { timeout: 10000 });
       await page.waitForFunction(() => {
         const badge = document.getElementById('jobStateBadge');
-        return badge && badge.textContent && badge.textContent.includes('COMPLETED');
+        return badge && (badge.textContent?.includes('COMPLETED') || badge.textContent?.includes('完了') || badge.getAttribute('data-state') === 'COMPLETED');
       }, null, { timeout: 60000 });
 
       // Results 画面確認
-      await page.click('#tabResultsBtn');
-      await page.waitForSelector('#screenResults.active', { timeout: 5000 });
-      await page.click('button:has-text("最新結果を取得")');
+      await page.click('#tabResultBtn');
+      await page.waitForSelector('#screenResult.active', { timeout: 5000 });
       await page.waitForTimeout(1000);
 
-      const ssFailKnown = path.join(screenshotsDir, 'phase5b4_gui_mock_save_failed_known.png');
+      const ssFailKnown = path.join(screenshotsDir, 'phase6a_gui_mock_save_failed_known.png');
       await page.screenshot({ path: ssFailKnown, fullPage: true });
       console.log(`  [Screenshot] Saved: ${ssFailKnown}`);
 
@@ -495,12 +515,18 @@ async function main() {
       const cpDir = path.resolve(process.cwd(), 'checkpoints');
       const cpFiles = fs.readdirSync(cpDir).filter((f) => f.startsWith('checkpoint-') && f.endsWith('.json'));
       cpFiles.sort((a, b) => fs.statSync(path.join(cpDir, b)).mtimeMs - fs.statSync(path.join(cpDir, a)).mtimeMs);
-      const cp = JSON.parse(fs.readFileSync(path.join(cpDir, cpFiles[0]), 'utf-8'));
+      const cpFile = cpFiles.find((f) => {
+        try {
+          const content = JSON.parse(fs.readFileSync(path.join(cpDir, f), 'utf-8'));
+          return content.entries && content.entries['SCH_GUI_OK'] !== undefined;
+        } catch { return false; }
+      }) || cpFiles[0];
+      const cp = JSON.parse(fs.readFileSync(path.join(cpDir, cpFile), 'utf-8'));
       assert.strictEqual(cp.entries['SCH_GUI_OK']?.status, 'SAVE_FAILED_KNOWN');
     });
 
     // -------------------------------------------------------------------------
-    // Case 3: SAVE_OUTCOME_UNKNOWN の GUI 結果画面確認 (重大警告・次校停止・Retry/Resume保護)
+    // Case 3: SAVE_OUTCOME_UNKNOWN の GUI 結果画面確認 (次校停止 & 保護)
     // -------------------------------------------------------------------------
     await runTest('Case 3: SAVE_OUTCOME_UNKNOWN の GUI 結果画面確認 (次校停止 & 保護)', async () => {
       cleanStaleTestArtifacts();
@@ -518,68 +544,114 @@ async function main() {
       const csvPath2 = path.join(tempDir, 'schools_gui_2.csv');
       fs.writeFileSync(csvPath2, 'schoolCode,schoolName,userId,password,enabled\nSCH_FAIL,故障注入小学校,user1,pass1,true\nSCH_NEXT,次校小学校,user2,pass2,true\n', 'utf-8');
 
-      await page.click('#tabSetupBtn');
-      await page.waitForSelector('#screenSetup.active', { timeout: 5000 });
-      await page.locator('#schoolsFileInput').setInputFiles(csvPath2);
-      await page.waitForSelector('#uploadFileInfo:not([style*="display: none"])', { timeout: 10000 });
-
-      // ストレージ機能を ON に設定
-      await page.locator('#profileEditorTableBody tr:has-text("ストレージ機能") select').selectOption('ON');
+      // STEP 1: Target
+      await page.click('#tabTargetBtn');
       await page.waitForTimeout(500);
-
-      await page.waitForSelector('#btnStartPreflight:not([disabled])', { timeout: 10000 });
-      const snapCount2 = await page.locator('#enabledSchoolsVal').innerText();
-      assert.strictEqual(snapCount2.includes('2 校'), true);
-
-      // Preflight
-      await page.click('#btnStartPreflight');
+      await page.waitForSelector('#screenTarget.active', { timeout: 5000 });
+      await page.locator('#schoolsFileInput').setInputFiles(csvPath2);
+      await page.waitForTimeout(500);
+      await page.waitForSelector('#uploadFileInfo:not([style*="display: none"])', { timeout: 10000 });
+      await page.locator('#targetValidateBtn').scrollIntoViewIfNeeded();
+      await page.click('#targetValidateBtn');
+      await page.waitForSelector('#targetSnapshotBox:not([style*="display: none"])', { timeout: 10000 });
       await page.waitForFunction(() => {
-        const badge = document.getElementById('jobStateBadge');
-        return badge && badge.textContent && badge.textContent.includes('RUNNING');
+        const el = document.getElementById('targetSchoolsCountVal');
+        return el && el.textContent && el.textContent.includes('校');
       }, null, { timeout: 10000 });
+
+      // STEP 2: Observe
+      await page.click('#tabObserveBtn');
+      await page.waitForSelector('#screenObserve.active', { timeout: 5000 });
+      await page.click('#discoveryStartBtn');
       await page.waitForFunction(() => {
         const badge = document.getElementById('jobStateBadge');
-        return badge && badge.textContent && badge.textContent.includes('COMPLETED');
+        return badge && (badge.textContent?.includes('COMPLETED') || badge.textContent?.includes('完了') || badge.getAttribute('data-state') === 'COMPLETED');
+      }, null, { timeout: 60000 });
+
+      // STEP 3: Decide
+      await page.click('#tabDecideBtn');
+      await page.waitForSelector('#screenDecide.active', { timeout: 5000 });
+      await page.selectOption('select[data-key="storage"]', 'ON');
+
+      // STEP 4: Preview & Final Preflight
+      await page.click('#calculatePreviewBtn');
+      await page.waitForFunction(() => {
+        const el = document.getElementById('previewTargetVal');
+        return el && el.textContent && !el.textContent.includes('0校') && !el.textContent.includes('0 校');
+      }, null, { timeout: 10000 });
+      await page.click('#profileConfirmBtn');
+      await page.waitForSelector('#finalPreflightSection:not([style*="display: none"])', { timeout: 10000 });
+
+      const pfBtn3 = page.locator('#finalPreflightStartBtn');
+      if (await pfBtn3.count() > 0 && await pfBtn3.isVisible()) {
+        await pfBtn3.click();
+      }
+      await page.waitForFunction(() => {
+        const badge = document.getElementById('jobStateBadge');
+        return badge && (badge.textContent?.includes('COMPLETED') || badge.textContent?.includes('完了') || badge.getAttribute('data-state') === 'COMPLETED');
       }, null, { timeout: 60000 });
 
       // 故障モード注入: Save POST 後の reload で 502
       mockPortal.failureMode = 'RELOAD_FAIL';
       mockPortal.failureSchoolCode = 'SCH_FAIL';
 
-      // Apply 実行
-      await page.waitForSelector('#tabApplyBtn:not([disabled])', { timeout: 10000 });
+      // STEP 5: Apply
       await page.click('#tabApplyBtn');
       await page.waitForSelector('#screenApply.active', { timeout: 5000 });
-      await page.click('#btnPrepareApply');
+      const prepBtn3 = page.locator('#applyPrepareBtn');
+      if (await prepBtn3.count() > 0 && await prepBtn3.isVisible()) {
+        await prepBtn3.click();
+      }
+      await page.waitForSelector('#applyPreparedBox:not([style*="display: none"])', { timeout: 10000 });
+      await page.click('#applyExecuteBtn');
       await page.waitForSelector('#applyConfirmModal[style*="display: flex"]', { timeout: 10000 });
-      await page.check('#modalConfirmCheckbox');
-      await page.click('#btnExecuteApply');
+      await page.click('#modalApplyStartBtn');
 
       // ジョブ終了待機 (Circuit Breaker により COMPLETED 終了)
       await page.waitForFunction(() => {
         const badge = document.getElementById('jobStateBadge');
-        return badge && badge.textContent && badge.textContent.includes('RUNNING');
+        return badge && (badge.textContent?.includes('RUNNING') || badge.textContent?.includes('中') || badge.getAttribute('data-state') === 'RUNNING');
       }, null, { timeout: 10000 });
       await page.waitForFunction(() => {
         const badge = document.getElementById('jobStateBadge');
-        return badge && badge.textContent && badge.textContent.includes('COMPLETED');
+        return badge && (badge.textContent?.includes('COMPLETED') || badge.textContent?.includes('完了') || badge.getAttribute('data-state') === 'COMPLETED');
       }, null, { timeout: 60000 });
 
-      // Results 画面確認
-      await page.click('#tabResultsBtn');
-      await page.waitForSelector('#screenResults.active', { timeout: 5000 });
-      await page.click('button:has-text("最新結果を取得")');
+      // STEP 6: Results 画面確認
+      await page.click('#tabResultBtn');
+      await page.waitForSelector('#screenResult.active', { timeout: 5000 });
       await page.waitForTimeout(1000);
+      await page.waitForFunction(() => {
+        const body = document.getElementById('resultSchoolsBody');
+        return body && body.innerText && body.innerText.includes('SCH_FAIL');
+      }, null, { timeout: 15000 });
 
-      const ssOutcomeUnknown = path.join(screenshotsDir, 'phase5b4_gui_mock_save_outcome_unknown.png');
+      const ssOutcomeUnknown = path.join(screenshotsDir, 'phase6a_gui_mock_save_outcome_unknown.png');
       await page.screenshot({ path: ssOutcomeUnknown, fullPage: true });
       console.log(`  [Screenshot] Saved: ${ssOutcomeUnknown}`);
+
+      // GUI 画面上の要確認カードおよび未処理カード、テーブル表示の検証 (要件 18: Case B)
+      const unknownCountText = await page.locator('#resultOutcomeUnknownVal').innerText();
+      assert.ok(Number(unknownCountText.trim()) >= 1, '要手動確認が 1 以上と表示されること');
+      const notProcessedText = await page.locator('#resultNotProcessedVal').innerText();
+      assert.strictEqual(notProcessedText.trim(), '1', '未処理校が 1 と表示されること');
+      const tableText3 = await page.locator('#resultSchoolsBody').innerText();
+      assert.ok(tableText3.includes('SCH_FAIL'), '学校別テーブルに SCH_FAIL が表示されること');
+      assert.ok(tableText3.includes('SCH_NEXT'), '学校別テーブルに SCH_NEXT が表示されること');
+      assert.ok(tableText3.includes('要手動確認') || tableText3.includes('保存結果を確定できません'), 'SCH_FAIL の要手動確認が表示されること');
+      assert.ok(tableText3.includes('未処理'), 'SCH_NEXT が未処理と表示されること');
 
       // Checkpoint の検証: SCH_FAIL は SAVE_OUTCOME_UNKNOWN, SCH_NEXT は PENDING
       const cpDir = path.resolve(process.cwd(), 'checkpoints');
       const cpFiles = fs.readdirSync(cpDir).filter((f) => f.startsWith('checkpoint-') && f.endsWith('.json'));
       cpFiles.sort((a, b) => fs.statSync(path.join(cpDir, b)).mtimeMs - fs.statSync(path.join(cpDir, a)).mtimeMs);
-      const cp = JSON.parse(fs.readFileSync(path.join(cpDir, cpFiles[0]), 'utf-8'));
+      const cpFile = cpFiles.find((f) => {
+        try {
+          const content = JSON.parse(fs.readFileSync(path.join(cpDir, f), 'utf-8'));
+          return content.entries && content.entries['SCH_FAIL'] !== undefined;
+        } catch { return false; }
+      }) || cpFiles[0];
+      const cp = JSON.parse(fs.readFileSync(path.join(cpDir, cpFile), 'utf-8'));
 
       assert.strictEqual(cp.entries['SCH_FAIL']?.status, 'SAVE_OUTCOME_UNKNOWN', '1校目は SAVE_OUTCOME_UNKNOWN となること');
       assert.strictEqual(cp.entries['SCH_NEXT']?.status === 'PENDING' || cp.entries['SCH_NEXT'] === undefined, true, '次校は実行されず PENDING のままであること');
@@ -602,6 +674,8 @@ async function main() {
   console.log(`\nPhase 5B.4 GUI Mock Smoke Test Results: ${passedTests} passed, ${failedTests} failed\n`);
   if (failedTests > 0) {
     process.exit(1);
+  } else {
+    process.exit(0);
   }
 }
 

@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Page } from 'playwright';
 import { logger } from '../logger/logger';
+import { getScreenshotsDir } from '../runtime/paths';
 
 export interface ScreenshotSafetyContext {
   authenticationCompleted: boolean;
@@ -81,10 +82,7 @@ export class ScreenshotManager {
   private screenshotDir: string;
 
   constructor() {
-    this.screenshotDir = path.resolve(process.cwd(), 'screenshots');
-    if (!fs.existsSync(this.screenshotDir)) {
-      fs.mkdirSync(this.screenshotDir, { recursive: true });
-    }
+    this.screenshotDir = getScreenshotsDir();
   }
 
   async captureStage(

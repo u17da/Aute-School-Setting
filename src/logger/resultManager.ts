@@ -5,19 +5,17 @@ import { ExecutionResult, ExecutionPlan, ExecutionPlanEvaluation, ExecutionIssue
 import { ExecutionStatus } from '../types/errors';
 import { EffectiveExecutionOptions, RequestedSettings } from '../types/config';
 import { SchoolSettingsObservation } from '../types/settings';
-import { generateSettingsHash, generateRunConfigHash } from '../utils/hash';
+import { generateSettingsHash, generateRunConfigHash, getToolVersion } from '../utils/hash';
+import { getLogsDir } from '../runtime/paths';
 
-export const TOOL_VERSION = '1.0.0';
+export const TOOL_VERSION = getToolVersion();
 
 export class ResultManager {
   private result: ExecutionResult;
   private logDir: string;
 
   constructor() {
-    this.logDir = path.resolve(process.cwd(), 'logs');
-    if (!fs.existsSync(this.logDir)) {
-      fs.mkdirSync(this.logDir, { recursive: true });
-    }
+    this.logDir = getLogsDir();
 
     const runId = crypto.randomUUID();
     const startedAt = new Date().toISOString();

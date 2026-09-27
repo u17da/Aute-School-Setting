@@ -3,6 +3,7 @@ import * as path from 'path';
 import { BatchCheckpoint, SchoolCheckpointEntry, CheckpointStatus, BatchSchoolItem, BatchLockInfo, CHECKPOINT_SCHEMA_VERSION } from '../types/batch';
 import { ExecutionStatus, AutomationError } from '../types/errors';
 import { logger } from '../logger/logger';
+import { getCheckpointsDir } from '../runtime/paths';
 
 export interface CheckpointManagerOptions {
   deploymentId: string;
@@ -12,6 +13,7 @@ export interface CheckpointManagerOptions {
   toolVersion: string;
   toolFingerprint?: string;
   authMode: 'A' | 'B';
+  purpose?: 'DISCOVERY' | 'FINAL_PREFLIGHT';
   schools: BatchSchoolItem[];
   isResume: boolean;
   clearStaleLock?: boolean;
@@ -28,6 +30,7 @@ export class CheckpointManager {
   private checkpoint: BatchCheckpoint;
   private deploymentId: string;
   private runId: string;
+  private purpose?: 'DISCOVERY' | 'FINAL_PREFLIGHT';
   private fsRenameSync: typeof fs.renameSync;
   private fsCloseSync: typeof fs.closeSync;
 
@@ -40,6 +43,7 @@ export class CheckpointManager {
       toolVersion,
       toolFingerprint,
       authMode,
+      purpose,
       schools,
       isResume,
       clearStaleLock = false
@@ -47,14 +51,14 @@ export class CheckpointManager {
 
     this.deploymentId = deploymentId;
     this.runId = runId;
+    this.purpose = purpose;
     this.fsRenameSync = (options.fsOverride?.renameSync as any) ?? fs.renameSync;
     this.fsCloseSync = (options.fsOverride?.closeSync as any) ?? fs.closeSync;
-    this.checkpointDir = path.resolve(process.cwd(), 'checkpoints');
-    if (!fs.existsSync(this.checkpointDir)) {
-      fs.mkdirSync(this.checkpointDir, { recursive: true });
-    }
-    this.checkpointPath = path.join(this.checkpointDir, `checkpoint-${deploymentId}.json`);
-    this.lockPath = path.join(this.checkpointDir, `${deploymentId}.lock`);
+    this.checkpointDir = getCheckpointsDir();
+    const prefix = purpose === 'DISCOVERY' ? 'discovery-checkpoint-' : 'checkpoint-';
+    const lockPrefix = purpose === 'DISCOVERY' ? 'discovery-' : '';
+    this.checkpointPath = path.join(this.checkpointDir, `${prefix}${deploymentId}.json`);
+    this.lockPath = path.join(this.checkpointDir, `${lockPrefix}${deploymentId}.lock`);
 
     // 指示8, 11: 安全なLock取得
     this.acquireLock(clearStaleLock);
@@ -63,7 +67,7 @@ export class CheckpointManager {
     try {
       const files = fs.readdirSync(this.checkpointDir);
       for (const f of files) {
-        if (f.startsWith(`checkpoint-${deploymentId}.json.tmp`)) {
+        if (f.startsWith(`${prefix}${deploymentId}.json.tmp`)) {
           try {
             fs.unlinkSync(path.join(this.checkpointDir, f));
             logger.info(`未完了のテンポラリチェックポイントファイルをクリーンアップしました: ${f}`);

@@ -1,16 +1,41 @@
 let csrfToken = '';
 let currentJobState = 'IDLE';
+let currentExecutionPurpose = null;
 let eventSource = null;
-let currentInputSource = 'UPLOAD';
-let currentSnapshotData = null;
+
+let targetSnapshot = null;
+let observationSnapshot = null;
+let draftProfile = null;
+let activeProfileSnapshot = null;
+let finalValidationSnapshot = null;
+let activeFinalPreflightReport = null;
+let activeFinalPreflightContext = null;
+let previewPlan = null;
+
+let editorDirty = false;
+let previewVerified = false;
+let serverApplyReady = false;
+let serverWorkflowCapabilities = null;
+
 let settingDefinitions = [];
 let profilePresets = [];
-let currentProfileSettings = {};
+let currentDraftSettings = {};
 let currentConfirmationToken = null;
 let currentApplyManifest = null;
-let includeDestructiveSchools = false;
+let previewDebounceTimer = null;
+
+let initialServerInstanceId = null;
+let initialServerBuildFingerprint = null;
+let hasVersionMismatch = false;
+let resultsFetchSeq = 0;
+let isApplyingInFlight = false;
 
 document.addEventListener('DOMContentLoaded', () => {
+  const metaInstance = document.querySelector('meta[name="server-instance-id"]');
+  if (metaInstance) initialServerInstanceId = metaInstance.getAttribute('content');
+  const metaBuild = document.querySelector('meta[name="server-build-fingerprint"]');
+  if (metaBuild) initialServerBuildFingerprint = metaBuild.getAttribute('content');
+
   fetchStatus();
   subscribeSse();
   loadLatestResults();
@@ -18,8 +43,11 @@ document.addEventListener('DOMContentLoaded', () => {
   loadProfileDefinitionsAndPresets();
 });
 
+// ==========================================
+// ナビゲーション (5ステップ)
+// ==========================================
 function switchTab(tabName) {
-  const tabs = ['setup', 'progress', 'results', 'apply'];
+  const tabs = ['target', 'observe', 'decide', 'apply', 'result'];
   tabs.forEach((t) => {
     const btn = document.getElementById(`tab${t.charAt(0).toUpperCase() + t.slice(1)}Btn`);
     const screen = document.getElementById(`screen${t.charAt(0).toUpperCase() + t.slice(1)}`);
@@ -31,6 +59,14 @@ function switchTab(tabName) {
       screen?.classList.remove('active');
     }
   });
+
+  if (tabName === 'apply' && activeFinalPreflightReport) {
+    updateApplyGate(activeFinalPreflightReport);
+  }
+
+  if (tabName === 'result') {
+    loadLatestResults();
+  }
 }
 
 function setupDragAndDrop() {
@@ -61,133 +97,78 @@ function setupDragAndDrop() {
   });
 }
 
-async function onSourceChange(source) {
-  currentInputSource = source;
-  const uploadContainer = document.getElementById('uploadContainer');
-  const sourceValEl = document.getElementById('currentSourceVal');
-
-  if (source === 'UPLOAD') {
-    uploadContainer.style.display = 'block';
-    if (sourceValEl) sourceValEl.textContent = 'CSV アップロード (1本化)';
-  } else {
-    uploadContainer.style.display = 'none';
-    if (sourceValEl) sourceValEl.textContent = 'ローカル既定ファイル (config/schools.live.csv)';
-  }
-
-  // ソース変更時は Validation Snapshot を即座に無効化
-  invalidateSnapshot('入力ソースが変更されました。再度「入力を検証」を実行してください。');
-
-  try {
-    await fetch('/api/source/select', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRF-Nonce': csrfToken
-      },
-      body: JSON.stringify({ source })
-    });
-  } catch (err) {
-    console.error('Failed to select source:', err);
-  }
-}
-
 async function onFileSelected(files) {
   if (!files || files.length === 0) return;
   const file = files[0];
 
-  // .xlsx 対象外チェック
   if (!file.name.toLowerCase().endsWith('.csv')) {
-    alert('【ファイル形式エラー】\n選択されたファイルは .csv ではありません。\nExcel で「CSV UTF-8（コンマ区切り）（*.csv）」として保存した .csv ファイルをご利用ください（.xlsx は対象外です）。');
+    alert('【ファイル形式エラー】\n選択されたファイルは .csv ではありません。\nExcel で「CSV UTF-8（コンマ区切り）（*.csv）」として保存した .csv ファイルをご利用ください。');
     return;
   }
 
-  // 最大 5MB チェック
-  if (file.size > 5 * 1024 * 1024) {
-    alert('【サイズ超過エラー】\nファイルサイズが上限 (5MB) を超過しています。');
-    return;
-  }
-
-  const alertBox = document.getElementById('validationAlert');
-  if (alertBox) alertBox.style.display = 'none';
+  const formData = new FormData();
+  formData.append('file', file);
 
   try {
-    const csvText = await file.text();
-
     const res = await fetch('/api/schools/upload', {
       method: 'POST',
       headers: {
-        'Content-Type': 'text/csv; charset=utf-8',
-        'X-CSRF-Nonce': csrfToken,
-        'X-Filename': encodeURIComponent(file.name)
+        'X-Filename': encodeURIComponent(file.name),
+        'X-CSRF-Nonce': csrfToken
       },
-      body: csvText
+      body: file
     });
 
     const data = await res.json();
     if (!res.ok) {
-      alert(`CSV アップロードエラー: ${data.message || data.error}`);
+      alert(`CSV読み込みエラー: ${data.message || data.error}`);
       return;
     }
 
-    // 秘密情報を一切返さない安全な表示
-    document.getElementById('uploadFileInfo').style.display = 'block';
-    document.getElementById('uploadFileNameVal').textContent = data.originalFileName;
-    document.getElementById('uploadFileSizeVal').textContent = `(${(data.fileSize / 1024).toFixed(1)} KB)`;
-    document.getElementById('uploadParsedStatsVal').textContent = `全 ${data.totalSchools} 校 (有効: ${data.enabledSchools} 校) / 認証情報: 解決完了`;
+    // UI更新
+    const uploadFileInfo = document.getElementById('uploadFileInfo');
+    if (uploadFileInfo) uploadFileInfo.style.display = 'block';
 
-    const sourceValEl = document.getElementById('currentSourceVal');
-    if (sourceValEl) sourceValEl.textContent = 'CSV アップロード (1本化)';
+    const uploadFileNameVal = document.getElementById('uploadFileNameVal');
+    if (uploadFileNameVal) uploadFileNameVal.textContent = data.originalFileName;
 
-    // Preview テーブル描画 (schoolCode / schoolName のみ、パスワードは非表示)
+    const uploadFileSizeVal = document.getElementById('uploadFileSizeVal');
+    if (uploadFileSizeVal) uploadFileSizeVal.textContent = `(${(data.fileSize / 1024).toFixed(1)} KB)`;
+
+    const uploadParsedStatsVal = document.getElementById('uploadParsedStatsVal');
+    if (uploadParsedStatsVal) {
+      uploadParsedStatsVal.textContent = `全 ${data.totalSchools} 校（有効: ${data.enabledSchools} 校）`;
+    }
+
+    const schoolsFileVal = document.getElementById('schoolsFileVal');
+    if (schoolsFileVal) schoolsFileVal.textContent = data.originalFileName;
+
+    const enabledSchoolsVal = document.getElementById('enabledSchoolsVal');
+    if (enabledSchoolsVal) enabledSchoolsVal.textContent = `${data.enabledSchools} 校`;
+    const targetSchoolsCountVal = document.getElementById('targetSchoolsCountVal');
+    if (targetSchoolsCountVal) targetSchoolsCountVal.textContent = `${data.enabledSchools} 校`;
+
     const previewBody = document.getElementById('uploadPreviewBody');
-    if (previewBody) {
+    if (previewBody && data.preview) {
       previewBody.innerHTML = '';
-      (data.preview || []).forEach((s, idx) => {
+      data.preview.forEach((s, idx) => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
           <td>${idx + 1}</td>
-          <td><strong>${escapeHtml(s.schoolCode)}</strong></td>
+          <td class="font-mono">${escapeHtml(s.schoolCode)}</td>
           <td>${escapeHtml(s.schoolName)}</td>
-          <td><span class="badge badge-success">OK (解決済)</span></td>
+          <td class="text-success font-bold">${s.hasCredential ? '✓ 設定済' : '✗ 未設定'}</td>
         `;
         previewBody.appendChild(tr);
       });
     }
 
-    // 新規 Upload 時は自動的に入力検証を実行
-    await runValidation();
+    // アップロード成功後、自動的に対象学校の確定・チェックを実行
+    invalidateTarget('新しいCSVが選択されました。');
+    await executeTargetValidate();
   } catch (err) {
-    alert(`アップロード通信エラー: ${err.message}`);
+    alert(`CSV読み込み通信エラー: ${err.message}`);
   }
-}
-
-function invalidateSnapshot(reasonMessage) {
-  currentSnapshotData = null;
-  const btnPreflight = document.getElementById('btnStartPreflight');
-  if (btnPreflight) btnPreflight.disabled = true;
-  const elEnabled = document.getElementById('enabledSchoolsVal');
-  if (elEnabled) elEnabled.textContent = '-';
-  const elSchoolsHash = document.getElementById('schoolsHashVal');
-  if (elSchoolsHash) elSchoolsHash.textContent = '-';
-  const elCredResolved = document.getElementById('credResolvedVal');
-  if (elCredResolved) elCredResolved.textContent = '-';
-  const elCredMissing = document.getElementById('credMissingVal');
-  if (elCredMissing) elCredMissing.textContent = '-';
-  const elProfileHash = document.getElementById('profileHashVal');
-  if (elProfileHash) elProfileHash.textContent = '-';
-
-  if (reasonMessage) {
-    const alertBox = document.getElementById('validationAlert');
-    if (alertBox) {
-      alertBox.className = 'alert-box alert-warning mt-3';
-      alertBox.textContent = `⚠️ ${reasonMessage}`;
-      alertBox.style.display = 'block';
-    }
-  }
-}
-
-function onExpectedCountInput() {
-  // 誤操作防止チェック削除に伴い安全な no-op
 }
 
 async function fetchStatus() {
@@ -195,543 +176,1370 @@ async function fetchStatus() {
     const res = await fetch('/api/status');
     if (!res.ok) return;
     const data = await res.json();
+
     csrfToken = data.csrfToken;
-    updateJobStateBadge(data.jobState);
+    currentJobState = data.jobState;
+    currentExecutionPurpose = data.currentExecutionPurpose || (data.currentJob ? data.currentJob.mode : null);
+    targetSnapshot = data.targetSnapshot;
+    observationSnapshot = data.observationSnapshot;
+    draftProfile = data.draftProfile;
+    activeProfileSnapshot = data.activeProfileSnapshot;
+    finalValidationSnapshot = data.finalValidationSnapshot;
+    activeFinalPreflightReport = data.activeFinalPreflightReport;
+    activeFinalPreflightContext = data.activeFinalPreflightContext;
+    serverApplyReady = Boolean(data.applyReady);
+    serverWorkflowCapabilities = data.workflowCapabilities || null;
 
-    if (data.inputSource) {
-      currentInputSource = data.inputSource;
+    // 世代照合 (Version / Instance Mismatch Check: 指示9)
+    if (data.serverInstanceId && initialServerInstanceId && data.serverInstanceId !== initialServerInstanceId) {
+      hasVersionMismatch = true;
+    }
+    if (data.serverBuildFingerprint && initialServerBuildFingerprint && data.serverBuildFingerprint !== initialServerBuildFingerprint) {
+      hasVersionMismatch = true;
     }
 
-    if (data.activeUpload) {
-      const uploadFileInfo = document.getElementById('uploadFileInfo');
-      if (uploadFileInfo) uploadFileInfo.style.display = 'block';
-      const uploadFileNameVal = document.getElementById('uploadFileNameVal');
-      if (uploadFileNameVal) uploadFileNameVal.textContent = data.activeUpload.originalFileName;
-      const uploadFileSizeVal = document.getElementById('uploadFileSizeVal');
-      if (uploadFileSizeVal) uploadFileSizeVal.textContent = `(${(data.activeUpload.fileSize / 1024).toFixed(1)} KB)`;
-      const uploadParsedStatsVal = document.getElementById('uploadParsedStatsVal');
-      if (uploadParsedStatsVal) uploadParsedStatsVal.textContent = `全 ${data.activeUpload.totalSchools} 校 (有効: ${data.activeUpload.enabledSchools} 校) / ログイン情報: 確認完了`;
-
-      const sourceValEl = document.getElementById('currentSourceVal');
-      if (sourceValEl) {
-        sourceValEl.textContent = 'CSVファイル アップロード';
-      }
-    } else if (data.snapshot) {
-      const sourceValEl = document.getElementById('currentSourceVal');
-      if (sourceValEl) {
-        sourceValEl.textContent = data.inputSource === 'UPLOAD'
-          ? 'CSVファイル アップロード'
-          : 'ローカル既定ファイル (config/schools.live.csv)';
-      }
+    const mismatchBanner = document.getElementById('versionMismatchBanner');
+    if (mismatchBanner) {
+      mismatchBanner.style.display = hasVersionMismatch ? 'block' : 'none';
     }
 
-    if (data.snapshot) {
-      currentSnapshotData = data.snapshot;
-      updateSnapshotUi(data.snapshot);
-      const btnPreflight = document.getElementById('btnStartPreflight');
-      if (btnPreflight) btnPreflight.disabled = false;
+    if (hasVersionMismatch) {
+      // 安全のため Apply 系ボタンをすべて無効化 (Fail-Closed)
+      serverApplyReady = false;
+      const prepareBtn = document.getElementById('prepareApplyBtn');
+      if (prepareBtn) prepareBtn.disabled = true;
+      const goToApply = document.getElementById('goToApplyBtn');
+      if (goToApply) goToApply.disabled = true;
     }
 
-    if (data.recentLogs && data.recentLogs.length > 0) {
-      const consoleEl = document.getElementById('logConsole');
-      if (consoleEl) {
-        consoleEl.textContent = data.recentLogs.join('\n') + '\n';
-        consoleEl.scrollTop = consoleEl.scrollHeight;
+    updateJobStateBadge(currentJobState, currentExecutionPurpose);
+    updateStepAccessibility();
+
+    if (targetSnapshot) {
+      renderTargetSnapshot(targetSnapshot);
+    }
+    if (observationSnapshot) {
+      renderObservationData(observationSnapshot);
+    }
+    // draftProfile が存在し、かつエディタが未編集(not dirty)の場合のみ設定を反映
+    if (draftProfile?.settings && !editorDirty) {
+      currentDraftSettings = { ...draftProfile.settings };
+      renderProfileEditor();
+    }
+    if (activeFinalPreflightReport) {
+      const banner = document.getElementById('previewComparisonBanner');
+      const text = document.getElementById('previewComparisonText');
+      const goToApply = document.getElementById('goToApplyBtn');
+      const finalSec = document.getElementById('finalPreflightSection');
+      if (finalSec) finalSec.style.display = 'block';
+      if (banner && text) {
+        banner.className = 'alert-box alert-success mt-3';
+        text.textContent = '✅ 最終確認完了: 事前プレビューとの間に差分や不整合はありませんでした。安全に本番反映へ進めます。';
+        banner.style.display = 'block';
       }
+      if (goToApply) goToApply.disabled = !serverApplyReady || hasVersionMismatch;
+      updateApplyGate(activeFinalPreflightReport);
     }
   } catch (err) {
     console.error('Failed to fetch status:', err);
   }
 }
 
-function updateJobStateBadge(state) {
-  currentJobState = state;
+function updateJobStateBadge(state, purpose) {
   const badge = document.getElementById('jobStateBadge');
   if (!badge) return;
 
-  const stateLabels = {
-    'IDLE': '待機中 (IDLE)',
-    'RUNNING': '実行中 (RUNNING)',
-    'COMPLETED': '完了 (COMPLETED)',
-    'READY': '準備完了 (READY)',
-    'FAILED': 'エラー停止 (FAILED)'
-  };
-
-  badge.textContent = stateLabels[state] || state;
   badge.className = 'badge';
+  badge.setAttribute('data-state', state);
+  let label = state;
 
-  if (state === 'RUNNING') {
-    badge.classList.add('badge-running');
-    document.getElementById('btnStopPreflight').disabled = false;
-    document.getElementById('btnValidate').disabled = true;
-    document.getElementById('btnStartPreflight').disabled = true;
-  } else if (state === 'COMPLETED' || state === 'READY') {
-    badge.classList.add('badge-success');
-    document.getElementById('btnStopPreflight').disabled = true;
-    document.getElementById('btnValidate').disabled = false;
-  } else if (state === 'FAILED') {
-    badge.classList.add('badge-danger');
-    document.getElementById('btnStopPreflight').disabled = true;
-    document.getElementById('btnValidate').disabled = false;
-  } else {
-    badge.classList.add('badge-idle');
-    document.getElementById('btnStopPreflight').disabled = true;
-    document.getElementById('btnValidate').disabled = false;
+  switch (state) {
+    case 'IDLE':
+      badge.classList.add('badge-idle');
+      label = '待機中';
+      break;
+    case 'RUNNING':
+      badge.classList.add('badge-running');
+      label = purpose === 'DISCOVERY' ? '現状調査中' : (purpose === 'FINAL_PREFLIGHT' ? '最終確認中' : '本番反映中');
+      break;
+    case 'STOPPING':
+      badge.classList.add('badge-stopping');
+      label = '停止処理中';
+      break;
+    case 'COMPLETED':
+      badge.classList.add('badge-completed');
+      label = '完了';
+      break;
+    case 'INTERRUPTED':
+      badge.classList.add('badge-interrupted');
+      label = '安全停止';
+      break;
+    case 'FAILED':
+      badge.classList.add('badge-failed');
+      label = 'エラー停止';
+      break;
+    default:
+      badge.classList.add('badge-idle');
   }
+
+  badge.textContent = label;
 }
 
-function updateSnapshotUi(snap, schoolsPath) {
-  const displaySource = snap.sourceName || schoolsPath || document.getElementById('schoolsFileVal').textContent;
-  document.getElementById('schoolsFileVal').textContent = displaySource;
-  document.getElementById('enabledSchoolsVal').textContent = `${snap.enabledSchoolCount} 校 / 全 ${snap.totalSchoolCount} 校`;
-  document.getElementById('schoolsHashVal').textContent = snap.schoolsHash.substring(0, 16) + '...';
-  document.getElementById('credResolvedVal').textContent = `${snap.resolvedCredentialsCount} / ${snap.enabledSchoolCount} 解決完了 (100%)`;
-  document.getElementById('credMissingVal').textContent = '0';
-  document.getElementById('profileHashVal').textContent = snap.profileHash.substring(0, 16) + '...';
-  if (snap.profileSnapshotId) {
-    document.getElementById('profileSnapshotIdVal').textContent = `(Snapshot: ${snap.profileSnapshotId})`;
-  } else {
-    document.getElementById('profileSnapshotIdVal').textContent = '';
-  }
-  document.getElementById('toolVersionLabel').textContent = `Tool: ${snap.toolVersion} (${snap.toolFingerprint.substring(0, 8)})`;
+function updateStepAccessibility() {
+  const tabObserve = document.getElementById('tabObserveBtn');
+  const tabDecide = document.getElementById('tabDecideBtn');
+  const tabApply = document.getElementById('tabApplyBtn');
+
+  if (tabObserve) tabObserve.disabled = !targetSnapshot;
+  if (tabDecide) tabDecide.disabled = !observationSnapshot;
+  if (tabApply) tabApply.disabled = (!serverApplyReady && !activeFinalPreflightReport) || hasVersionMismatch;
+}
+
+function invalidateTarget(reason) {
+  targetSnapshot = null;
+  observationSnapshot = null;
+  draftProfile = null;
+  activeProfileSnapshot = null;
+  finalValidationSnapshot = null;
+  activeFinalPreflightReport = null;
+  previewPlan = null;
+
+  const goToObserve = document.getElementById('goToObserveBtn');
+  if (goToObserve) goToObserve.disabled = true;
+
+  const obsBox = document.getElementById('observationResultBox');
+  if (obsBox) obsBox.style.display = 'none';
+
+  const finalSec = document.getElementById('finalPreflightSection');
+  if (finalSec) finalSec.style.display = 'none';
+
+  updateStepAccessibility();
 }
 
 async function loadProfileDefinitionsAndPresets() {
   try {
-    const [defsRes, presetsRes] = await Promise.all([
+    const [defRes, preRes] = await Promise.all([
       fetch('/api/profile/definitions'),
       fetch('/api/profile/presets')
     ]);
-    if (defsRes.ok) {
-      const data = await defsRes.json();
+
+    if (defRes.ok) {
+      const data = await defRes.json();
       settingDefinitions = data.definitions || [];
     }
-    if (presetsRes.ok) {
-      const data = await presetsRes.json();
+
+    if (preRes.ok) {
+      const data = await preRes.json();
       profilePresets = data.presets || [];
     }
 
-    // 推奨設定プリセットを初期値としてロード
-    const recommended = profilePresets.find((p) => p.id === 'RECOMMENDED');
-    if (recommended && recommended.settings) {
-      currentProfileSettings = { ...recommended.settings };
-    } else {
-      currentProfileSettings = {};
-      settingDefinitions.forEach((d) => {
-        currentProfileSettings[d.key] = d.defaultValue;
-      });
-    }
-
+    initDraftSettings();
     renderProfileEditor();
   } catch (err) {
-    console.error('Failed to load profile definitions or presets:', err);
+    console.error('Failed to load profile definitions/presets:', err);
   }
 }
 
+function initDraftSettings() {
+  currentDraftSettings = {};
+  settingDefinitions.forEach((def) => {
+    currentDraftSettings[def.key] = null; // UNMANAGED
+  });
+}
+
+// ==========================================
+// STEP 1: 対象学校
+// ==========================================
+async function executeTargetValidate() {
+  const btn = document.getElementById('targetValidateBtn');
+  if (btn) btn.disabled = true;
+
+  try {
+    const res = await fetch('/api/target/validate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Nonce': csrfToken
+      },
+      body: JSON.stringify({})
+    });
+
+    const data = await res.json();
+    if (!res.ok || data.status === 'FAIL') {
+      alert(`対象学校のチェックエラー: ${data.message || data.error?.message || 'チェックに失敗しました'}`);
+      return;
+    }
+
+    targetSnapshot = data.targetSnapshot;
+    renderTargetSnapshot(targetSnapshot);
+    updateStepAccessibility();
+  } catch (err) {
+    alert(`通信エラー: ${err.message}`);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function renderTargetSnapshot(snap) {
+  const credResEl = document.getElementById('credResolvedVal');
+  if (credResEl) credResEl.textContent = `${snap.resolvedCredentialsCount} 校 (充足率 100%)`;
+
+  const credMissEl = document.getElementById('credMissingVal');
+  if (credMissEl) credMissEl.textContent = '0 校';
+
+  const countEl = document.getElementById('targetSchoolsCountVal') || document.getElementById('enabledSchoolsVal');
+  if (countEl) countEl.textContent = `${snap.totalSchoolCount ?? snap.totalSchools} 校`;
+
+  const box = document.getElementById('targetSnapshotBox');
+  if (box) box.style.display = 'grid';
+
+  const goToObserve = document.getElementById('goToObserveBtn');
+  if (goToObserve) goToObserve.disabled = false;
+}
+
+async function goToObserveAndStart() {
+  switchTab('observe');
+  await startDiscovery();
+}
+
+// ==========================================
+// STEP 2: 対象学校の現状調査
+// ==========================================
+async function startDiscovery() {
+  try {
+    const res = await fetch('/api/discovery/start', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Nonce': csrfToken
+      },
+      body: JSON.stringify({})
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      alert(`現状調査の開始エラー: ${data.message || data.error}`);
+      return;
+    }
+
+    showObserveProgressCard(true);
+    setDiscoveryActionButtons('RUNNING');
+  } catch (err) {
+    alert(`通信エラー: ${err.message}`);
+  }
+}
+
+async function resumeDiscovery() {
+  try {
+    const res = await fetch('/api/discovery/resume', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Nonce': csrfToken
+      },
+      body: JSON.stringify({})
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      alert(`再開エラー: ${data.message || data.error}`);
+    } else {
+      setDiscoveryActionButtons('RUNNING');
+    }
+  } catch (err) {
+    alert(`通信エラー: ${err.message}`);
+  }
+}
+
+async function retryFailedDiscovery() {
+  try {
+    const res = await fetch('/api/discovery/retry-failed', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Nonce': csrfToken
+      },
+      body: JSON.stringify({})
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      alert(`再試行エラー: ${data.message || data.error}`);
+    } else {
+      setDiscoveryActionButtons('RUNNING');
+    }
+  } catch (err) {
+    alert(`通信エラー: ${err.message}`);
+  }
+}
+
+async function stopCurrentJob() {
+  try {
+    let endpoint = '/api/discovery/stop';
+    if (currentExecutionPurpose === 'FINAL_PREFLIGHT') endpoint = '/api/final-preflight/stop';
+    if (currentExecutionPurpose === 'PRODUCTION_WRITE') endpoint = '/api/preflight/stop';
+
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Nonce': csrfToken
+      },
+      body: JSON.stringify({})
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(`安全停止エラー: ${data.message || data.error}`);
+    }
+  } catch (err) {
+    alert(`通信エラー: ${err.message}`);
+  }
+}
+
+function setDiscoveryActionButtons(state) {
+  const startBtn = document.getElementById('discoveryStartBtn');
+  const stopBtn = document.getElementById('discoveryStopBtn');
+  const resumeBtn = document.getElementById('discoveryResumeBtn');
+  const retryBtn = document.getElementById('discoveryRetryFailedBtn');
+
+  if (state === 'RUNNING') {
+    if (startBtn) startBtn.style.display = 'none';
+    if (stopBtn) stopBtn.style.display = 'inline-block';
+    if (resumeBtn) resumeBtn.style.display = 'none';
+    if (retryBtn) retryBtn.style.display = 'none';
+  } else if (state === 'INTERRUPTED') {
+    if (startBtn) startBtn.style.display = 'none';
+    if (stopBtn) stopBtn.style.display = 'none';
+    if (resumeBtn) resumeBtn.style.display = 'inline-block';
+    if (retryBtn) retryBtn.style.display = 'none';
+  } else if (state === 'FAILED') {
+    if (startBtn) startBtn.style.display = 'none';
+    if (stopBtn) stopBtn.style.display = 'none';
+    if (resumeBtn) resumeBtn.style.display = 'none';
+    if (retryBtn) retryBtn.style.display = 'inline-block';
+  } else {
+    if (startBtn) startBtn.style.display = 'inline-block';
+    if (stopBtn) stopBtn.style.display = 'none';
+    if (resumeBtn) resumeBtn.style.display = 'none';
+    if (retryBtn) retryBtn.style.display = 'none';
+  }
+}
+
+function showObserveProgressCard(show) {
+  const card = document.getElementById('observeProgressCard');
+  if (card) card.style.display = show ? 'block' : 'none';
+}
+
+function getSettingDisplayLabel(key, value) {
+  if (value === null || value === undefined || value === 'UNMANAGED') return '変更しない（現状維持）';
+  if (value === 'CONTRACT_NOT_AVAILABLE') return '未契約';
+
+  if (key === 'otherSchoolLog') {
+    if (value === 'ALLOW') return '許可する';
+    if (value === 'DENY') return '許可しない';
+  }
+  if (key === 'studentPasswordChange') {
+    if (value === 'SHOW') return '表示する';
+    if (value === 'HIDE') return '表示しない';
+  }
+  if (key === 'directMessage' && value === 'STUDENT_TO_STUDENT_DISABLED') {
+    return '生徒同士は不可';
+  }
+  if (key === 'storage' && value === 'TEACHERS_ONLY') {
+    return '先生のみ';
+  }
+  if (value === 'ON') return 'ON';
+  if (value === 'OFF') return 'OFF';
+
+  const def = settingDefinitions.find((d) => d.key === key);
+  if (def) {
+    const opt = def.options.find((o) => o.value === value);
+    if (opt) return opt.label;
+  }
+  return String(value);
+}
+
+function formatDiffKey(key, diffStr) {
+  if (!diffStr || typeof diffStr !== 'string') return '';
+  if (diffStr.includes('→')) {
+    const parts = diffStr.split('→').map((s) => s.trim());
+    const fromLabel = getSettingDisplayLabel(key, parts[0]);
+    const toLabel = getSettingDisplayLabel(key, parts[1]);
+    return `${fromLabel} → ${toLabel}`;
+  }
+  return getSettingDisplayLabel(key, diffStr);
+}
+
+function renderObservationData(obs) {
+  const box = document.getElementById('observationResultBox');
+  if (!box) return;
+
+  box.style.display = 'block';
+  const totalEl = document.getElementById('obsTotalSchoolsVal');
+  if (totalEl) totalEl.textContent = obs.totalSchools;
+
+  // 11項目の現在分布テーブル描画
+  const tbody = document.getElementById('observationDistributionBody');
+  if (tbody) {
+    tbody.innerHTML = '';
+    const distData = obs.distribution || obs.settingDistribution || {};
+    settingDefinitions.forEach((def) => {
+      const dist = distData[def.key] || {};
+      const chips = Object.entries(dist).map(([val, cnt]) => {
+        let badgeClass = 'badge-idle';
+        if (val === 'ON' || val === 'ALLOW' || val === 'SHOW') badgeClass = 'badge-completed';
+        if (val === 'OFF' || val === 'DENY' || val === 'HIDE') badgeClass = 'badge-stopping';
+        if (val === 'CONTRACT_NOT_AVAILABLE') badgeClass = 'badge-failed';
+        const label = getSettingDisplayLabel(def.key, val);
+        return `<span class="badge ${badgeClass}" style="margin-right: 0.5rem;">${escapeHtml(label)}: ${cnt}校</span>`;
+      }).join('');
+
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="font-bold">${escapeHtml(def.label)}</td>
+        <td>${chips || '<span class="text-muted">なし</span>'}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  renderProfileEditor();
+  updateStepAccessibility();
+}
+
+// ==========================================
+// STEP 3: 設定・差分確認 (統合画面)
+// ==========================================
 function renderProfileEditor() {
-  const tbody = document.getElementById('profileEditorTableBody');
-  if (!tbody || settingDefinitions.length === 0) return;
+  const tbody = document.getElementById('profileEditorBody');
+  if (!tbody) return;
 
   tbody.innerHTML = '';
-  const destructiveKeys = [];
+  const distData = observationSnapshot?.distribution || observationSnapshot?.settingDistribution || null;
+  const isParentOff = currentDraftSettings['timelineChannel'] === 'OFF';
 
-  // タイムライン機能がOFFかどうか (依存判定用)
-  const isTimelineOff = currentProfileSettings['timelineChannel'] === 'OFF';
+  // タイムライン機能OFF時に子機能が手動でOFFになっているか判定
+  const allChannelVal = currentDraftSettings['allChannel'];
+  const parentChannelVal = currentDraftSettings['parentChannel'];
+  const hasTimelineConflict = isParentOff && (allChannelVal !== 'OFF' || parentChannelVal !== 'OFF');
 
   settingDefinitions.forEach((def) => {
-    const tr = document.createElement('tr');
-    const currentVal = currentProfileSettings[def.key];
-    const isUnmanaged = currentVal === undefined || currentVal === null;
+    const currentVal = currentDraftSettings[def.key] ?? null;
 
-    // 破壊的変更リスクの判定 (指示1)
-    const isDestructive = def.destructiveWhenOff && currentVal === 'OFF';
-    if (isDestructive) {
-      destructiveKeys.push(def.label);
+    // 現状分布チップ
+    let distHtml = '<span class="text-muted">未調査</span>';
+    if (distData) {
+      const dist = distData[def.key] || {};
+      const entries = Object.entries(dist);
+      if (entries.length > 0) {
+        distHtml = entries.map(([val, cnt]) => {
+          const label = getSettingDisplayLabel(def.key, val);
+          return `<span class="badge badge-idle font-sm" style="margin-right: 4px;">${escapeHtml(label)}: ${cnt}</span>`;
+        }).join('');
+      } else {
+        distHtml = '<span class="text-muted">-</span>';
+      }
     }
 
-    // 依存関係メッセージ (指示8)
-    let dependencyNote = '';
-    if (isTimelineOff && (def.key === 'allChannel' || def.key === 'parentChannel')) {
-      dependencyNote = `<span class="badge badge-danger" style="margin-left: 0.5rem;">※タイムラインOFF連動</span>`;
-    }
+    // 心の健康観察の未契約チェック
+    const isMentalHealthUncontracted = def.key === 'mentalHealth' && distData?.mentalHealth?.['CONTRACT_NOT_AVAILABLE'] > 0;
 
-    // オプション選択肢HTML
-    const optionsHtml = [
-      `<option value="__UNMANAGED__" ${isUnmanaged ? 'selected' : ''}>UNMANAGED (変更しない)</option>`,
+    // 子機能（全体チャンネル・保護者チャンネル）の親矛盾チェック
+    const isChildOfTimeline = (def.key === 'allChannel' || def.key === 'parentChannel');
+    const childNeedsManualOff = isParentOff && isChildOfTimeline && currentVal !== 'OFF';
+
+    // 選択肢（英語コードを排除し、まなびポケットの日本語表記に統一）
+    const options = [
+      { value: 'UNMANAGED', label: '変更しない（現状維持）', disabled: false },
       ...def.options.map((opt) => {
-        const isSelected = !isUnmanaged && String(currentVal) === String(opt.value);
-        return `<option value="${escapeHtml(opt.value)}" ${isSelected ? 'selected' : ''}>${escapeHtml(opt.label)} (${escapeHtml(opt.value)})</option>`;
+        let optDisabled = false;
+        let optLabel = opt.label;
+        if (isMentalHealthUncontracted && opt.value === 'ON') {
+          optDisabled = true;
+          optLabel += ' [未契約校ありのため選択不可]';
+        }
+        return { value: opt.value, label: optLabel, disabled: optDisabled };
       })
-    ].join('');
+    ];
 
-    // ステータス / リスク表示HTML
-    let statusHtml = '';
-    if (isUnmanaged) {
-      statusHtml = `<span class="text-muted font-bold">変更しない (UNMANAGED)</span>`;
-    } else if (isDestructive) {
-      statusHtml = `<span class="badge badge-danger">⚠️ 予約投稿削除リスク</span>`;
-    } else {
-      statusHtml = `<span class="badge badge-success">変更する (MANAGED)</span>`;
+    // アラート列の表示内容
+    let alertText = '<span class="text-muted">-</span>';
+    if (childNeedsManualOff) {
+      alertText = '<span class="text-danger font-bold">⚠️ タイムライン機能がOFFのため、手動で「OFF」に設定してください</span>';
+    } else if (isMentalHealthUncontracted) {
+      alertText = '<span class="text-warning font-sm font-bold">※ 未契約の学校が含まれるためONにできません</span>';
     }
 
+    const tr = document.createElement('tr');
     tr.innerHTML = `
+      <td class="font-bold">${escapeHtml(def.label)}</td>
+      <td>${distHtml}</td>
       <td>
-        <strong>${escapeHtml(def.label)}</strong>
-        <div class="text-muted" style="font-size: 0.8rem; font-family: monospace;">${escapeHtml(def.key)}</div>
-      </td>
-      <td>
-        <select class="input-select" onchange="onSettingChange('${def.key}', this.value)" style="width: 100%; font-size: 15px;">
-          ${optionsHtml}
+        <select class="form-select" data-key="${def.key}" onchange="onSettingChange('${def.key}', this.value)">
+          ${options.map((o) => `<option value="${o.value}" ${o.disabled ? 'disabled' : ''} ${((currentVal === null && o.value === 'UNMANAGED') || String(currentVal) === o.value) ? 'selected' : ''}>${escapeHtml(o.label)}</option>`).join('')}
         </select>
       </td>
-      <td>
-        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-          ${statusHtml}
-          ${dependencyNote}
-        </div>
-      </td>
+      <td class="font-sm">${alertText}</td>
     `;
     tbody.appendChild(tr);
   });
 
-  // 破壊的変更リスクリアルタイム警告バナーの制御
-  const warningEl = document.getElementById('editorDestructiveWarning');
-  const listEl = document.getElementById('editorDestructiveFieldsList');
-  if (warningEl && listEl) {
-    if (destructiveKeys.length > 0) {
-      listEl.textContent = ` ${destructiveKeys.join(', ')}`;
-      warningEl.style.display = 'block';
-    } else {
-      warningEl.style.display = 'none';
+  checkEditorWarnings(hasTimelineConflict);
+  updateDestructiveNoticeState();
+}
+
+function onSettingChange(key, value) {
+  const newVal = value === 'UNMANAGED' ? null : value;
+
+  // 心の健康観察が未契約ありの場合はブロック
+  if (key === 'mentalHealth' && newVal === 'ON') {
+    const distData = observationSnapshot?.distribution || observationSnapshot?.settingDistribution || null;
+    if (distData?.mentalHealth?.['CONTRACT_NOT_AVAILABLE'] > 0) {
+      alert('【設定エラー】\n対象学校の中に「心の健康観察」が未契約の学校が含まれているため、ONに設定することはできません。');
+      currentDraftSettings['mentalHealth'] = null;
+      renderProfileEditor();
+      return;
     }
   }
 
-  // 親子機能の依存関係リアルタイムチェック (タイムラインOFFなのにチャンネルON)
-  const hasDependencyConflict = isTimelineOff && (currentProfileSettings['allChannel'] === 'ON' || currentProfileSettings['parentChannel'] === 'ON');
-  const depWarningEl = document.getElementById('editorDependencyWarning');
-  if (depWarningEl) {
-    depWarningEl.style.display = hasDependencyConflict ? 'block' : 'none';
-  }
-  const preflightDepWarningEl = document.getElementById('preflightDependencyWarning');
-  if (preflightDepWarningEl) {
-    preflightDepWarningEl.style.display = hasDependencyConflict ? 'block' : 'none';
-  }
-  const btnStartPreflight = document.getElementById('btnStartPreflight');
-  if (btnStartPreflight && hasDependencyConflict) {
-    btnStartPreflight.disabled = true;
-  }
-}
-
-async function onSettingChange(key, value) {
-  if (value === '__UNMANAGED__') {
-    currentProfileSettings[key] = null;
-  } else {
-    currentProfileSettings[key] = value;
-  }
-
-  // サーバーへ即座に Invalidation を通知
-  try {
-    await fetch('/api/profile/invalidate', {
-      method: 'POST',
-      headers: { 'X-CSRF-Nonce': csrfToken }
-    });
-  } catch (err) {
-    console.error('Failed to notify invalidate:', err);
-  }
+  // 設定値を反映
+  currentDraftSettings[key] = newVal;
+  editorDirty = true;
+  previewVerified = false;
 
   renderProfileEditor();
+}
 
-  // 学校一覧が読み込まれている場合は自動で再検証を実行
-  const hasSchoolSource = document.getElementById('uploadFileInfo')?.style.display !== 'none' ||
-    currentInputSource === 'LOCAL_LIVE' || currentSnapshotData !== null;
-  if (hasSchoolSource) {
-    await runValidation();
+function applyPreset(presetId) {
+  const preset = profilePresets.find((p) => p.id === presetId);
+  if (!preset) return;
+
+  const distData = observationSnapshot?.distribution || observationSnapshot?.settingDistribution || null;
+  const isMentalHealthUncontracted = distData?.mentalHealth?.['CONTRACT_NOT_AVAILABLE'] > 0;
+
+  settingDefinitions.forEach((def) => {
+    let val = preset.settings[def.key] ?? null;
+    if (def.key === 'mentalHealth' && val === 'ON' && isMentalHealthUncontracted) {
+      val = null; // 未契約ならONにしない
+    }
+    currentDraftSettings[def.key] = val;
+  });
+
+  editorDirty = true;
+  previewVerified = false;
+
+  renderProfileEditor();
+}
+
+function checkEditorWarnings(hasTimelineConflict) {
+  const depWarn = document.getElementById('editorDependencyWarning');
+  const depMsg = document.getElementById('editorDependencyMessage');
+  const desWarn = document.getElementById('editorDestructiveWarning');
+  const desList = document.getElementById('editorDestructiveFieldsList');
+  const btnCheckDiff = document.getElementById('calculatePreviewBtn') || document.getElementById('btnCheckDiff');
+  const btnConfirm = document.getElementById('profileConfirmBtn');
+
+  // 依存関係チェック（タイムラインOFF時の手動OFF強制）
+  let depIssue = null;
+  if (hasTimelineConflict) {
+    depIssue = '「タイムライン・チャンネル機能」をOFFにする場合、子機能（全体チャンネル・保護者チャンネル）も手動で「OFF」に設定する必要があります。アラートの出ている項目を「OFF」に設定してください。';
+  }
+
+  if (depWarn && depMsg) {
+    if (depIssue) {
+      depMsg.textContent = depIssue;
+      depWarn.style.display = 'block';
+    } else {
+      depWarn.style.display = 'none';
+    }
+  }
+
+  if (btnCheckDiff) {
+    btnCheckDiff.disabled = Boolean(hasTimelineConflict);
+  }
+  if (btnConfirm) {
+    // タイムライン矛盾があるか、または設定が未確認(dirty / unverified)の場合は確定ボタンを無効化
+    btnConfirm.disabled = Boolean(hasTimelineConflict) || editorDirty || !previewVerified;
+    if (editorDirty) {
+      btnConfirm.title = '設定が変更されています。「この設定での差分を確認」を実行してください';
+    } else if (!previewVerified) {
+      btnConfirm.title = '先に差分を確認してください';
+    } else {
+      btnConfirm.title = '';
+    }
+  }
+
+  // 破壊的変更チェック (OFF指定された destructiveWhenOff 項目)
+  const destructiveFields = [];
+  settingDefinitions.forEach((def) => {
+    if (def.destructiveWhenOff && currentDraftSettings[def.key] === 'OFF') {
+      destructiveFields.push(def.label);
+    }
+  });
+
+  if (desWarn && desList) {
+    if (destructiveFields.length > 0) {
+      desList.textContent = destructiveFields.join('、 ');
+      desWarn.style.display = 'block';
+    } else {
+      desWarn.style.display = 'none';
+    }
   }
 }
 
-async function applyPreset(presetId) {
-  const preset = profilePresets.find((p) => p.id === presetId);
-  if (preset && preset.settings) {
-    currentProfileSettings = { ...preset.settings };
-  } else if (presetId === 'RECOMMENDED' || presetId === 'DEFAULT') {
-    currentProfileSettings = {};
-    settingDefinitions.forEach((d) => {
-      currentProfileSettings[d.key] = d.defaultValue;
-    });
-  } else if (presetId === 'UNMANAGED_ALL') {
-    currentProfileSettings = {};
-    settingDefinitions.forEach((d) => {
-      currentProfileSettings[d.key] = null;
-    });
+function updateDestructiveNoticeState() {
+  const container = document.getElementById('destructiveRiskContainer');
+  const help = document.getElementById('allowDestructiveHelpText');
+  if (!container) return;
+
+  const hasDestructive = settingDefinitions.some(
+    (def) => def.destructiveWhenOff && currentDraftSettings[def.key] === 'OFF'
+  );
+
+  if (hasDestructive) {
+    container.style.display = 'block';
+    if (help) {
+      help.textContent = '予約投稿の自動削除を伴う設定変更（チャンネル非表示化等）を含む学校は、安全のため今回の本番反映対象から自動除外されます。';
+    }
   } else {
+    container.style.display = 'none';
+  }
+}
+
+// ユーザーが明示的に「この設定での差分を確認 ↓」をクリックした時の処理
+async function onCheckDiffClicked() {
+  const isParentOff = currentDraftSettings['timelineChannel'] === 'OFF';
+  const allChannelVal = currentDraftSettings['allChannel'];
+  const parentChannelVal = currentDraftSettings['parentChannel'];
+  if (isParentOff && (allChannelVal !== 'OFF' || parentChannelVal !== 'OFF')) {
+    alert('【設定エラー】\nタイムライン・チャンネル機能がOFFのため、全体チャンネル・保護者チャンネルを手動で「OFF」に設定してください。');
     return;
   }
 
-  // サーバーへ即座に Invalidation を通知
-  try {
-    await fetch('/api/profile/invalidate', {
-      method: 'POST',
-      headers: { 'X-CSRF-Nonce': csrfToken }
-    });
-  } catch (err) {
-    console.error('Failed to notify invalidate:', err);
+  const btn = document.getElementById('calculatePreviewBtn') || document.getElementById('btnCheckDiff');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '差分を計算中...';
   }
 
-  renderProfileEditor();
+  try {
+    const success = await saveDraftAndCalculatePreview();
+    if (success) {
+      editorDirty = false;
+      previewVerified = true;
+      checkEditorWarnings(isParentOff && (allChannelVal !== 'OFF' || parentChannelVal !== 'OFF'));
 
-  // 学校一覧が読み込まれている場合は自動で再検証を実行
-  const hasSchoolSource = document.getElementById('uploadFileInfo')?.style.display !== 'none' ||
-    currentInputSource === 'LOCAL_LIVE' || currentSnapshotData !== null;
-  if (hasSchoolSource) {
-    await runValidation();
+      // 差分確認エリアへスムーズスクロール
+      const diffSection = document.getElementById('previewSummaryBox') || document.getElementById('previewComparisonCard');
+      if (diffSection) {
+        diffSection.scrollIntoView({ behavior: 'smooth' });
+      }
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'この設定での差分を確認 ↓';
+    }
   }
 }
 
-async function exportProfileJson() {
+async function saveDraftAndCalculatePreview() {
+  if (!targetSnapshot || !observationSnapshot) return false;
+
   try {
-    const res = await fetch('/api/profile/export', {
+    // 1. ドラフト設定を保存 (Lineage CAS 検証付き)
+    const draftRes = await fetch('/api/profile/draft', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-CSRF-Nonce': csrfToken
       },
-      body: JSON.stringify({ profile: currentProfileSettings })
+      body: JSON.stringify({
+        targetSnapshotId: targetSnapshot.targetSnapshotId,
+        observationSnapshotId: observationSnapshot.observationSnapshotId,
+        expectedDraftRevision: draftProfile?.draftRevision ?? 0,
+        settings: currentDraftSettings
+      })
     });
+
+    const draftData = await draftRes.json();
+    if (!draftRes.ok) {
+      if (draftRes.status === 409) {
+        alert('【整合性エラー】\n設定状態が更新されています。最新の状態を取得します。');
+        await fetchStatus();
+      } else {
+        alert(`ドラフト保存エラー: ${draftData.message || draftData.error}`);
+      }
+      return false;
+    }
+    draftProfile = draftData.draftProfile;
+
+    // 2. プレビューを計算 (高速)
+    const prevRes = await fetch('/api/preview/calculate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Nonce': csrfToken
+      },
+      body: JSON.stringify({
+        observationSnapshotId: observationSnapshot.observationSnapshotId,
+        draftRevision: draftProfile.draftRevision,
+        draftHash: draftProfile.draftHash
+      })
+    });
+
+    const prevData = await prevRes.json();
+    if (!prevRes.ok) {
+      alert(`プレビュー計算エラー: ${prevData.message || prevData.error}`);
+      return false;
+    }
+
+    previewPlan = prevData;
+    renderPreviewSummary(previewPlan);
+    return true;
+  } catch (err) {
+    console.error('Preview calculate error:', err);
+    alert(`通信エラー: ${err.message}`);
+    return false;
+  }
+}
+
+function renderPreviewSummary(plan) {
+  const setVal = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val;
+  };
+
+  const total = plan.totalSchools || 0;
+  const failed = plan.observationFailedCount || 0;
+
+  setVal('previewTotalVal', total);
+  setVal('previewTargetVal', `${plan.targetCount || 0} 校`);
+  setVal('previewAlreadyConfiguredVal', `${plan.alreadyConfiguredCount || 0} 校`);
+  setVal('previewDestructiveVal', `${plan.destructiveCount || 0} 校`);
+
+  // 変更項目数の内訳
+  renderActionsDistribution(plan);
+
+  // 11項目の現在値と変更予定テーブル
+  renderMergedDistribution(plan);
+
+  // 破壊的変更警告アラート
+  const desBox = document.getElementById('destructiveAlertBox');
+  const desContainer = document.getElementById('destructiveSchoolsTableContainer');
+  if (desBox && desContainer) {
+    if (plan.destructiveCount > 0 && plan.destructiveSchools?.length > 0) {
+      desContainer.innerHTML = `
+        <table class="data-table data-table-sm mt-1">
+          <thead><tr><th>学校コード</th><th>学校名</th><th>予約投稿削除対象の項目</th></tr></thead>
+          <tbody>
+            ${plan.destructiveSchools.map((s) => `
+              <tr>
+                <td class="font-mono">${escapeHtml(s.schoolCode)}</td>
+                <td>${escapeHtml(s.schoolName)}</td>
+                <td class="text-danger font-bold">${escapeHtml(s.destructiveFields?.join(', ') || 'チャンネル非表示化')}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+      desBox.style.display = 'block';
+    } else {
+      desBox.style.display = 'none';
+    }
+  }
+
+  // 未契約機能警告アラート
+  const uncBox = document.getElementById('uncontractedAlertBox');
+  const uncMsg = document.getElementById('uncontractedAlertMsg');
+  const uncContainer = document.getElementById('uncontractedSchoolsTableContainer');
+  if (uncBox && uncContainer) {
+    if (plan.uncontractedCount > 0 && plan.uncontractedSchools?.length > 0) {
+      if (uncMsg) uncMsg.textContent = `${plan.uncontractedCount} 校で契約外の機能をONにする要求が含まれています。反映時はスキップされます。`;
+      uncContainer.innerHTML = `
+        <table class="data-table data-table-sm mt-1">
+          <thead><tr><th>学校コード</th><th>学校名</th><th>未契約項目</th></tr></thead>
+          <tbody>
+            ${plan.uncontractedSchools.map((s) => `
+              <tr>
+                <td class="font-mono">${escapeHtml(s.schoolCode)}</td>
+                <td>${escapeHtml(s.schoolName)}</td>
+                <td class="text-warning font-bold">${escapeHtml(s.uncontractedFields?.join(', ') || '-')}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+      uncBox.style.display = 'block';
+    } else {
+      uncBox.style.display = 'none';
+    }
+  }
+
+  // 失敗校一覧
+  const failGroup = document.getElementById('failedSchoolsGroup');
+  const failBody = document.getElementById('failedSchoolsTableBody');
+  if (failGroup && failBody) {
+    if (failed > 0 && plan.failedSchools?.length > 0) {
+      failBody.innerHTML = plan.failedSchools.map((s) => `
+        <tr>
+          <td class="font-mono">${escapeHtml(s.schoolCode)}</td>
+          <td>${escapeHtml(s.schoolName)}</td>
+          <td class="text-danger">${escapeHtml(s.errorMessage || s.errorCode || '調査エラー')}</td>
+        </tr>
+      `).join('');
+      failGroup.style.display = 'block';
+    } else {
+      failGroup.style.display = 'none';
+    }
+  }
+}
+
+function renderActionsDistribution(plan) {
+  const dist = plan.actionsDistribution || {};
+  const formatDist = (v) => (v !== undefined && v !== null ? `${v} 校` : '0 校');
+
+  const dist0El = document.getElementById('dist0');
+  if (dist0El) dist0El.textContent = formatDist(dist['0'] ?? dist.zero ?? plan.alreadyConfiguredCount);
+
+  const dist1El = document.getElementById('dist1');
+  if (dist1El) dist1El.textContent = formatDist(dist['1'] ?? dist.one);
+
+  const dist2El = document.getElementById('dist2');
+  if (dist2El) dist2El.textContent = formatDist(dist['2'] ?? dist.two);
+
+  const dist3El = document.getElementById('dist3Plus');
+  if (dist3El) dist3El.textContent = formatDist(dist['3+'] ?? dist.threePlus);
+}
+
+function renderMergedDistribution(plan) {
+  const tbody = document.getElementById('mergedDistributionTableBody');
+  if (!tbody) return;
+
+  const curDist = plan.currentStateDistribution || observationSnapshot?.distribution || {};
+  const diffDist = plan.settingDiffDistribution || {};
+  const planDist = plan.plannedChangeDistribution || {};
+
+  tbody.innerHTML = '';
+  settingDefinitions.forEach((def) => {
+    // 現在値の内訳
+    const curEntries = Object.entries(curDist[def.key] || {});
+    const curBadges = curEntries.length > 0
+      ? curEntries.map(([val, cnt]) => {
+          let bClass = 'badge-idle';
+          if (val === 'ON' || val === 'ALLOW' || val === 'SHOW') bClass = 'badge-completed';
+          if (val === 'OFF' || val === 'DENY' || val === 'HIDE') bClass = 'badge-stopping';
+          if (val === 'CONTRACT_NOT_AVAILABLE') bClass = 'badge-failed';
+          const label = getSettingDisplayLabel(def.key, val);
+          return `<span class="badge ${bClass}" style="margin-right: 0.35rem;">${escapeHtml(label)}: ${cnt}校</span>`;
+        }).join('')
+      : '<span class="text-muted">なし (0校)</span>';
+
+    // 変更予定の内訳
+    let planBadges = '<span class="text-muted">変更なし</span>';
+    const diffEntries = Object.entries(diffDist[def.key] || {});
+    if (diffEntries.length > 0) {
+      planBadges = diffEntries.map(([dKey, cnt]) => {
+        const diffLabel = formatDiffKey(def.key, dKey);
+        return `<span class="badge badge-info" style="margin-right: 0.35rem;">${escapeHtml(diffLabel)}: ${cnt}校</span>`;
+      }).join('');
+    } else {
+      const pEntries = Object.entries(planDist[def.key] || {});
+      if (pEntries.length > 0) {
+        planBadges = pEntries.map(([val, cnt]) => {
+          const label = getSettingDisplayLabel(def.key, val);
+          return `<span class="badge badge-info" style="margin-right: 0.35rem;">${escapeHtml(label)}: ${cnt}校</span>`;
+        }).join('');
+      }
+    }
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>
+        <div class="font-bold">${escapeHtml(def.label)}</div>
+      </td>
+      <td>${curBadges}</td>
+      <td>${planBadges}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+// 最終確認を実行する (プロファイル確定 & Final Preflight)
+async function confirmProfileAndStartFinalPreflight() {
+  if (editorDirty || !previewVerified) {
+    alert('【確認エラー】\n設定が変更されているか、プレビューが最新ではありません。先に「この設定での差分を確認」を実行してください。');
+    return;
+  }
+  if (!draftProfile) {
+    alert('設定内容の準備が完了していません。設定値を指定して差分を確認してください。');
+    return;
+  }
+
+  const btn = document.getElementById('profileConfirmBtn');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '最終確認を準備中...';
+  }
+
+  try {
+    // 1. プロファイル確定
+    const res = await fetch('/api/profile/confirm', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Nonce': csrfToken
+      },
+      body: JSON.stringify({
+        targetSnapshotId: draftProfile.targetSnapshotId,
+        observationSnapshotId: draftProfile.observationSnapshotId,
+        expectedDraftRevision: draftProfile.draftRevision,
+        expectedDraftHash: draftProfile.draftHash
+      })
+    });
+
     const data = await res.json();
     if (!res.ok) {
-      alert(`エクスポートエラー: ${data.message || data.error}`);
+      alert(`設定確定エラー: ${data.message || data.error}`);
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'この内容で最終確認を実行する →';
+      }
       return;
     }
 
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json; charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `production-profile-${data.profileHash.substring(0, 8)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    activeProfileSnapshot = data.profileSnapshot;
+
+    // 2. シームレスに Final Preflight を開始
+    const finalSec = document.getElementById('finalPreflightSection');
+    if (finalSec) finalSec.style.display = 'block';
+
+    if (btn) {
+      btn.textContent = '最終チェック実行中...';
+    }
+
+    await startFinalPreflight();
   } catch (err) {
-    alert(`エクスポート通信エラー: ${err.message}`);
+    alert(`通信エラー: ${err.message}`);
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'この内容で最終確認を実行する →';
+    }
   }
 }
 
-async function onProfileJsonSelected(files) {
-  if (!files || files.length === 0) return;
-  const file = files[0];
+async function startFinalPreflight() {
   try {
-    const text = await file.text();
-    const raw = JSON.parse(text);
-    const profileData = raw.requestedSettings || raw;
-
-    // 設定値の反映
-    const newSettings = {};
-    for (const def of settingDefinitions) {
-      if (profileData[def.key] !== undefined) {
-        newSettings[def.key] = profileData[def.key];
-      } else {
-        newSettings[def.key] = null;
-      }
-    }
-    currentProfileSettings = newSettings;
-
-    // サーバーへ即座に Invalidation を通知 (指示4)
-    await fetch('/api/profile/invalidate', {
+    const res = await fetch('/api/final-preflight/start', {
       method: 'POST',
-      headers: { 'X-CSRF-Nonce': csrfToken }
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Nonce': csrfToken
+      },
+      body: JSON.stringify({})
     });
 
-    invalidateSnapshot(`プロファイル設定 JSON (${file.name}) をインポートしました。Preflight を開始する前に「入力を検証」を実行してください。`);
-    renderProfileEditor();
+    const data = await res.json();
+    if (!res.ok) {
+      alert(`最終確認の開始エラー: ${data.message || data.error}`);
+      return;
+    }
+
+    const card = document.getElementById('finalPreflightProgressCard');
+    if (card) card.style.display = 'block';
   } catch (err) {
-    alert(`JSON インポートエラー: ${err.message}`);
+    alert(`通信エラー: ${err.message}`);
   }
 }
 
-async function runValidation() {
-  const alertBox = document.getElementById('validationAlert');
-  if (alertBox) alertBox.style.display = 'none';
-  document.getElementById('btnValidate').disabled = true;
-  document.getElementById('btnStartPreflight').disabled = true;
+// ==========================================
+// STEP 4: 本番反映
+// ==========================================
+function updateApplyGate(report) {
+  const badge = document.getElementById('applyGateBadge');
+  const alertBox = document.getElementById('applyGateAlert');
+  const statusText = document.getElementById('applyGateStatusText');
 
-  // 親子機能の依存関係チェック（早期拒絶）
-  if (currentProfileSettings['timelineChannel'] === 'OFF' &&
-      (currentProfileSettings['allChannel'] === 'ON' || currentProfileSettings['parentChannel'] === 'ON')) {
-    currentSnapshotData = null;
-    if (alertBox) {
-      alertBox.className = 'alert-box alert-danger mt-3';
-      alertBox.innerHTML = '<strong>✗ 入力設定エラー (DEPENDENCY_CONFLICT)</strong>: 「タイムライン・チャンネル機能」がOFFの場合、子機能（全体チャンネル・保護者チャンネル）をONに設定することはできません。設定を見直してください。';
-      alertBox.style.display = 'block';
+  if (!report || report.status !== 'COMPLETE') {
+    if (badge) {
+      badge.textContent = 'チェック未完了';
+      badge.className = 'badge badge-warning';
     }
-    document.getElementById('btnStartPreflight').disabled = true;
-    document.getElementById('btnValidate').disabled = false;
+    if (statusText) statusText.textContent = '最終確認が完了していません。先にSTEP 3で最終確認を行ってください。';
     return;
   }
 
-  const bodyPayload = {
-    profile: currentProfileSettings
+  const hasFailures = (report.readFailed || 0) > 0 || !report.allReadSucceeded;
+  const hasBlocks = (report.planBlocked || 0) > 0 || !report.allPlansExecutable;
+
+  if (hasFailures || hasBlocks) {
+    if (badge) {
+      badge.textContent = 'チェック不合格 (反映不可)';
+      badge.className = 'badge badge-danger';
+    }
+    if (alertBox) alertBox.className = 'alert-box alert-danger mb-3';
+    if (statusText) statusText.textContent = `安全確認でエラーが発生した学校があります（読み取り失敗: ${report.readFailed || 0}校、ブロック: ${report.planBlocked || 0}校）。`;
+  } else {
+    if (badge) {
+      badge.textContent = 'チェック合格 (反映可能)';
+      badge.className = 'badge badge-success';
+    }
+    if (alertBox) alertBox.className = 'alert-box alert-success mb-3';
+    if (statusText) statusText.textContent = '全校の安全確認が完了しました。本番反映を開始できます。';
+  }
+
+  // 集計カードの更新
+  const setVal = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val;
   };
 
+  const targetCount = report.requiresChange !== undefined ? report.requiresChange : (report.writeEligibleCount || report.writeEligible || 0);
+  const skippedCount = report.destructiveChangeSchools !== undefined ? report.destructiveChangeSchools : (report.destructiveSchoolsCount || report.destructiveSchools || 0);
+  const alreadyCount = report.alreadyConfigured !== undefined ? report.alreadyConfigured : (report.alreadyConfiguredCount || 0);
+
+  setVal('applyTargetCountVal', `${targetCount} 校`);
+  setVal('applySkippedDestructiveVal', `${skippedCount} 校`);
+  setVal('applyAlreadyConfiguredVal', `${alreadyCount} 校`);
+
+  // 予約投稿削除リスクの案内表示制御
+  const desRiskContainer = document.getElementById('destructiveRiskContainer');
+  const skippedCard = document.getElementById('applySkippedDestructiveCard');
+  if (skippedCount > 0) {
+    if (desRiskContainer) desRiskContainer.style.display = 'block';
+    if (skippedCard) skippedCard.style.opacity = '1.0';
+  } else {
+    if (desRiskContainer) desRiskContainer.style.display = 'none';
+    if (skippedCard) skippedCard.style.opacity = '0.6';
+  }
+
+  // 実行ボタンの制御 (Server SSOT: serverApplyReady)
+  const applyBtn = document.getElementById('applyExecuteBtn');
+  if (applyBtn) {
+    applyBtn.disabled = !serverApplyReady || hasFailures || hasBlocks;
+  }
+}
+
+async function onApplyExecuteClicked() {
+  const btn = document.getElementById('applyExecuteBtn');
+  if (btn) btn.disabled = true;
+
   try {
-    const res = await fetch('/api/validate', {
+    // 1. 自動で適用準備 (承認トークン発行) を呼び出し
+    const res = await fetch('/api/apply/prepare', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-CSRF-Nonce': csrfToken
       },
-      body: JSON.stringify(bodyPayload)
+      body: JSON.stringify({})
     });
 
     const data = await res.json();
-    if (data.status === 'PASS') {
-      currentSnapshotData = data.snapshot;
-      if (alertBox) {
-        alertBox.className = 'alert-box alert-success mt-3';
-        alertBox.textContent = `✓ 入力検証に合格しました (Validation PASS: ${data.enabledCount} 校有効 / 資格情報 100% 解決)。事前検証を開始できます。`;
-        alertBox.style.display = 'block';
-      }
+    if (!res.ok) {
+      alert(`本番適用の準備エラー: ${data.message || data.error}`);
+      return;
+    }
 
-      updateSnapshotUi(data.snapshot, data.schoolsPath);
-      document.getElementById('btnStartPreflight').disabled = false;
-    } else {
-      currentSnapshotData = null;
-      if (alertBox) {
-        alertBox.className = 'alert-box alert-danger mt-3';
-        alertBox.innerHTML = `<strong>✗ 入力検証エラー (${data.error?.code || 'VALIDATION_FAILED'})</strong>: ${escapeHtml(data.error?.message || data.message || '不明なエラー')}`;
-        alertBox.style.display = 'block';
-      }
-      document.getElementById('btnStartPreflight').disabled = true;
-    }
+    currentApplyManifest = data.manifest;
+    currentConfirmationToken = data.confirmationToken;
+
+    // 2. モーダルに数値をセット
+    const setVal = (id, val) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = val;
+    };
+    setVal('modalTargetCount', data.targetCount);
+    setVal('modalAlreadyCount', data.alreadyConfiguredCount);
+    setVal('modalSkippedCount', data.skippedDestructiveCount);
+
+    // 3. 画面中央に確認モーダルを表示
+    const modal = document.getElementById('applyConfirmModal');
+    if (modal) modal.style.display = 'flex';
   } catch (err) {
-    currentSnapshotData = null;
-    if (alertBox) {
-      alertBox.className = 'alert-box alert-danger mt-3';
-      alertBox.textContent = `通信エラー: ${err.message}`;
-      alertBox.style.display = 'block';
-    }
+    alert(`通信エラー: ${err.message}`);
   } finally {
-    document.getElementById('btnValidate').disabled = false;
+    if (btn) btn.disabled = false;
   }
 }
 
-async function startPreflight() {
-  const fileName = currentSnapshotData?.sourceName || document.getElementById('schoolsFileVal').textContent || '未定';
-  const enabledCount = currentSnapshotData?.enabledSchoolCount ?? '-';
-  const schoolsHash = currentSnapshotData?.schoolsHash ? currentSnapshotData.schoolsHash.substring(0, 16) + '...' : '-';
+function closeApplyConfirmModal() {
+  const modal = document.getElementById('applyConfirmModal');
+  if (modal) modal.style.display = 'none';
+}
 
-  const confirmMsg =
-    `【Preflight 開始確認】\n` +
-    `以下の設定で Read-only Preflight を開始しますか？\n\n` +
-    `・対象ファイル: ${fileName}\n` +
-    `・有効学校数: ${enabledCount} 校\n` +
-    `・Schools Hash: ${schoolsHash}\n\n` +
-    `※ 本処理は読み取り専用であり、設定変更・保存は一切行いません。`;
-
-  if (!confirm(confirmMsg)) {
+async function executeApplyStart() {
+  if (isApplyingInFlight) return;
+  if (!currentConfirmationToken) {
+    alert('承認トークンが存在しません。もう一度お試しください。');
     return;
   }
 
+  const modalStartBtn = document.getElementById('modalApplyStartBtn');
+  if (modalStartBtn) {
+    modalStartBtn.disabled = true;
+    modalStartBtn.textContent = '反映開始中...';
+  }
+  isApplyingInFlight = true;
+
   try {
-    const res = await fetch('/api/preflight/start', {
+    const res = await fetch('/api/apply/start', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-CSRF-Nonce': csrfToken
       },
-      body: JSON.stringify({})
+      body: JSON.stringify({
+        confirmationToken: currentConfirmationToken
+      })
     });
 
     const data = await res.json();
-    if (res.ok) {
-      updateJobStateBadge('RUNNING');
-      switchTab('progress');
-    } else {
-      alert(`Preflight開始エラー: ${data.message || data.error}`);
+    if (!res.ok) {
+      alert(`本番適用の開始エラー: ${data.message || data.error}`);
+      return;
     }
+
+    closeApplyConfirmModal();
+
+    const progressSec = document.getElementById('applyProgressSection');
+    if (progressSec) progressSec.style.display = 'block';
+
+    currentJobState = 'RUNNING';
+    currentExecutionPurpose = 'PRODUCTION_WRITE';
+    updateJobStateBadge(currentJobState, currentExecutionPurpose);
   } catch (err) {
     alert(`通信エラー: ${err.message}`);
+  } finally {
+    isApplyingInFlight = false;
+    if (modalStartBtn) {
+      modalStartBtn.disabled = false;
+      modalStartBtn.textContent = '本番反映を開始する';
+    }
   }
 }
 
-async function stopPreflight() {
-  if (!confirm('実行中の Preflight 処理を安全に停止しますか？\n（現在の学校処理が完了した段階で安全に停止し、チェックポイントが保存されます）')) {
+async function loadLatestResults() {
+  const seq = ++resultsFetchSeq;
+  try {
+    const res = await fetch('/api/results/latest');
+    if (seq !== resultsFetchSeq) return;
+    if (!res.ok) {
+      showResultContractError(`結果データの取得に失敗しました (HTTP ${res.status})`);
+      return;
+    }
+    const data = await res.json();
+    if (seq !== resultsFetchSeq) return;
+
+    if (!data || data.status === 'NOT_AVAILABLE' || !data.hasResults) {
+      if (data && data.status === 'RUNNING') {
+        renderRunningResults(data.message || '本番反映を実行中です...');
+      } else if (data && data.status === 'FAILED') {
+        renderEmptyResults();
+        showResultContractError(data.message || '本番反映は正常完了しませんでした');
+      } else {
+        renderEmptyResults();
+      }
+      return;
+    }
+
+    renderResultsScreen(data);
+  } catch (err) {
+    if (seq !== resultsFetchSeq) return;
+    console.error('Failed to load latest results:', err);
+    showResultContractError(`結果データ読み込みエラー: ${err.message}`);
+  }
+}
+
+function renderRunningResults(message) {
+  const alertEl = document.getElementById('resultContractAlert');
+  if (alertEl) alertEl.style.display = 'none';
+
+  const setVal = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = String(val);
+  };
+  setVal('resultTotalVal', '-');
+  setVal('resultSuccessVal', '-');
+  setVal('resultAlreadyConfiguredVal', '-');
+  setVal('resultFailedVal', '-');
+  setVal('resultSkippedVal', '-');
+
+  const notProcessedCard = document.getElementById('resultNotProcessedCard');
+  if (notProcessedCard) notProcessedCard.style.display = 'none';
+  const outcomeUnknownCard = document.getElementById('resultOutcomeUnknownCard');
+  if (outcomeUnknownCard) outcomeUnknownCard.style.display = 'none';
+
+  const tbody = document.getElementById('resultSchoolsBody');
+  if (tbody) {
+    tbody.innerHTML = `<tr><td colspan="4" class="text-center text-primary font-bold">⏳ ${escapeHtml(message)}</td></tr>`;
+  }
+}
+
+function showResultContractError(message) {
+  const alertEl = document.getElementById('resultContractAlert');
+  if (alertEl) {
+    alertEl.textContent = `【データ契約エラー】 ${message}`;
+    alertEl.style.display = 'block';
+  }
+}
+
+function renderEmptyResults() {
+  const alertEl = document.getElementById('resultContractAlert');
+  if (alertEl) alertEl.style.display = 'none';
+
+  const setVal = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = String(val);
+  };
+  setVal('resultTotalVal', '-');
+  setVal('resultSuccessVal', '-');
+  setVal('resultAlreadyConfiguredVal', '-');
+  setVal('resultFailedVal', '-');
+  setVal('resultSkippedVal', '-');
+
+  const notProcessedCard = document.getElementById('resultNotProcessedCard');
+  if (notProcessedCard) notProcessedCard.style.display = 'none';
+  const outcomeUnknownCard = document.getElementById('resultOutcomeUnknownCard');
+  if (outcomeUnknownCard) outcomeUnknownCard.style.display = 'none';
+
+  const tbody = document.getElementById('resultSchoolsBody');
+  if (tbody) {
+    tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">本番反映の実行結果はまだありません（実行完了後に結果が表示されます）</td></tr>';
+  }
+}
+
+function renderResultsScreen(data) {
+  const alertEl = document.getElementById('resultContractAlert');
+  if (alertEl) alertEl.style.display = 'none';
+
+  // 1. 本番適用モードかつ正規化 ViewModel (ExecutionResultViewModel) が存在する場合
+  if (data.mode === 'PRODUCTION_WRITE' && data.result) {
+    const vm = data.result;
+
+    // 必須契約フィールドの厳格検証 (要件 17: 不正時に 0 へフォールバックしない)
+    if (
+      typeof vm.totalCount !== 'number' ||
+      typeof vm.appliedSuccessCount !== 'number' ||
+      !Array.isArray(vm.schools)
+    ) {
+      showResultContractError('[RESULT_CONTRACT_INVALID] ExecutionResultViewModel の必須フィールドが存在しません');
+      return;
+    }
+
+    const setVal = (id, val) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = String(val);
+    };
+
+    setVal('resultTotalVal', vm.totalCount);
+    setVal('resultSuccessVal', vm.appliedSuccessCount);
+    setVal('resultAlreadyConfiguredVal', vm.alreadyConfiguredCount || 0);
+    setVal('resultFailedVal', vm.failedKnownCount || 0);
+    setVal('resultSkippedVal', vm.skippedDestructiveCount || 0);
+
+    // 未処理カード (notProcessedCount) の表示制御 (要件 15)
+    const notProcessedCard = document.getElementById('resultNotProcessedCard');
+    if (notProcessedCard) {
+      if ((vm.notProcessedCount || 0) > 0) {
+        notProcessedCard.style.display = 'block';
+        setVal('resultNotProcessedVal', vm.notProcessedCount);
+      } else {
+        notProcessedCard.style.display = 'none';
+      }
+    }
+
+    // 要手動確認カード (attentionRequiredCount) の表示制御 (要件 8, 15)
+    const outcomeUnknownCard = document.getElementById('resultOutcomeUnknownCard');
+    const attentionCount = vm.attentionRequiredCount || 0;
+    if (outcomeUnknownCard) {
+      if (attentionCount > 0) {
+        outcomeUnknownCard.style.display = 'block';
+        setVal('resultOutcomeUnknownVal', attentionCount);
+      } else {
+        outcomeUnknownCard.style.display = 'none';
+      }
+    }
+
+    // ダウンロードリンク
+    const btnSummary = document.getElementById('btnDownloadSummary');
+    if (btnSummary) btnSummary.href = `/api/reports/download/summary`;
+    const btnDetail = document.getElementById('btnDownloadDetail');
+    if (btnDetail) btnDetail.href = `/api/reports/download/summary`;
+
+    // 学校別テーブル描画 (完全受動的バインド)
+    const tbody = document.getElementById('resultSchoolsBody');
+    if (tbody) {
+      tbody.innerHTML = '';
+      if (vm.schools.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">学校データがありません</td></tr>';
+        return;
+      }
+
+      vm.schools.forEach((s) => {
+        let badgeClass = 'badge-completed';
+        let badgeLabel = '成功';
+
+        switch (s.category) {
+          case 'APPLIED':
+            badgeClass = 'badge-completed';
+            badgeLabel = '成功';
+            break;
+          case 'ALREADY_CONFIGURED':
+            badgeClass = 'badge-idle';
+            badgeLabel = '変更不要';
+            break;
+          case 'SKIPPED':
+            badgeClass = 'badge-warning';
+            badgeLabel = '安全スキップ';
+            break;
+          case 'OUTCOME_UNKNOWN':
+            badgeClass = 'badge-failed font-bold';
+            badgeLabel = '⚠️ 要手動確認';
+            break;
+          case 'FAILED_KNOWN':
+            badgeClass = 'badge-danger';
+            badgeLabel = '失敗';
+            break;
+          case 'BLOCKED':
+            badgeClass = 'badge-danger';
+            badgeLabel = 'ブロック';
+            break;
+          case 'INTERRUPTED':
+            badgeClass = 'badge-warning';
+            badgeLabel = '中断';
+            break;
+          case 'NOT_PROCESSED':
+            badgeClass = 'badge-idle text-muted';
+            badgeLabel = '未処理';
+            break;
+          case 'RESULT_INCONSISTENT':
+            badgeClass = 'badge-danger font-bold';
+            badgeLabel = '⚠️ データ不整合 (要確認)';
+            break;
+        }
+
+        const statusBadge = `<span class="badge ${badgeClass}">${escapeHtml(badgeLabel)}</span>`;
+        const messageStyle = s.requiresHumanReview ? 'color: var(--color-danger, #d9534f); font-weight: bold;' : '';
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="font-mono">${escapeHtml(s.schoolCode)}</td>
+          <td>${escapeHtml(s.schoolName)}</td>
+          <td>${statusBadge}</td>
+          <td class="font-sm" style="${messageStyle}">${escapeHtml(s.message)}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
     return;
   }
 
-  try {
-    const res = await fetch('/api/preflight/stop', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRF-Nonce': csrfToken
-      },
-      body: JSON.stringify({})
-    });
-
-    const data = await res.json();
-    if (res.ok) {
-      updateJobStateBadge('STOPPING');
-    } else {
-      alert(`停止要求エラー: ${data.message || data.error}`);
-    }
-  } catch (err) {
-    alert(`通信エラー: ${err.message}`);
-  }
+  // 本番反映の正規化 ViewModel が存在しない場合は初期・空表示（Preflight レポートの誤認混入を完全遮断）
+  renderEmptyResults();
 }
 
-async function resumePreflight() {
-  if (!confirm('Preflight を再開しますか？\n（SUCCESS 済みの学校はスキップされ、未処理校のみ実行されます）')) {
-    return;
-  }
-
-  try {
-    const res = await fetch('/api/preflight/resume', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRF-Nonce': csrfToken
-      },
-      body: JSON.stringify({})
-    });
-
-    const data = await res.json();
-    if (res.ok) {
-      updateJobStateBadge('RUNNING');
-      switchTab('progress');
-    } else {
-      alert(`再開エラー: ${data.message || data.error}`);
-    }
-  } catch (err) {
-    alert(`通信エラー: ${err.message}`);
-  }
-}
-
-async function retryFailedPreflight() {
-  if (!confirm('読取に失敗した学校のみ再読取を実行しますか？')) {
-    return;
-  }
-
-  try {
-    const res = await fetch('/api/preflight/retry-failed', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRF-Nonce': csrfToken
-      },
-      body: JSON.stringify({})
-    });
-
-    const data = await res.json();
-    if (res.ok) {
-      updateJobStateBadge('RUNNING');
-      switchTab('progress');
-    } else {
-      alert(`再読取エラー: ${data.message || data.error}`);
-    }
-  } catch (err) {
-    alert(`通信エラー: ${err.message}`);
-  }
-}
-
+// ==========================================
+// SSE Progress & Logs
+// ==========================================
 function subscribeSse() {
   if (eventSource) {
     eventSource.close();
@@ -741,663 +1549,152 @@ function subscribeSse() {
 
   eventSource.addEventListener('stateChange', (e) => {
     const data = JSON.parse(e.data);
-    updateJobStateBadge(data.state);
-    if (data.state === 'COMPLETED') {
-      loadLatestResults();
-      const progressScreen = document.getElementById('screenProgress');
-      if (progressScreen && progressScreen.classList.contains('active')) {
-        switchTab('results');
+    currentJobState = data.state;
+    if (data.mode) currentExecutionPurpose = data.mode;
+    updateJobStateBadge(currentJobState, currentExecutionPurpose);
+
+    if (currentExecutionPurpose === 'DISCOVERY') {
+      setDiscoveryActionButtons(currentJobState);
+      if (currentJobState === 'COMPLETED' || currentJobState === 'INTERRUPTED') {
+        fetchStatus();
       }
-    } else if (data.state === 'FAILED') {
+    } else if (currentExecutionPurpose === 'FINAL_PREFLIGHT') {
+      if (currentJobState === 'COMPLETED') {
+        fetchStatus();
+        const banner = document.getElementById('previewComparisonBanner');
+        const text = document.getElementById('previewComparisonText');
+        const goToApply = document.getElementById('goToApplyBtn');
+        const btn = document.getElementById('profileConfirmBtn');
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '最終確認 完了済 (再確認を実行)';
+        }
+        if (banner && text) {
+          banner.className = 'alert-box alert-success mt-3';
+          text.textContent = '✅ 最終確認完了: 事前プレビューとの間に差分や不整合はありませんでした。安全に本番反映へ進めます。';
+          banner.style.display = 'block';
+        }
+        if (goToApply) goToApply.disabled = !serverApplyReady || hasVersionMismatch;
+      }
+    } else if (currentExecutionPurpose === 'PRODUCTION_WRITE') {
+      if (currentJobState === 'COMPLETED' || currentJobState === 'FAILED') {
+        loadLatestResults();
+        const activeTab = document.querySelector('.nav-tabs .tab-btn.active');
+        if (activeTab && activeTab.id === 'tabApplyBtn') {
+          switchTab('result');
+        }
+      }
+    }
+  });
+
+  // Phase 6A: Production Apply 完了イベント (Context確定済み)
+  eventSource.addEventListener('productionApplyCompleted', (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      if (data && data.context && data.context.viewModel) {
+        renderResultsScreen({
+          mode: 'PRODUCTION_WRITE',
+          result: data.context.viewModel,
+          summary: data.context.summary,
+          deploymentId: data.context.deploymentId,
+          runId: data.context.runId,
+          completedAt: data.context.completedAt
+        });
+      } else {
+        loadLatestResults();
+      }
+      const activeTab = document.querySelector('.nav-tabs .tab-btn.active');
+      if (activeTab && activeTab.id === 'tabApplyBtn') {
+        switchTab('result');
+      }
+    } catch (err) {
+      console.error('Failed to handle productionApplyCompleted SSE event:', err);
       loadLatestResults();
     }
   });
 
   eventSource.addEventListener('progress', (e) => {
     const data = JSON.parse(e.data);
-    updateProgressUi(data);
+
+    if (currentExecutionPurpose === 'DISCOVERY') {
+      const bar = document.getElementById('observeProgressBar');
+      if (bar) bar.style.width = `${data.percentage}%`;
+
+      const pct = document.getElementById('observeProgressPercent');
+      if (pct) pct.textContent = `${data.percentage}%`;
+
+      const cnt = document.getElementById('observeProgressCount');
+      if (cnt) cnt.textContent = `${data.processed} / ${data.total} 校`;
+
+      const succ = document.getElementById('observeSuccessCount');
+      if (succ && data.success !== undefined) succ.textContent = `${data.success} 校`;
+
+      const fail = document.getElementById('observeFailedCount');
+      if (fail && data.failed !== undefined) fail.textContent = `${data.failed} 校`;
+
+      const remCount = document.getElementById('observeRemainingCount');
+      if (remCount) {
+        const remainingVal = data.remaining !== undefined ? data.remaining : Math.max(0, data.total - data.processed);
+        remCount.textContent = `${remainingVal} 校`;
+      }
+
+      const cur = document.getElementById('observeProgressCurrentSchool');
+      if (cur && data.currentSchool) {
+        cur.textContent = `(処理中: ${data.currentSchool.schoolName})`;
+      }
+
+      const elp = document.getElementById('observeElapsedVal');
+      if (elp) elp.textContent = `${data.elapsedSeconds}秒`;
+
+      const rem = document.getElementById('observeRemainingVal');
+      if (rem) rem.textContent = data.estimatedRemainingSeconds !== null ? `約 ${data.estimatedRemainingSeconds}秒` : '-';
+    } else if (currentExecutionPurpose === 'FINAL_PREFLIGHT') {
+      const bar = document.getElementById('finalPreflightProgressBar');
+      if (bar) bar.style.width = `${data.percentage}%`;
+
+      const pct = document.getElementById('finalPreflightProgressPercent');
+      if (pct) pct.textContent = `${data.percentage}%`;
+
+      const cnt = document.getElementById('finalPreflightProgressCount');
+      if (cnt) cnt.textContent = `${data.processed} / ${data.total} 校`;
+    } else if (currentExecutionPurpose === 'PRODUCTION_WRITE') {
+      const fill = document.getElementById('applyProgressBarFill');
+      if (fill) fill.style.width = `${data.percentage}%`;
+
+      const cnt = document.getElementById('applyProgressCountLabel');
+      if (cnt) cnt.textContent = `${data.processed} / ${data.total} 校`;
+
+      const pct = document.getElementById('applyProgressPercentLabel');
+      if (pct) pct.textContent = `${data.percentage}%`;
+    }
   });
 
   eventSource.addEventListener('log', (e) => {
-    const data = JSON.parse(e.data);
-    const consoleEl = document.getElementById('logConsole');
-    if (consoleEl) {
-      consoleEl.textContent += data.line + '\n';
-      consoleEl.scrollTop = consoleEl.scrollHeight;
+    const text = e.data;
+    const logBox = document.getElementById('observeLogOutput');
+    if (logBox) {
+      logBox.textContent += text + '\n';
+      logBox.scrollTop = logBox.scrollHeight;
     }
-    const applyConsoleEl = document.getElementById('applyLogConsole');
-    if (applyConsoleEl) {
-      applyConsoleEl.textContent += data.line + '\n';
-      applyConsoleEl.scrollTop = applyConsoleEl.scrollHeight;
+    const applyLogBox = document.getElementById('applyLogConsole');
+    if (applyLogBox) {
+      applyLogBox.textContent += text + '\n';
+      applyLogBox.scrollTop = applyLogBox.scrollHeight;
     }
   });
 }
 
-function updateProgressUi(prog) {
-  // Preflight Progress 画面の更新
-  const pCount = document.getElementById('progressCountLabel');
-  if (pCount) pCount.textContent = `${prog.processed} / ${prog.total} 校`;
-  const pPercent = document.getElementById('progressPercentLabel');
-  if (pPercent) pPercent.textContent = `${prog.percentage}%`;
-  const pBar = document.getElementById('progressBarFill');
-  if (pBar) pBar.style.width = `${prog.percentage}%`;
-
-  // Production Apply 画面の進捗更新
-  const aCount = document.getElementById('applyProgressCountLabel');
-  if (aCount) aCount.textContent = `${prog.processed} / ${prog.total} 校`;
-  const aPercent = document.getElementById('applyProgressPercentLabel');
-  if (aPercent) aPercent.textContent = `${prog.percentage}%`;
-  const aBar = document.getElementById('applyProgressBarFill');
-  if (aBar) aBar.style.width = `${prog.percentage}%`;
-
-  const mSuccess = document.getElementById('metricSuccess');
-  if (mSuccess) mSuccess.textContent = prog.success;
-  const mFailed = document.getElementById('metricFailed');
-  if (mFailed) mFailed.textContent = prog.failed;
-  const mRemaining = document.getElementById('metricRemaining');
-  if (mRemaining) mRemaining.textContent = prog.remaining;
-
-  const mElapsed = document.getElementById('metricElapsed');
-  if (mElapsed) mElapsed.textContent = formatSeconds(prog.elapsedSeconds);
-  const mEta = document.getElementById('metricEta');
-  if (mEta) {
-    mEta.textContent = prog.estimatedRemainingSeconds !== null
-      ? formatSeconds(prog.estimatedRemainingSeconds)
-      : '--:--:--';
-  }
-
-  const schoolLabel = document.getElementById('currentSchoolLabel');
-  if (schoolLabel) {
-    if (prog.currentSchool) {
-      schoolLabel.textContent = `[${prog.currentSchool.schoolCode}] ${prog.currentSchool.schoolName}`;
-    } else if (prog.remaining === 0) {
-      schoolLabel.textContent = '全校処理完了';
-    }
-  }
-}
-
-async function loadLatestResults() {
-  try {
-    const res = await fetch('/api/reports/latest');
-    if (!res.ok) return;
-    const data = await res.json();
-
-    const report = data.normalized || data.preflight || data.summary;
-    if (!report) {
-      clearResultsUi();
-      return;
-    }
-
-    const staleAlertBox = document.getElementById('resultsStaleAlertBox');
-    const isStale = Boolean(data.isStale || report.isStale);
-    if (staleAlertBox) {
-      if (isStale) {
-        staleAlertBox.style.display = 'block';
-        const msgEl = document.getElementById('resultsStaleAlertMsg');
-        if (msgEl) {
-          msgEl.textContent = `現在選択中の入力ソースと過去の実行レポートのハッシュが一致していません (${data.staleReason || report.staleReason || 'ハッシュ不一致'})。現在の入力に対する結果を確認するには、再度「入力を検証」を行ってから Preflight を実行してください。`;
-        }
-      } else {
-        staleAlertBox.style.display = 'none';
-      }
-    }
-
-    if (report.inconsistent) {
-      console.warn('【RESULTS_INCONSISTENT】レポート間のメタデータ不整合を検知しました:', report.inconsistentReason);
-      const alertBox = document.getElementById('destructiveAlertBox');
-      if (alertBox) {
-        alertBox.style.display = 'block';
-        alertBox.className = 'alert-box alert-warning mt-3';
-        document.getElementById('destructiveAlertMsg').textContent =
-          `⚠️ レポートメタデータ不整合 (RESULTS_INCONSISTENT): ${report.inconsistentReason || ''}`;
-      }
-    }
-
-    renderSummaryMetrics(report);
-    renderActionsDistribution(report);
-    renderMergedDistribution(report);
-    renderCurrentStateDistribution(report);
-    renderPlannedChangeDistribution(report);
-    renderDestructiveWarnings(report);
-    renderUncontractedAlerts(report);
-    renderFailedSchools(report);
-    renderGlobalGateAndApplyStatus(report, data);
-  } catch (err) {
-    console.error('Failed to load latest results:', err);
-  }
-}
-
-function renderSummaryMetrics(r) {
-  const s = r;
-  const formatVal = (v) => (v !== undefined && v !== null ? v : 'N/A');
-  const setEl = (id, val) => {
-    const el = document.getElementById(id);
-    if (el) el.textContent = formatVal(val);
-  };
-
-  setEl('resTotal', s.totalSchools ?? s.total);
-  setEl('resReadSuccess', s.readSuccess);
-  setEl('resReadFailed', s.readFailed);
-  setEl('resAlreadyConfigured', s.alreadyConfigured);
-  setEl('resRequiresChange', s.requiresChange);
-  setEl('resPlanBlocked', s.planBlocked);
-  setEl('resDestructiveSchools', s.destructiveChangeSchools);
-  setEl('resWriteEligible', s.writeEligible ?? s.writeEligibleNonDestructive);
-}
-
-function renderMergedDistribution(r) {
-  const tbody = document.getElementById('mergedDistributionTableBody');
-  if (!tbody) return;
-
-  const curDist = r.currentStateDistribution || {};
-  const planDist = r.plannedChangeDistribution || {};
-
-  const keys = settingDefinitions.length > 0
-    ? settingDefinitions.map((d) => d.key)
-    : Array.from(new Set([...Object.keys(curDist), ...Object.keys(planDist)]));
-
-  if (keys.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted">データなし</td></tr>';
-    return;
-  }
-
-  tbody.innerHTML = '';
-  keys.forEach((key) => {
-    const def = settingDefinitions.find((d) => d.key === key);
-    const displayLabel = def ? def.label : key;
-
-    const curEntries = Object.entries(curDist[key] || {});
-    const curStr = curEntries.length > 0
-      ? curEntries.map(([val, cnt]) => `<strong>${escapeHtml(val)}</strong>: ${cnt}校`).join(' / ')
-      : '<span class="text-muted">なし (0校)</span>';
-
-    const planEntries = Object.entries(planDist[key] || {});
-    const planStr = planEntries.length > 0
-      ? planEntries.map(([val, cnt]) => `<strong>${escapeHtml(val)}</strong>: ${cnt}校`).join(' / ')
-      : '<span class="text-muted">なし (0校)</span>';
-
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>
-        <strong>${escapeHtml(displayLabel)}</strong>
-        <div class="text-muted" style="font-size: 0.8rem; font-family: monospace;">${escapeHtml(key)}</div>
-      </td>
-      <td>${curStr}</td>
-      <td>${planStr}</td>
-    `;
-    tbody.appendChild(tr);
-  });
-}
-
-function renderActionsDistribution(r) {
-  const dist = r.actionsDistribution || {};
-  const formatDist = (v1, v2) => {
-    const v = v1 !== undefined ? v1 : v2;
-    return v !== undefined && v !== null ? `${v} 校` : 'N/A';
-  };
-  document.getElementById('dist0').textContent = formatDist(dist.zero, dist['0']);
-  document.getElementById('dist1').textContent = formatDist(dist.one, dist['1']);
-  document.getElementById('dist2').textContent = formatDist(dist.two, dist['2']);
-  document.getElementById('dist3Plus').textContent = formatDist(dist.threePlus, dist['3+']);
-}
-
-function renderCurrentStateDistribution(r) {
-  const tbody = document.getElementById('currentStateTableBody');
-  const dist = r.currentStateDistribution;
-  if (!tbody) return;
-
-  if (!dist || Object.keys(dist).length === 0) {
-    tbody.innerHTML = '<tr><td colspan="2" class="text-center text-muted">データなし</td></tr>';
-    return;
-  }
-
-  tbody.innerHTML = '';
-  for (const [key, counts] of Object.entries(dist)) {
-    const tr = document.createElement('tr');
-    const entries = Object.entries(counts);
-    const def = settingDefinitions.find((d) => d.key === key);
-    const displayLabel = def ? def.label : key;
-    const countsStr = entries.length > 0
-      ? entries.map(([val, cnt]) => `<strong>${escapeHtml(val)}</strong>: ${cnt}校`).join(' / ')
-      : '<span class="text-muted">なし (0校)</span>';
-    tr.innerHTML = `
-      <td>
-        <strong>${escapeHtml(displayLabel)}</strong>
-        <div class="text-muted" style="font-size: 0.8rem; font-family: monospace;">${escapeHtml(key)}</div>
-      </td>
-      <td>${countsStr}</td>
-    `;
-    tbody.appendChild(tr);
-  }
-}
-
-function renderPlannedChangeDistribution(r) {
-  const tbody = document.getElementById('plannedChangeTableBody');
-  const dist = r.plannedChangeDistribution;
-  if (!tbody) return;
-
-  if (!dist || Object.keys(dist).length === 0) {
-    tbody.innerHTML = '<tr><td colspan="2" class="text-center text-muted">データなし</td></tr>';
-    return;
-  }
-
-  tbody.innerHTML = '';
-  for (const [key, counts] of Object.entries(dist)) {
-    const tr = document.createElement('tr');
-    const entries = Object.entries(counts);
-    const def = settingDefinitions.find((d) => d.key === key);
-    const displayLabel = def ? def.label : key;
-    const countsStr = entries.length > 0
-      ? entries.map(([val, cnt]) => `<strong>${escapeHtml(val)}</strong>: ${cnt}校`).join(' / ')
-      : '<span class="text-muted">なし (0校)</span>';
-    tr.innerHTML = `
-      <td>
-        <strong>${escapeHtml(displayLabel)}</strong>
-        <div class="text-muted" style="font-size: 0.8rem; font-family: monospace;">${escapeHtml(key)}</div>
-      </td>
-      <td>${countsStr}</td>
-    `;
-    tbody.appendChild(tr);
-  }
-}
-
-function renderDestructiveWarnings(r) {
-  const alertBox = document.getElementById('destructiveAlertBox');
-  const count = r.destructiveChangeSchools || 0;
-
-  if (count > 0) {
-    alertBox.style.display = 'block';
-    alertBox.className = 'alert-box alert-danger mt-3';
-    document.getElementById('destructiveAlertMsg').textContent = `破壊的変更（予約投稿削除リスク）の対象となる学校が ${count} 校存在します。本番 Write 実行時は厳格な事前確認が必要です。`;
-
-    // 該当校の表示
-    const container = document.getElementById('destructiveSchoolsTableContainer');
-    const schools = (r.schools || []).filter((s) => s.hasDestructiveChanges);
-    if (schools.length > 0) {
-      container.innerHTML = `
-        <table class="data-table mt-2">
-          <thead>
-            <tr><th>学校コード</th><th>学校名</th><th>変更内容 / リスク</th></tr>
-          </thead>
-          <tbody>
-            ${schools.slice(0, 10).map((s) => `
-              <tr>
-                <td>${escapeHtml(s.schoolCode)}</td>
-                <td>${escapeHtml(s.schoolName)}</td>
-                <td><span class="badge badge-danger">SCHEDULED_POSTS_MAY_BE_DELETED</span></td>
-              </tr>
-            `).join('')}
-            ${schools.length > 10 ? `<tr><td colspan="3" class="text-center text-muted">他 ${schools.length - 10} 校...</td></tr>` : ''}
-          </tbody>
-        </table>
-      `;
-    }
-  } else {
-    alertBox.style.display = 'none';
-  }
-}
-
-function renderUncontractedAlerts(r) {
-  const alertBox = document.getElementById('uncontractedAlertBox');
-  if (!alertBox) return;
-
-  const uncontractedSchools = (r.schools || []).filter((s) => {
-    const msg = (s.errorMessage || s.errorDetails?.message || s.error || '');
-    return msg.includes('未契約') || msg.includes('CONTRACT_NOT_AVAILABLE') || msg.includes('契約上非表示');
-  });
-
-  if (uncontractedSchools.length > 0) {
-    alertBox.style.display = 'block';
-    const msgEl = document.getElementById('uncontractedAlertMsg');
-    if (msgEl) {
-      msgEl.textContent = `「心の健康観察機能」等の未契約設定に対して有効化 (ON) 要求が指定されているため、計画ブロック (Blocked) となった学校が ${uncontractedSchools.length} 校存在します。未契約校を有効化することはできないため、プロファイル設定で「利用しない (OFF)」または「変更なし (UNMANAGED)」を選択してください。`;
-    }
-    const container = document.getElementById('uncontractedSchoolsTableContainer');
-    if (container) {
-      container.innerHTML = `
-        <table class="data-table mt-2">
-          <thead>
-            <tr><th>学校コード</th><th>学校名</th><th>未契約機能 / 理由</th></tr>
-          </thead>
-          <tbody>
-            ${uncontractedSchools.map((s) => `
-              <tr>
-                <td>${escapeHtml(s.schoolCode)}</td>
-                <td>${escapeHtml(s.schoolName)}</td>
-                <td><span class="badge badge-warning">心の健康観察機能 (未契約のためON不可)</span><div class="text-sm text-muted mt-1">${escapeHtml(s.errorMessage || '')}</div></td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      `;
-    }
-  } else {
-    alertBox.style.display = 'none';
-  }
-}
-
-function renderFailedSchools(r) {
-  const tbody = document.getElementById('failedSchoolsTableBody');
-  if (!tbody) return;
-
-  // 読取失敗校 (FAILED) および 計画ブロック校 (planExecutable === false) の両方を対象にする
-  const schools = (r.schools || []).filter((s) => s.readStatus === 'FAILED' || s.status === 'FAILED' || s.planExecutable === false);
-  if (schools.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">読取失敗・ブロック校はありません (全校正常)</td></tr>';
-    return;
-  }
-
-  tbody.innerHTML = schools.map((s) => {
-    const isBlocked = s.planExecutable === false;
-    const badgeClass = isBlocked ? 'badge badge-warning' : 'badge badge-danger';
-    const badgeText = isBlocked ? 'BLOCKED' : (s.executionStatus || s.readStatus || s.status || 'FAILED');
-    return `
-      <tr>
-        <td>${escapeHtml(s.schoolCode)}</td>
-        <td>${escapeHtml(s.schoolName)}</td>
-        <td><span class="${badgeClass}">${escapeHtml(badgeText)}</span></td>
-        <td>${escapeHtml(s.errorMessage || s.errorDetails?.message || s.error || (isBlocked ? '計画ブロック' : 'エラー'))}</td>
-      </tr>
-    `;
-  }).join('');
-}
-
-function formatSeconds(sec) {
-  const h = String(Math.floor(sec / 3600)).padStart(2, '0');
-  const m = String(Math.floor((sec % 3600) / 60)).padStart(2, '0');
-  const s = String(sec % 60).padStart(2, '0');
-  return `${h}:${m}:${s}`;
+function clearLogs() {
+  const logBox = document.getElementById('observeLogOutput');
+  if (logBox) logBox.textContent = '';
 }
 
 function escapeHtml(str) {
+  if (!str) return '';
   return String(str)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
-
-function clearResultsUi() {
-  const staleAlertBox = document.getElementById('resultsStaleAlertBox');
-  if (staleAlertBox) staleAlertBox.style.display = 'none';
-
-  const alertBox = document.getElementById('destructiveAlertBox');
-  if (alertBox) alertBox.style.display = 'none';
-
-  const uncontractedBox = document.getElementById('uncontractedAlertBox');
-  if (uncontractedBox) uncontractedBox.style.display = 'none';
-
-  ['resTotal', 'resReadSuccess', 'resReadFailed', 'resAlreadyConfigured', 'resRequiresChange', 'resPlanBlocked', 'resDestructiveSchools', 'resWriteEligible'].forEach((id) => {
-    const el = document.getElementById(id);
-    if (el) el.textContent = '0';
-  });
-
-  ['dist0', 'dist1', 'dist2', 'dist3Plus'].forEach((id) => {
-    const el = document.getElementById(id);
-    if (el) el.textContent = '0 校';
-  });
-
-  const mergedBody = document.getElementById('mergedDistributionTableBody');
-  if (mergedBody) mergedBody.innerHTML = '<tr><td colspan="3" class="text-center text-muted">事前検証が完了するとここに集計が表示されます</td></tr>';
-
-  const curBody = document.getElementById('currentStateTableBody');
-  if (curBody) curBody.innerHTML = '<tr><td colspan="2" class="text-center text-muted">事前検証が完了するとここに集計が表示されます</td></tr>';
-
-  const planBody = document.getElementById('plannedChangeTableBody');
-  if (planBody) planBody.innerHTML = '<tr><td colspan="2" class="text-center text-muted">事前検証が完了するとここに集計が表示されます</td></tr>';
-
-  const failBody = document.getElementById('failedSchoolsTableBody');
-  if (failBody) failBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">失敗校はありません</td></tr>';
-}
-
-function renderGlobalGateAndApplyStatus(report, data) {
-  const tabApplyBtn = document.getElementById('tabApplyBtn');
-  const gateBadge = document.getElementById('applyGateBadge');
-  const gateIcon = document.getElementById('applyGateIcon');
-  const gateSummary = document.getElementById('applyGateSummary');
-  const btnPrepare = document.getElementById('btnPrepareApply');
-  const manifestBox = document.getElementById('manifestSummaryBox');
-
-  if (!report || report.status !== 'COMPLETE') {
-    if (tabApplyBtn) tabApplyBtn.disabled = true;
-    if (gateBadge) {
-      gateBadge.textContent = '事前検証 未完了';
-      gateBadge.className = 'badge badge-idle';
-    }
-    if (gateIcon) gateIcon.textContent = '⏳';
-    if (gateSummary) gateSummary.textContent = '事前検証が完了していません。先に「事前検証を開始する」を行ってください。';
-    if (btnPrepare) btnPrepare.disabled = true;
-    if (manifestBox) manifestBox.style.display = 'none';
-    return;
-  }
-
-  const isStale = Boolean(data && data.isStale);
-  const hasFailures = (report.readFailed || 0) > 0 || !report.allReadSucceeded;
-  const hasBlocks = (report.planBlocked || 0) > 0 || !report.allPlansExecutable;
-
-  if (isStale || hasFailures || hasBlocks) {
-    if (tabApplyBtn) tabApplyBtn.disabled = true;
-    if (gateBadge) {
-      gateBadge.textContent = 'チェック不合格 (反映不可)';
-      gateBadge.className = 'badge badge-danger';
-    }
-    if (gateIcon) gateIcon.textContent = '❌';
-    let reasons = [];
-    if (isStale) reasons.push('学校一覧または設定目標値が検証後に変更されています');
-    if (hasFailures) reasons.push(`読み取り失敗校が存在します (${report.readFailed}校)`);
-    if (hasBlocks) reasons.push(`計画ブロック校が存在します (${report.planBlocked}校)`);
-    if (gateSummary) gateSummary.textContent = `本番反映を開始できません: ${reasons.join('、')}`;
-    if (btnPrepare) btnPrepare.disabled = true;
-    if (manifestBox) manifestBox.style.display = 'none';
-    return;
-  }
-
-  // 合格
-  if (tabApplyBtn) tabApplyBtn.disabled = false;
-  if (gateBadge) {
-    gateBadge.textContent = 'チェック合格 (反映可能)';
-    gateBadge.className = 'badge badge-success';
-  }
-  if (gateIcon) gateIcon.textContent = '✅';
-  
-  const eligibleCount = includeDestructiveSchools
-    ? (report.writeEligible ?? 0) + (report.destructiveChangeSchools ?? 0)
-    : (report.writeEligible ?? 0);
-
-  if (gateSummary) {
-    gateSummary.textContent = `反映前チェックに合格しました。安全に変更可能な対象校 (${eligibleCount}校) への設定反映が可能です。`;
-  }
-  if (btnPrepare) btnPrepare.disabled = false;
-
-  // 概要表示
-  if (manifestBox) {
-    manifestBox.style.display = 'block';
-    const targetCountEl = document.getElementById('applyTargetCountVal');
-    const skippedEl = document.getElementById('applySkippedDestructiveVal');
-    const alreadyEl = document.getElementById('applyAlreadyConfiguredVal');
-    const hashEl = document.getElementById('applyTargetHashVal');
-
-    if (targetCountEl) targetCountEl.textContent = `${eligibleCount} 校`;
-    if (skippedEl) skippedEl.textContent = includeDestructiveSchools ? '0 校 (許可済)' : `${report.destructiveChangeSchools ?? 0} 校`;
-    if (alreadyEl) alreadyEl.textContent = `${report.alreadyConfigured ?? 0} 校`;
-    if (hashEl) hashEl.textContent = report.applyTargetHash || '(反映準備時に確定)';
-  }
-}
-
-function onAllowDestructiveChanged(checked) {
-  includeDestructiveSchools = Boolean(checked);
-  // 表示の即時再同期
-  loadLatestResults();
-}
-
-async function prepareProductionApply() {
-  const btn = document.getElementById('btnPrepareApply');
-  const alertBox = document.getElementById('applyAlert');
-  if (btn) btn.disabled = true;
-
-  try {
-    const res = await fetch('/api/apply/prepare', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-csrf-nonce': csrfToken
-      },
-      body: JSON.stringify({ includeDestructiveSchools })
-    });
-
-    const data = await res.json();
-    if (!res.ok) {
-      if (alertBox) {
-        alertBox.style.display = 'block';
-        alertBox.className = 'alert-box alert-danger mt-3';
-        alertBox.textContent = `【準備エラー】${data.message || data.error}`;
-      }
-      return;
-    }
-
-    currentConfirmationToken = data.confirmationToken;
-    currentApplyManifest = data.manifest;
-
-    // モーダルを開いて値を反映
-    const modalTargetCount = document.getElementById('modalTargetCount');
-    if (modalTargetCount) modalTargetCount.textContent = `${data.targetCount} 校`;
-    const modalSkippedDestructive = document.getElementById('modalSkippedDestructive');
-    if (modalSkippedDestructive) modalSkippedDestructive.textContent = `${data.skippedDestructiveCount} 校`;
-    const modalAlreadyConfigured = document.getElementById('modalAlreadyConfigured');
-    if (modalAlreadyConfigured) modalAlreadyConfigured.textContent = `${data.alreadyConfiguredCount} 校`;
-
-    const riskWarningEl = document.getElementById('modalRiskWarningText');
-    if (riskWarningEl) {
-      riskWarningEl.textContent = includeDestructiveSchools
-        ? '⚠️ 予約投稿削除リスクの学校も含めて本番反映を行います。チャンネル非表示化により予約投稿が自動削除される可能性があります。'
-        : '実際の環境への設定変更を書き込みます（予約投稿削除リスクの学校は安全のため除外されます）。';
-    }
-
-    const modalApplyHash = document.getElementById('modalApplyTargetHashVal');
-    if (modalApplyHash) modalApplyHash.textContent = data.manifest.applyTargetHash;
-    const modalProfileHash = document.getElementById('modalProfileHashVal');
-    if (modalProfileHash) modalProfileHash.textContent = data.manifest.profileHash;
-
-    const chk = document.getElementById('modalConfirmCheckbox');
-    if (chk) chk.checked = false;
-    const btnExecute = document.getElementById('btnExecuteApply');
-    if (btnExecute) btnExecute.disabled = true;
-
-    const modalAlert = document.getElementById('modalAlert');
-    if (modalAlert) modalAlert.style.display = 'none';
-
-    document.getElementById('applyConfirmModal').style.display = 'flex';
-  } catch (err) {
-    if (alertBox) {
-      alertBox.style.display = 'block';
-      alertBox.className = 'alert-box alert-danger mt-3';
-      alertBox.textContent = `通信エラー: ${err.message}`;
-    }
-  } finally {
-    if (btn) btn.disabled = false;
-  }
-}
-
-function onModalCheckboxChanged(checked) {
-  const btn = document.getElementById('btnExecuteApply');
-  if (btn) btn.disabled = !checked;
-}
-
-function closeApplyModal() {
-  const modal = document.getElementById('applyConfirmModal');
-  if (modal) modal.style.display = 'none';
-}
-
-async function executeProductionApply() {
-  if (!currentConfirmationToken) {
-    alert('confirmationToken が存在しません。再度「反映内容を確認する」を実行してください。');
-    return;
-  }
-
-  const btn = document.getElementById('btnExecuteApply');
-  const modalAlert = document.getElementById('modalAlert');
-  if (btn) btn.disabled = true;
-
-  try {
-    const res = await fetch('/api/apply/start', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-csrf-nonce': csrfToken
-      },
-      body: JSON.stringify({
-        confirmationToken: currentConfirmationToken,
-        includeDestructiveSchools
-      })
-    });
-
-    const data = await res.json();
-    if (!res.ok) {
-      if (modalAlert) {
-        modalAlert.style.display = 'block';
-        modalAlert.className = 'alert-box alert-danger mt-3';
-        modalAlert.textContent = `【適用開始エラー】${data.message || data.error}`;
-      }
-      if (btn) btn.disabled = false;
-      return;
-    }
-
-    closeApplyModal();
-    switchTab('apply');
-    const applyProgress = document.getElementById('applyProgressSection');
-    if (applyProgress) applyProgress.style.display = 'block';
-    const applyLogConsole = document.getElementById('applyLogConsole');
-    if (applyLogConsole) applyLogConsole.textContent = `[INFO] 本番設定反映を開始しました (RunId: ${data.runId})\n`;
-  } catch (err) {
-    if (modalAlert) {
-      modalAlert.style.display = 'block';
-      modalAlert.className = 'alert-box alert-danger mt-3';
-      modalAlert.textContent = `通信エラー: ${err.message}`;
-    }
-    if (btn) btn.disabled = false;
-  }
-}
-
-async function resetAllResults() {
-  if (!confirm('過去の検証・反映結果およびレポートをリセットし、初期状態に戻しますか？\n（過去のログ・レポートファイルは archive フォルダーに安全に退避されます）')) {
-    return;
-  }
-
-  try {
-    const res = await fetch('/api/results/reset', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRF-Nonce': csrfToken
-      }
-    });
-
-    const data = await res.json();
-    if (!res.ok) {
-      alert(`リセットエラー: ${data.message || data.error}`);
-      return;
-    }
-
-    clearResultsUi();
-    invalidateSnapshot();
-    const sourceValEl = document.getElementById('currentSourceVal');
-    if (sourceValEl) sourceValEl.textContent = '-';
-    const schoolsFileVal = document.getElementById('schoolsFileVal');
-    if (schoolsFileVal) schoolsFileVal.textContent = '-';
-    const uploadFileInfo = document.getElementById('uploadFileInfo');
-    if (uploadFileInfo) uploadFileInfo.style.display = 'none';
-
-    // ログコンソールもクリア
-    const consoleEl = document.getElementById('logConsole');
-    if (consoleEl) consoleEl.textContent = '';
-    const applyConsoleEl = document.getElementById('applyLogConsole');
-    if (applyConsoleEl) applyConsoleEl.textContent = '';
-
-    await fetchStatus();
-    switchTab('setup');
-    alert('過去の実行結果をリセットしました。');
-  } catch (err) {
-    alert(`通信エラー: ${err.message}`);
-  }
+    .replace(/'/g, '&#39;');
 }

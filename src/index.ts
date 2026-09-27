@@ -25,6 +25,13 @@ export interface CliOptions extends Phase2BOptions {
   schoolTimeoutMs?: number;
   cleanupTimeoutMs?: number;
   profileSnapshotId?: string;
+  purpose?: 'DISCOVERY' | 'FINAL_PREFLIGHT';
+  finalValidationSnapshotId?: string;
+  targetSnapshotId?: string;
+  executionId?: string;
+  summaryOutputPath?: string;
+  observationOutputPath?: string;
+  applyTargetHash?: string;
 }
 
 export function parseCliArgs(args: string[]): CliOptions {
@@ -78,6 +85,8 @@ export function parseCliArgs(args: string[]): CliOptions {
       options.clearStaleLock = true;
     } else if (arg === '--deployment-id' && i + 1 < args.length) {
       options.deploymentId = args[++i];
+    } else if (arg === '--execution-id' && i + 1 < args.length) {
+      options.executionId = args[++i];
     } else if (arg === '--delay-between-schools-ms' && i + 1 < args.length) {
       options.delayBetweenSchoolsMs = parseInt(args[++i], 10);
     } else if (arg === '--expected-school-count' && i + 1 < args.length) {
@@ -90,9 +99,27 @@ export function parseCliArgs(args: string[]): CliOptions {
       options.cleanupTimeoutMs = parseInt(args[++i], 10);
     } else if (arg === '--profile-snapshot-id' && i + 1 < args.length) {
       options.profileSnapshotId = args[++i];
+    } else if (arg === '--purpose' && i + 1 < args.length) {
+      const p = args[++i].toUpperCase();
+      options.purpose = p === 'DISCOVERY' ? 'DISCOVERY' : 'FINAL_PREFLIGHT';
+    } else if (arg === '--final-validation-snapshot-id' && i + 1 < args.length) {
+      options.finalValidationSnapshotId = args[++i];
+    } else if (arg === '--target-snapshot-id' && i + 1 < args.length) {
+      options.targetSnapshotId = args[++i];
+    } else if (arg === '--summary-output' && i + 1 < args.length) {
+      options.summaryOutputPath = args[++i];
+    } else if (arg === '--observation-output' && i + 1 < args.length) {
+      options.observationOutputPath = args[++i];
+    } else if (arg === '--apply-target-hash' && i + 1 < args.length) {
+      options.applyTargetHash = args[++i];
     } else if (arg === '--production') {
       options.phase = 'PRODUCTION';
     }
+  }
+
+  // 要件5: --purpose discovery と --profile の併用を拒否
+  if (options.purpose === 'DISCOVERY' && options.profilePath) {
+    throw new Error('[CONFIG_INVALID] Discoveryモード (--purpose discovery) ではプロファイル (--profile) の指定は禁止されています');
   }
 
   return options;
@@ -109,7 +136,7 @@ async function main() {
 
     await runBatch({
       schoolsFilePath: options.schoolsPath || 'config/schools.sample.csv',
-      profileFilePath: options.profilePath || 'config/production-profile.sample.json',
+      profileFilePath: options.profilePath,
       credentialsFilePath: options.credentialsPath,
       preflightReportPath: options.preflightReportPath,
       executionOptions: execOptions,
@@ -120,12 +147,19 @@ async function main() {
       retryFailed: options.retryFailed,
       clearStaleLock: options.clearStaleLock,
       deploymentId: options.deploymentId,
+      executionId: options.executionId,
       pacingDelayMs: options.delayBetweenSchoolsMs,
       expectedSchoolCount: options.expectedSchoolCount,
       validateOnly: options.validateOnly,
       schoolTimeoutMs: options.schoolTimeoutMs,
       cleanupTimeoutMs: options.cleanupTimeoutMs,
-      profileSnapshotId: options.profileSnapshotId
+      profileSnapshotId: options.profileSnapshotId,
+      purpose: options.purpose,
+      finalValidationSnapshotId: options.finalValidationSnapshotId,
+      targetSnapshotId: options.targetSnapshotId,
+      summaryOutputPath: options.summaryOutputPath,
+      observationOutputPath: options.observationOutputPath,
+      applyTargetHash: options.applyTargetHash
     });
   } else if (options.phase === 'PRODUCTION') {
     console.log('まなびポケット 学校設定 自動化ツール [Phase 3: Single Production Run]');

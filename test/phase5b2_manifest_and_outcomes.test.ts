@@ -515,6 +515,39 @@ async function main() {
         ]
       };
 
+      const execId = 'fp-exec-test-j';
+      (adapter as any).currentFinalPreflightExecutionId = execId;
+      pfReport.executionId = execId;
+      pfReport.purpose = 'FINAL_PREFLIGHT';
+      (adapter as any).activeFinalPreflightReport = pfReport;
+      (adapter as any).activeFinalPreflightContext = {
+        executionId: execId,
+        deploymentId: pfReport.deploymentId,
+        runId: pfReport.runId,
+        targetSnapshotId: adapter.getTargetSnapshot()?.targetSnapshotId || 'target-snap-test',
+        observationSnapshotId: 'obs-test',
+        profileSnapshotId: adapter.getActiveProfileSnapshot()!.snapshotId,
+        finalValidationSnapshotId: 'final-val-test',
+        authMode: 'A',
+        schoolsHash: adapter.getSnapshot()!.schoolsHash,
+        toolFingerprint: adapter.getSnapshot()!.toolFingerprint,
+        report: pfReport,
+        summary: { schoolResults: [] },
+        completedAt: new Date().toISOString(),
+        validUntil: new Date(Date.now() + 600000).toISOString()
+      };
+      (adapter as any).finalValidationSnapshot = {
+        finalValidationSnapshotId: 'final-val-test',
+        targetSnapshotId: adapter.getTargetSnapshot()?.targetSnapshotId || 'target-snap-test',
+        observationSnapshotId: 'obs-test',
+        profileSnapshotId: adapter.getActiveProfileSnapshot()!.snapshotId,
+        schoolsHash: adapter.getSnapshot()!.schoolsHash,
+        profileHash: adapter.getActiveProfileSnapshot()!.profileHash,
+        authMode: 'A',
+        toolFingerprint: adapter.getSnapshot()!.toolFingerprint,
+        toolVersion: '1.0.0',
+        createdAt: new Date().toISOString()
+      };
       (adapter as any).loadLatestPreflightReport = () => ({
         preflight: pfReport,
         summary: { schoolResults: [] }
@@ -527,6 +560,9 @@ async function main() {
         headers: { 'x-csrf-nonce': csrf },
         body: {}
       });
+      if (resOk.statusCode !== 200) {
+        console.log('prepare failed response:', resOk.statusCode, resOk.body);
+      }
       assert.strictEqual(resOk.statusCode, 200);
       assert.strictEqual(resOk.body.status, 'PREPARED');
       assert.ok(resOk.body.confirmationToken.startsWith('apply-token-'));

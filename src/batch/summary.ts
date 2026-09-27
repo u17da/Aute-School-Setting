@@ -13,7 +13,11 @@ import {
 } from '../types/batch';
 import { ExecutionStatus } from '../types/errors';
 import { logger } from '../logger/logger';
+import { getReportsDir } from '../runtime/paths';
 import { generateBaselineHash } from '../utils/hash';
+
+import { SchoolSettingsObservation } from '../types/settings';
+import { ObservationSnapshot, SchoolObservationItem } from '../console/types';
 
 export interface SchoolSummaryItem {
   schoolCode: string;
@@ -27,28 +31,50 @@ export interface SchoolSummaryItem {
   requested?: Partial<Record<string, string | null>>;
   after?: Partial<Record<string, string | null>>;
   error?: string;
+  fullObservation?: SchoolSettingsObservation; // Phase 6A: SSOT Observation
+  observedAt?: string; // Phase 6A: 学校単位観測時刻
 }
 
 export interface SummaryReporterOptions {
   deploymentId: string;
   runId: string;
   mode: 'PREFLIGHT_DRY_RUN' | 'PRODUCTION_WRITE';
+  purpose?: 'DISCOVERY' | 'FINAL_PREFLIGHT';
+  targetSnapshotId?: string;
+  finalValidationSnapshotId?: string;
+  authMode?: 'A' | 'B';
   profileHash: string;
   profileSnapshotId?: string;
   schoolsHash: string;
   toolVersion: string;
   toolFingerprint?: string;
+  executionId?: string;
+  productionExecutionId?: string;
+  discoveryExecutionId?: string;
+  applyTargetHash?: string;
+  summaryOutputPath?: string;
+  observationOutputPath?: string;
 }
 
 export class BatchSummaryReporter {
   private deploymentId: string;
   private runId: string;
   private mode: 'PREFLIGHT_DRY_RUN' | 'PRODUCTION_WRITE';
+  private purpose?: 'DISCOVERY' | 'FINAL_PREFLIGHT';
+  private targetSnapshotId?: string;
+  private finalValidationSnapshotId?: string;
+  private authMode?: 'A' | 'B';
   private profileHash: string;
   private profileSnapshotId?: string;
   private schoolsHash: string;
   private toolVersion: string;
   private toolFingerprint?: string;
+  private executionId?: string;
+  private productionExecutionId?: string;
+  private discoveryExecutionId?: string;
+  private applyTargetHash?: string;
+  private summaryOutputPath?: string;
+  private observationOutputPath?: string;
   private startedAt: string;
   private reportsDir: string;
   private schoolResultsMap: Map<string, SchoolSummaryItem> = new Map();
@@ -57,16 +83,23 @@ export class BatchSummaryReporter {
     this.deploymentId = options.deploymentId;
     this.runId = options.runId;
     this.mode = options.mode;
+    this.purpose = options.purpose;
+    this.targetSnapshotId = options.targetSnapshotId;
+    this.finalValidationSnapshotId = options.finalValidationSnapshotId;
+    this.authMode = options.authMode;
     this.profileHash = options.profileHash;
     this.profileSnapshotId = options.profileSnapshotId;
     this.schoolsHash = options.schoolsHash;
     this.toolVersion = options.toolVersion;
     this.toolFingerprint = options.toolFingerprint;
+    this.executionId = options.executionId;
+    this.productionExecutionId = options.productionExecutionId || (options.mode === 'PRODUCTION_WRITE' ? options.executionId : undefined);
+    this.discoveryExecutionId = options.discoveryExecutionId || (options.purpose === 'DISCOVERY' ? options.executionId : undefined);
+    this.applyTargetHash = options.applyTargetHash;
+    this.summaryOutputPath = options.summaryOutputPath;
+    this.observationOutputPath = options.observationOutputPath;
     this.startedAt = new Date().toISOString();
-    this.reportsDir = path.resolve(process.cwd(), 'reports');
-    if (!fs.existsSync(this.reportsDir)) {
-      fs.mkdirSync(this.reportsDir, { recursive: true });
-    }
+    this.reportsDir = getReportsDir();
   }
 
   addSchoolResult(result: SchoolSummaryItem): void {
@@ -79,13 +112,12 @@ export class BatchSummaryReporter {
    */
   reconstructFromCheckpointEntries(entries: import('../types/batch').SchoolCheckpointEntry[]): void {
     for (const entry of entries) {
-      if (entry.status === 'PENDING') continue; // 未処理校は集計対象外（notProcessed としてカウント）
       const item: SchoolSummaryItem = {
         schoolCode: entry.schoolCode,
         schoolName: entry.schoolName,
         status: entry.status,
         executionStatus: entry.executionStatus,
-        actionsCount: entry.actionsCount,
+        actionsCount: entry.actionsCount ?? 0,
         hasDestructiveChanges: entry.hasDestructiveChanges,
         planExecutable: entry.planExecutable ?? (entry.status === 'SUCCESS' || entry.status === 'SUCCESS_ALREADY_CONFIGURED'),
         before: entry.before,
@@ -103,8 +135,24 @@ export class BatchSummaryReporter {
     circuitBreakerTrip?: CircuitBreakerTripInfo | null;
     isInterrupted?: boolean;
     allSchools?: BatchSchoolItem[];
+    executionScopeCodes?: string[];
   }): BatchSummaryReport {
-    const { totalSchools, skippedSchools, circuitBreakerTrip, isInterrupted, allSchools } = params;
+    const { totalSchools, skippedSchools, circuitBreakerTrip, isInterrupted, allSchools, executionScopeCodes } = params;
+
+    // allSchools が渡されている場合、未登録校を PENDING として安全補完
+    if (allSchools && allSchools.length > 0) {
+      for (const s of allSchools) {
+        if (!this.schoolResultsMap.has(s.schoolCode)) {
+          this.schoolResultsMap.set(s.schoolCode, {
+            schoolCode: s.schoolCode,
+            schoolName: s.schoolName || s.schoolCode,
+            status: 'PENDING',
+            actionsCount: 0
+          });
+        }
+      }
+    }
+
     const finishedAt = new Date().toISOString();
     const schoolResults = Array.from(this.schoolResultsMap.values());
 
@@ -157,6 +205,9 @@ export class BatchSummaryReporter {
     }
 
     for (const res of schoolResults) {
+      if (res.status === 'PENDING') {
+        continue;
+      }
       const execStatus = res.executionStatus;
 
       // 読取成否の集計（CONFIG_CONFLICT等、画面読取後にPlan評価でブロックされたものもRead自体は成功）
@@ -274,11 +325,17 @@ export class BatchSummaryReporter {
       }
     }
 
-    const processedSchools = schoolResults.length;
+    const processedSchools = schoolResults.filter((r) => r.status !== 'PENDING').length;
 
     const report: BatchSummaryReport = {
       deploymentId: this.deploymentId,
       runId: this.runId,
+      executionId: this.executionId,
+      productionExecutionId: this.productionExecutionId,
+      discoveryExecutionId: this.discoveryExecutionId,
+      finalValidationSnapshotId: this.finalValidationSnapshotId,
+      profileSnapshotId: this.profileSnapshotId,
+      applyTargetHash: this.applyTargetHash,
       mode: this.mode,
       profileHash: this.profileHash,
       schoolsHash: this.schoolsHash,
@@ -313,15 +370,106 @@ export class BatchSummaryReporter {
       plannedChangeDistribution,
       currentStateCoverage: { collected: readSuccess, total: totalSchools },
       plannedChangeCoverage: { collected: readSuccess, total: totalSchools },
+      executionScopeCodes: executionScopeCodes ?? (allSchools ? allSchools.filter(s => s.enabled).map(s => s.schoolCode) : undefined),
       schoolResults
     };
 
-    const reportPath = path.join(this.reportsDir, `summary-${this.deploymentId}-${this.runId}.json`);
-    fs.writeFileSync(reportPath, JSON.stringify(report, null, 2), 'utf-8');
+    const isDiscovery = this.purpose === 'DISCOVERY';
+    const reportPrefix = isDiscovery ? 'discovery-summary-' : 'summary-';
+    const reportPath = this.summaryOutputPath || (this.executionId
+      ? path.join(this.reportsDir, `summary-${this.executionId}.json`)
+      : path.join(this.reportsDir, `${reportPrefix}${this.deploymentId}-${this.runId}.json`));
+
+    atomicWriteJson(reportPath, report);
     logger.info(`バッチ集計レポートを出力しました: ${reportPath}`);
 
-    // 指示2, 3, 4, 7, 8, 15: Preflight モードの場合、Preflight Report を生成 (completedAtから24時間有効)
-    if (this.mode === 'PREFLIGHT_DRY_RUN') {
+    // Discovery モードの場合: ObservationSnapshot を出力 (Preflight Report は出力しない)
+    if (isDiscovery) {
+      const schoolResultMap = new Map(schoolResults.map((r) => [r.schoolCode, r]));
+      const schoolsList = allSchools && allSchools.length > 0 ? allSchools : schoolResults.map((r) => ({
+        schoolCode: r.schoolCode,
+        schoolName: r.schoolName,
+        credentialRef: r.schoolCode,
+        enabled: true
+      }));
+
+      const observationSchools: SchoolObservationItem[] = schoolsList.map((s) => {
+        const res = schoolResultMap.get(s.schoolCode);
+        const isOk =
+          res &&
+          (res.executionStatus === 'DRY_RUN_COMPLETED' ||
+            res.status === 'SUCCESS' ||
+            res.status === 'SUCCESS_ALREADY_CONFIGURED' ||
+            res.executionStatus === 'CONFIG_CONFLICT' ||
+            res.executionStatus === 'DEPENDENCY_UNSATISFIED' ||
+            res.executionStatus === 'SETTING_NOT_AVAILABLE' ||
+            res.executionStatus === 'PRE_SAVE_VALIDATION_FAILED');
+
+        if (isOk && res) {
+          // fullObservation がある場合はそのまま使用、ない場合は before から構築
+          let obs: SchoolSettingsObservation;
+          if (res.fullObservation) {
+            obs = res.fullObservation;
+          } else {
+            obs = {} as SchoolSettingsObservation;
+            for (const k of allKeys) {
+              const val = res.before ? res.before[k] : undefined;
+              if (val === undefined || val === null) {
+                obs[k as import('../types/settings').SettingKey] = {
+                  value: null,
+                  availability: k === 'mentalHealth' ? 'CONTRACT_NOT_AVAILABLE' : 'AVAILABLE'
+                };
+              } else {
+                obs[k as import('../types/settings').SettingKey] = {
+                  value: val as any,
+                  availability: 'AVAILABLE'
+                };
+              }
+            }
+          }
+          const discoveryStateHash = res.before ? generateBaselineHash(res.before) : '';
+          return {
+            schoolCode: s.schoolCode,
+            schoolName: s.schoolName,
+            readStatus: 'SUCCESS',
+            observation: obs,
+            discoveryStateHash,
+            observedAt: res.observedAt || finishedAt
+          };
+        } else {
+          return {
+            schoolCode: s.schoolCode,
+            schoolName: s.schoolName,
+            readStatus: 'FAILED',
+            errorCode: res?.executionStatus || 'READ_FAILED',
+            errorMessage: res?.error || 'Read settings failed',
+            observedAt: res?.observedAt || finishedAt
+          };
+        }
+      });
+
+      const observationSnapshot: ObservationSnapshot = {
+        observationSnapshotId: this.executionId ? `obs-${this.executionId}` : `obs-${this.runId}`,
+        targetSnapshotId: this.targetSnapshotId || '',
+        schoolsHash: this.schoolsHash,
+        toolFingerprint: this.toolFingerprint || '',
+        authMode: this.authMode || 'A',
+        startedAt: this.startedAt,
+        completedAt: finishedAt,
+        totalSchools,
+        readSuccessCount: readSuccess,
+        readFailedCount: readFailed,
+        distribution: currentStateDistribution as any,
+        schools: observationSchools
+      };
+
+      const obsPath = this.observationOutputPath || (this.executionId
+        ? path.join(this.reportsDir, `observation-${this.executionId}.json`)
+        : path.join(this.reportsDir, `observation-${this.deploymentId}.json`));
+      atomicWriteJson(obsPath, observationSnapshot);
+      logger.info(`【Observation Snapshot 生成】Read Success: ${readSuccess}, Read Failed: ${readFailed}: ${obsPath}`);
+    } else if (this.mode === 'PREFLIGHT_DRY_RUN') {
+      // Final Preflight モードの場合、Preflight Report を生成 (completedAtから24時間有効)
       const validUntil = new Date(new Date(finishedAt).getTime() + 24 * 3600 * 1000).toISOString();
       const notProcessed = Math.max(0, totalSchools - processedSchools);
 
@@ -357,7 +505,7 @@ export class BatchSummaryReporter {
 
       const schools: PreflightSchoolResult[] = schoolsList.map((s) => {
         const res = schoolResultMap.get(s.schoolCode);
-        if (!res) {
+        if (!res || res.status === 'PENDING') {
           return {
             schoolCode: s.schoolCode,
             schoolName: s.schoolName,
@@ -407,6 +555,9 @@ export class BatchSummaryReporter {
       });
 
       const preflightReport: PreflightReport = {
+        purpose: 'FINAL_PREFLIGHT', // Phase 6A: Lineage Binding
+        finalValidationSnapshotId: this.finalValidationSnapshotId,
+        authMode: this.authMode,
         deploymentId: this.deploymentId,
         runId: this.runId,
         status,
@@ -432,10 +583,13 @@ export class BatchSummaryReporter {
         currentStateCoverage: { collected: readSuccess, total: totalSchools },
         plannedChangeCoverage: { collected: readSuccess, total: totalSchools },
         summaryPath: reportPath,
-        schools
+        schools,
+        executionId: this.executionId
       };
-      const preflightPath = path.join(this.reportsDir, `preflight-${this.deploymentId}.json`);
-      fs.writeFileSync(preflightPath, JSON.stringify(preflightReport, null, 2), 'utf-8');
+      const preflightPath = this.executionId
+        ? path.join(this.reportsDir, `preflight-${this.executionId}.json`)
+        : path.join(this.reportsDir, `preflight-${this.deploymentId}.json`);
+      atomicWriteJson(preflightPath, preflightReport);
       logger.info(`【Preflight Report 生成】Status: ${status}, Write Gate Eligible: ${writeGateEligible}, 有効期限: ${validUntil}: ${preflightPath}`);
     }
 
@@ -494,4 +648,17 @@ export class BatchSummaryReporter {
     logger.info(`================================================================`);
     logger.info(`Detailed report saved at: ${reportPath}\n`);
   }
+}
+
+/**
+ * Phase 6A Hardening: Atomic JSON File Write (*.tmp -> atomic rename)
+ */
+function atomicWriteJson(targetPath: string, data: any): void {
+  const dir = path.dirname(targetPath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  const tmpPath = `${targetPath}.tmp-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+  fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
+  fs.renameSync(tmpPath, targetPath);
 }

@@ -79,8 +79,11 @@ async function httpRequest(options: {
 function createDummyPreflightReport(adapter: BatchProcessAdapter, overrides: Partial<PreflightReport> = {}): PreflightReport {
   const profileSnap = adapter.getActiveProfileSnapshot()!;
   const valSnap = adapter.getSnapshot()!;
+  const execId = overrides.executionId || `fp-exec-dummy-${Date.now()}`;
 
-  return {
+  const report: PreflightReport = {
+    executionId: execId,
+    purpose: 'FINAL_PREFLIGHT',
     deploymentId: 'dep-apply-test',
     runId: 'run-apply-test',
     status: 'COMPLETE',
@@ -121,6 +124,43 @@ function createDummyPreflightReport(adapter: BatchProcessAdapter, overrides: Par
     ],
     ...overrides
   };
+
+  (adapter as any).currentFinalPreflightExecutionId = execId;
+  (adapter as any).activeFinalPreflightReport = report;
+  (adapter as any).finalValidationSnapshot = {
+    finalValidationSnapshotId: `final-val-${execId}`,
+    targetSnapshotId: adapter.getTargetSnapshot()?.targetSnapshotId || 'target-snap-test',
+    observationSnapshotId: 'obs-snap-test',
+    profileSnapshotId: profileSnap.snapshotId,
+    schoolsHash: valSnap.schoolsHash,
+    profileHash: profileSnap.profileHash,
+    authMode: 'A',
+    toolFingerprint: valSnap.toolFingerprint,
+    toolVersion: '1.0.0',
+    createdAt: new Date().toISOString()
+  };
+  (adapter as any).activeFinalPreflightContext = {
+    executionId: execId,
+    deploymentId: report.deploymentId,
+    runId: report.runId,
+    targetSnapshotId: adapter.getTargetSnapshot()?.targetSnapshotId || 'target-snap-test',
+    observationSnapshotId: 'obs-snap-test',
+    profileSnapshotId: profileSnap.snapshotId,
+    finalValidationSnapshotId: `final-val-${execId}`,
+    authMode: 'A',
+    schoolsHash: valSnap.schoolsHash,
+    toolFingerprint: valSnap.toolFingerprint,
+    report,
+    summary: { schoolResults: [] },
+    completedAt: new Date().toISOString(),
+    validUntil: new Date(Date.now() + 600000).toISOString()
+  };
+  (adapter as any).loadLatestPreflightReport = () => ({
+    preflight: report,
+    summary: { schoolResults: [] }
+  });
+
+  return report;
 }
 
 async function main() {

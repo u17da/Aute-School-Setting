@@ -50,3 +50,9 @@ scripts/*idp*.ts
 # OS files
 Thumbs.db
 .DS_Store
+
+# Portable packages & temporary review artifacts
+dist-package/
+review_pack/
+review_package.zip
+scripts/investigate_content_order.ts

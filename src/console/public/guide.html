@@ -456,7 +456,7 @@
       <h3>📑 目次</h3>
       <ul>
         <li><a href="#sec1">1. 本ツールの全体概要と安全原則</a></li>
-        <li><a href="#sec2">2. 【準備編】コンソールの起動とCSV作成</a></li>
+        <li><a href="#sec2">2. 【準備編】ツールの起動とCSV作成</a></li>
         <li><a href="#sec3">3. 【STEP 1】設定と事前検証（画面1）</a></li>
         <li><a href="#sec4">4. 【STEP 2】検証の進行状況（画面2）</a></li>
         <li><a href="#sec5">5. 【STEP 3】検証結果の確認（画面3）</a></li>
@@ -512,24 +512,43 @@
 
       <!-- 第2章 -->
       <section id="sec2" class="guide-card">
-        <h2>2. 【準備編】コンソールの起動とCSV作成</h2>
+        <h2>2. 【準備編】ツールの起動とCSV作成</h2>
 
-        <h3>コンソールの起動手順</h3>
+        <h3>コンソールの起動手順（自己完結Portable ZIP対応）</h3>
+        <p>
+          本ツールは <strong>「自己完結型（Portable）」</strong> として配布されています。会社PC側での Node.js のインストールや環境構築、コマンド入力は一切不要です。
+        </p>
+
         <div class="step-card">
-          <div class="step-title"><span class="step-num">1</span>ターミナル（PowerShell等）で起動コマンドを実行する</div>
-          <p>プロジェクトのフォルダで以下のコマンドを入力して実行します：</p>
-          <pre>npm run console</pre>
+          <div class="step-title"><span class="step-num">1</span>ZIPファイルを任意のフォルダへ展開（すべて展開）する</div>
+          <p>
+            配布された <code>Manapoke-School-Settings-vX.Y.Z-win-x64.zip</code> を右クリックし、「すべて展開」を選択して任意のフォルダへ展開します。
+          </p>
         </div>
 
         <div class="step-card">
-          <div class="step-title"><span class="step-num">2</span>ブラウザで画面を開く</div>
+          <div class="step-title"><span class="step-num">2</span>「Start-Manapoke.cmd」をダブルクリックする</div>
           <p>
-            ブラウザ（Google Chrome または Microsoft Edge 推奨）を開き、次のURLにアクセスします。<br>
-            <a href="http://localhost:3000" target="_blank" style="color: var(--primary); font-weight: 700; text-decoration: underline;">http://localhost:3000</a>
+            展開先フォルダのルートにある <strong><code>Start-Manapoke.cmd</code></strong> をダブルクリックして起動します。
           </p>
+          <div class="ui-mockup">
+            <div class="mockup-header">📁 フォルダ内の主要ファイル</div>
+            <p>
+              ・<strong><code>Start-Manapoke.cmd</code></strong> : ツールを起動します（自動でブラウザが開きます）<br>
+              ・<strong><code>Stop-Manapoke.cmd</code></strong> : ツールを安全に終了します<br>
+              ・<strong><code>はじめに.txt</code></strong> : かんたん操作手順書
+            </p>
+          </div>
+          <p>
+            起動チェックが自動実行された後、お使いの既定ブラウザで自動的に操作画面（<code>http://127.0.0.1:3000</code>）が開きます。
+          </p>
+          <div class="callout callout-success">
+            <div class="callout-title">💡 既に起動している場合</div>
+            <code>Start-Manapoke.cmd</code> を二重に実行した場合でも、二重起動は防止され、既存の操作画面がブラウザで前面に開きます。
+          </div>
           <div class="callout">
-            <div class="callout-title">ℹ️ 安全なローカル専用アクセス</div>
-            本コンソールは外部インターネットからは遮断されており、お使いのパソコン内部（<code>127.0.0.1</code>）からのみ操作可能です。
+            <div class="callout-title">ℹ️ 開発環境で起動する場合</div>
+            開発PCのソースコードから直接起動する場合は、ターミナルで <code>npm run console</code> を実行することでも起動可能です。
           </div>
         </div>
 
@@ -551,7 +570,7 @@
               <td><code>schoolCode</code></td>
               <td>必須</td>
               <td>まなびポケットの学校コード（重複不可）</td>
-              <td><code>PAKCW</code></td>
+              <td><code>SCH001</code></td>
             </tr>
             <tr>
               <td><code>schoolName</code></td>
@@ -604,15 +623,15 @@
           </p>
           <div class="ui-mockup">
             <div class="mockup-header">📁 読み込み後の表示例</div>
-            <p><strong>選択ファイル:</strong> <code>schools.live.csv</code> (227 B)</p>
+            <p><strong>選択ファイル:</strong> <code>schools.csv</code> (227 B)</p>
             <p><strong>読み込み結果:</strong> 合計 3 校 (有効: 3 校, 無効: 0 校)</p>
             <table class="guide-table" style="margin-top: 0.5rem;">
               <thead>
                 <tr><th>#</th><th>学校コード</th><th>学校名</th><th>ログイン情報</th></tr>
               </thead>
               <tbody>
-                <tr><td>1</td><td>PAKCW</td><td>テスト第一小学校</td><td><span class="badge badge-success">設定済 (非表示)</span></td></tr>
-                <tr><td>2</td><td>PRRHC</td><td>テスト第二中学校</td><td><span class="badge badge-success">設定済 (非表示)</span></td></tr>
+                <tr><td>1</td><td>SCH001</td><td>テスト第一小学校</td><td><span class="badge badge-success">設定済 (非表示)</span></td></tr>
+                <tr><td>2</td><td>SCH002</td><td>テスト第二中学校</td><td><span class="badge badge-success">設定済 (非表示)</span></td></tr>
               </tbody>
             </table>
           </div>

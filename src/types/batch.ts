@@ -51,11 +51,14 @@ export interface ApplyTargetItem {
 }
 
 export interface ApplyTargetManifest {
+  finalValidationSnapshotId?: string; // Phase 6A: Lineage Binding
+  finalPreflightExecutionId?: string; // Phase 6A: Execution Binding
   profileSnapshotId: string;
   preflightId: string;
   profileHash: string;
   schoolsHash: string;
   applyTargetHash: string;
+  authMode?: 'A' | 'B';
   createdAt: string;
   totalSchools: number;
   applyTargets: ApplyTargetItem[];
@@ -68,6 +71,8 @@ export interface ConfirmationTokenData {
   token: string;
   profileSnapshotId: string;
   preflightId: string;
+  finalPreflightExecutionId?: string; // Phase 6A: Execution Binding
+  finalValidationSnapshotId?: string; // Phase 6A: Lineage Binding
   profileHash: string;
   schoolsHash: string;
   applyTargetHash: string;
@@ -145,6 +150,13 @@ export interface DestructiveChangeDetail {
 export interface BatchSummaryReport {
   deploymentId: string;
   runId: string;
+  executionId?: string;
+  productionExecutionId?: string;
+  discoveryExecutionId?: string;
+  finalValidationSnapshotId?: string;
+  targetSnapshotId?: string;
+  profileSnapshotId?: string;
+  applyTargetHash?: string;
   mode: 'PREFLIGHT_DRY_RUN' | 'PRODUCTION_WRITE';
   profileHash: string;
   schoolsHash: string;
@@ -181,6 +193,7 @@ export interface BatchSummaryReport {
   plannedChangeDistribution: Record<string, Record<string, number>>;
   currentStateCoverage?: DistributionCoverage;
   plannedChangeCoverage?: DistributionCoverage;
+  executionScopeCodes?: string[]; // Phase 6A: Execution Scope
   schoolResults: Array<{
     schoolCode: string;
     schoolName: string;
@@ -219,6 +232,8 @@ export interface DistributionCoverage {
 }
 
 export interface PreflightReport {
+  purpose?: 'DISCOVERY' | 'FINAL_PREFLIGHT';
+  executionId?: string; // Phase 6A: Child Execution Binding
   deploymentId: string;
   runId: string;
   status: PreflightStatus;
@@ -227,9 +242,11 @@ export interface PreflightReport {
   allPlansExecutable: boolean;
   profileHash: string;
   profileSnapshotId?: string;
+  finalValidationSnapshotId?: string;
   schoolsHash: string;
   toolVersion: string;
   toolFingerprint?: string;
+  authMode?: 'A' | 'B';
   completedAt: string;
   validUntil: string;
   total: number;

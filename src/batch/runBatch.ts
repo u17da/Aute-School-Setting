@@ -16,7 +16,7 @@ import { logger } from '../logger/logger';
 
 export interface BatchRunOptions {
   schoolsFilePath: string;
-  profileFilePath: string;
+  profileFilePath?: string;
   credentialsFilePath?: string;
   preflightReportPath?: string;
   executionOptions: EffectiveExecutionOptions;
@@ -33,6 +33,13 @@ export interface BatchRunOptions {
   schoolTimeoutMs?: number;
   cleanupTimeoutMs?: number;
   profileSnapshotId?: string;
+  purpose?: 'DISCOVERY' | 'FINAL_PREFLIGHT';
+  finalValidationSnapshotId?: string;
+  targetSnapshotId?: string;
+  executionId?: string;
+  summaryOutputPath?: string;
+  observationOutputPath?: string;
+  applyTargetHash?: string;
 }
 
 import { parseAndSeparateSchoolsCsv } from './csvParser';
@@ -153,7 +160,11 @@ export async function runBatch(options: BatchRunOptions): Promise<BatchSummaryRe
     deploymentId: customDeploymentId,
     pacingDelayMs = 1500,
     expectedSchoolCount,
-    profileSnapshotId
+    profileSnapshotId,
+    purpose,
+    finalValidationSnapshotId,
+    targetSnapshotId,
+    executionId
   } = options;
 
   logger.info('\n================================================================');
@@ -161,26 +172,51 @@ export async function runBatch(options: BatchRunOptions): Promise<BatchSummaryRe
   logger.info('================================================================');
 
   // 1. プロファイル設定の読み込み & Profile Hash
-  const resolvedProfilePath = path.resolve(process.cwd(), profileFilePath);
-  if (!fs.existsSync(resolvedProfilePath)) {
-    throw new AutomationError('CONFIG_INVALID', `プロファイル設定ファイルが見つかりません: ${resolvedProfilePath}`);
+  let desiredSettings: RequestedSettings;
+  let profileHash: string;
+
+  if (purpose === 'DISCOVERY') {
+    if (profileFilePath) {
+      throw new AutomationError('CONFIG_INVALID', 'Discoveryモード (--purpose discovery) ではプロファイル (--profile) の指定は禁止されています');
+    }
+    desiredSettings = {
+      storage: null,
+      timelineChannel: null,
+      directMessage: null,
+      parentDirectMessage: null,
+      allChannel: null,
+      parentChannel: null,
+      attendance: null,
+      contactBook: null,
+      mentalHealth: null,
+      otherSchoolLog: null,
+      studentPasswordChange: null
+    };
+    profileHash = generateSettingsHash(desiredSettings);
+    logger.info(`Discoveryモード (全項目UNMANAGED強制生成): Profile Hash: ${profileHash.substring(0, 8)}`);
+  } else {
+    const effectiveProfilePath = profileFilePath || 'config/production-profile.sample.json';
+    const resolvedProfilePath = path.resolve(process.cwd(), effectiveProfilePath);
+    if (!fs.existsSync(resolvedProfilePath)) {
+      throw new AutomationError('CONFIG_INVALID', `プロファイル設定ファイルが見つかりません: ${resolvedProfilePath}`);
+    }
+    let rawJson: any;
+    try {
+      rawJson = JSON.parse(fs.readFileSync(resolvedProfilePath, 'utf-8'));
+    } catch (e: any) {
+      throw new AutomationError('CONFIG_INVALID', `プロファイル設定JSONのパースに失敗しました: ${e.message}`);
+    }
+    const parsedProfile = RequestedSettingsSchema.safeParse(rawJson);
+    if (!parsedProfile.success) {
+      throw new AutomationError(
+        'CONFIG_INVALID',
+        `プロファイル設定スキーマ検証エラー: ${parsedProfile.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', ')}`
+      );
+    }
+    desiredSettings = parsedProfile.data;
+    profileHash = generateSettingsHash(desiredSettings);
+    logger.info(`プロファイル設定ロード完了: ${resolvedProfilePath} (Hash: ${profileHash.substring(0, 8)})`);
   }
-  let rawJson: any;
-  try {
-    rawJson = JSON.parse(fs.readFileSync(resolvedProfilePath, 'utf-8'));
-  } catch (e: any) {
-    throw new AutomationError('CONFIG_INVALID', `プロファイル設定JSONのパースに失敗しました: ${e.message}`);
-  }
-  const parsedProfile = RequestedSettingsSchema.safeParse(rawJson);
-  if (!parsedProfile.success) {
-    throw new AutomationError(
-      'CONFIG_INVALID',
-      `プロファイル設定スキーマ検証エラー: ${parsedProfile.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', ')}`
-    );
-  }
-  const desiredSettings: RequestedSettings = parsedProfile.data;
-  const profileHash = generateSettingsHash(desiredSettings);
-  logger.info(`プロファイル設定ロード完了: ${resolvedProfilePath} (Hash: ${profileHash.substring(0, 8)})`);
 
   // 指示10: 実行開始時の Production Profile 可視化 (MANAGED / UNMANAGED)
   printProductionProfile(desiredSettings);
@@ -344,6 +380,7 @@ export async function runBatch(options: BatchRunOptions): Promise<BatchSummaryRe
     toolVersion,
     toolFingerprint,
     authMode: executionOptions.authMode,
+    purpose,
     schools: allSchools,
     isResume: resume,
     clearStaleLock
@@ -358,11 +395,19 @@ export async function runBatch(options: BatchRunOptions): Promise<BatchSummaryRe
     deploymentId,
     runId,
     mode,
+    purpose,
+    targetSnapshotId,
+    finalValidationSnapshotId,
+    authMode: executionOptions.authMode,
     profileHash,
     profileSnapshotId,
     schoolsHash,
     toolVersion,
-    toolFingerprint
+    toolFingerprint,
+    executionId,
+    summaryOutputPath: options.summaryOutputPath,
+    observationOutputPath: options.observationOutputPath,
+    applyTargetHash: options.applyTargetHash
   });
 
   // 7. Global Kill Switch & Application-level STOP protocol (stdin / SIGINT / SIGTERM)
@@ -704,7 +749,9 @@ export async function runBatch(options: BatchRunOptions): Promise<BatchSummaryRe
           before: beforeValues,
           requested: desiredSettings,
           after: afterValues,
-          error: effectiveError
+          error: effectiveError,
+          fullObservation: result.beforeObservation || undefined,
+          observedAt: result.finishedAt
         };
         summaryReporter.addSchoolResult(summaryItem);
 
@@ -781,7 +828,8 @@ export async function runBatch(options: BatchRunOptions): Promise<BatchSummaryRe
           status: errorCpStatus,
           executionStatus: finalStatus,
           planExecutable: false,
-          error: errorMessage
+          error: errorMessage,
+          observedAt: new Date().toISOString()
         });
 
         // 指示7, 8 & Phase 5A.1 & 5B.2: CLEANUP_TIMEOUT, CHECKPOINT_IO_ERROR, SAVE_OUTCOME_UNKNOWN または STOP時は即座にループ脱出・次校禁止
@@ -811,7 +859,8 @@ export async function runBatch(options: BatchRunOptions): Promise<BatchSummaryRe
       skippedSchools: skippedCount,
       circuitBreakerTrip: circuitBreaker.getTripInfo(),
       isInterrupted: isKillSwitchTriggered,
-      allSchools
+      allSchools,
+      executionScopeCodes: schoolsToProcess.map((s) => s.schoolCode)
     });
 
     return report;

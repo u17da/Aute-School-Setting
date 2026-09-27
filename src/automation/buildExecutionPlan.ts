@@ -38,7 +38,7 @@ export function buildExecutionPlan(params: BuildPlanParams): ExecutionPlan {
 
   for (const key of orderedKeys) {
     const def = SETTING_DEFINITIONS[key];
-    const current = currentObservation[key];
+    const current = currentObservation?.[key] || { value: null, availability: 'AVAILABLE' };
     const requested = (requestedSettings[key] !== undefined ? requestedSettings[key] : null) as SettingValue | null;
 
     // 画面に存在しない契約外設定 (例: mentalHealth が CONTRACT_NOT_AVAILABLE)

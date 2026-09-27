@@ -1,6 +1,6 @@
 import * as crypto from 'crypto';
 import { PreflightReport, ApplyTargetItem, ApplyTargetManifest, ConfirmationTokenData } from '../types/batch';
-import { ProfileSnapshot, ValidationSnapshot } from './types';
+import { ProfileSnapshot, ValidationSnapshot, FinalValidationSnapshot } from './types';
 import { generateApplyTargetHash } from '../utils/hash';
 import { AutomationError } from '../types/errors';
 
@@ -11,28 +11,68 @@ export interface GlobalGateValidationResult {
 }
 
 /**
- * 指示4: Production Apply v1 の Global Gate 検証
+ * 指示4 & Phase 6A: Production Apply の Global Gate 検証と Manifest 生成
  * 1件でも Read Failed, NOT_PROCESSED, PLAN_BLOCKED, CONFIG_CONFLICT, DEPENDENCY_UNSATISFIED があれば Apply 開始禁止
+ * - purpose === 'FINAL_PREFLIGHT' 必須 (DISCOVERY レポートからの生成は完全拒否)
+ * - FinalValidationSnapshot による State Lineage バインド
+ * - 破壊的変更の Override は完全禁止 (強制スキップ)
  */
 export function validateGlobalGateAndBuildManifest(params: {
   preflightReport: PreflightReport;
   activeProfileSnapshot: ProfileSnapshot | null;
   currentValidationSnapshot: ValidationSnapshot | null;
+  finalValidationSnapshot?: FinalValidationSnapshot | null;
   summaryPath?: string;
   summaryReport?: any; // 詳細な actions や expectedFinalState が格納された summary
-  allowDestructive?: boolean;
+  allowDestructive?: boolean; // Phase 6A: 常に無視 (Override禁止)
 }): ApplyTargetManifest {
-  const { preflightReport, activeProfileSnapshot, currentValidationSnapshot, summaryReport, allowDestructive = false } = params;
+  const { preflightReport, activeProfileSnapshot, currentValidationSnapshot, finalValidationSnapshot, summaryReport } = params;
+
+  const effectiveValidation = currentValidationSnapshot || (finalValidationSnapshot ? {
+    schoolsHash: finalValidationSnapshot.schoolsHash,
+    toolFingerprint: finalValidationSnapshot.toolFingerprint,
+    authMode: finalValidationSnapshot.authMode
+  } : null);
 
   // 1. Snapshot / Preflight 存在確認
   if (!activeProfileSnapshot) {
     throw new AutomationError('CONFIG_INVALID', '有効な Profile Snapshot が存在しません。事前に「入力を検証」を実行してください');
   }
-  if (!currentValidationSnapshot) {
+  if (!effectiveValidation) {
     throw new AutomationError('CONFIG_INVALID', '有効な Validation Snapshot が存在しません。事前に「入力を検証」を実行してください');
   }
   if (!preflightReport) {
     throw new AutomationError('CONFIG_INVALID', '有効な Preflight レポートが存在しません');
+  }
+
+  // Phase 6A 要件2: DISCOVERYからの流用拒否 (purpose === 'DISCOVERY' は拒否)
+  if (preflightReport.purpose === 'DISCOVERY') {
+    throw new AutomationError(
+      'UNSAFE_CONFIGURATION',
+      `Discovery レポートまたは不正な目的のレポートから Production Apply を開始することはできません (purpose: ${preflightReport.purpose})`
+    );
+  }
+
+  // Phase 6A 要件1, 4, 9: FinalValidationSnapshot との Lineage バインド検証
+  if (finalValidationSnapshot) {
+    if (preflightReport.finalValidationSnapshotId && preflightReport.finalValidationSnapshotId !== finalValidationSnapshot.finalValidationSnapshotId) {
+      throw new AutomationError(
+        'CHECKPOINT_MISMATCH',
+        `FinalValidationSnapshot ID 不一致: Preflight 時 (${preflightReport.finalValidationSnapshotId}) と現在 (${finalValidationSnapshot.finalValidationSnapshotId}) が一致しません`
+      );
+    }
+    if (finalValidationSnapshot.profileSnapshotId !== activeProfileSnapshot.snapshotId) {
+      throw new AutomationError(
+        'CHECKPOINT_MISMATCH',
+        `ProfileSnapshot ID 不一致: FinalValidation (${finalValidationSnapshot.profileSnapshotId}) と現在 (${activeProfileSnapshot.snapshotId}) が一致しません`
+      );
+    }
+    if (preflightReport.authMode && finalValidationSnapshot.authMode && preflightReport.authMode !== finalValidationSnapshot.authMode) {
+      throw new AutomationError(
+        'CHECKPOINT_MISMATCH',
+        `authMode 不一致: Preflight 時 (${preflightReport.authMode}) と現在 (${finalValidationSnapshot.authMode}) が一致しません`
+      );
+    }
   }
 
   // 2. Preflight Status & 有効期限 Gate (指示4)
@@ -67,13 +107,13 @@ export function validateGlobalGateAndBuildManifest(params: {
       `Profile Snapshot ID 不一致: Preflight 時 (${preflightReport.profileSnapshotId}) と現在の Snapshot (${activeProfileSnapshot.snapshotId}) が一致しません`
     );
   }
-  if (preflightReport.schoolsHash !== currentValidationSnapshot.schoolsHash) {
+  if (preflightReport.schoolsHash !== effectiveValidation.schoolsHash) {
     throw new AutomationError(
       'CHECKPOINT_MISMATCH',
-      `Schools Hash 不一致: Preflight 時 (${preflightReport.schoolsHash.substring(0, 8)}) と現在の入力学校 (${currentValidationSnapshot.schoolsHash.substring(0, 8)}) が一致しません`
+      `Schools Hash 不一致: Preflight 時 (${preflightReport.schoolsHash.substring(0, 8)}) と現在の入力学校 (${effectiveValidation.schoolsHash.substring(0, 8)}) が一致しません`
     );
   }
-  if (preflightReport.toolFingerprint && currentValidationSnapshot.toolFingerprint && preflightReport.toolFingerprint !== currentValidationSnapshot.toolFingerprint) {
+  if (preflightReport.toolFingerprint && effectiveValidation.toolFingerprint && preflightReport.toolFingerprint !== effectiveValidation.toolFingerprint) {
     throw new AutomationError(
       'CHECKPOINT_MISMATCH',
       `Tool Fingerprint 不一致: Preflight 時と現在のツール環境が一致しません`
@@ -104,12 +144,10 @@ export function validateGlobalGateAndBuildManifest(params: {
       continue;
     }
 
-    // 破壊的変更校の自動除外 (allowDestructive が false の場合のみスキップ)
+    // Phase 6A 要件4: 破壊的変更校の自動除外 (Override禁止: 例外なくスキップ)
     if (s.hasDestructiveChanges) {
-      if (!allowDestructive) {
-        skippedDestructiveCount++;
-        continue;
-      }
+      skippedDestructiveCount++;
+      continue;
     }
 
     // 設定変更なし校の除外 (指示4: ALREADY_CONFIGURED)
@@ -147,11 +185,13 @@ export function validateGlobalGateAndBuildManifest(params: {
   const applyTargetHash = generateApplyTargetHash(applyTargets);
 
   const manifest: ApplyTargetManifest = {
+    finalValidationSnapshotId: finalValidationSnapshot?.finalValidationSnapshotId,
     profileSnapshotId: activeProfileSnapshot.snapshotId,
     preflightId: preflightReport.runId || preflightReport.deploymentId,
     profileHash: activeProfileSnapshot.profileHash,
-    schoolsHash: currentValidationSnapshot.schoolsHash,
+    schoolsHash: effectiveValidation.schoolsHash,
     applyTargetHash,
+    authMode: preflightReport.authMode || finalValidationSnapshot?.authMode,
     createdAt: new Date().toISOString(),
     totalSchools: preflightReport.total,
     applyTargets,
@@ -178,6 +218,8 @@ export class ConfirmationTokenManager {
       token: rawToken,
       profileSnapshotId: manifest.profileSnapshotId,
       preflightId: manifest.preflightId,
+      finalPreflightExecutionId: manifest.finalPreflightExecutionId,
+      finalValidationSnapshotId: manifest.finalValidationSnapshotId,
       profileHash: manifest.profileHash,
       schoolsHash: manifest.schoolsHash,
       applyTargetHash: manifest.applyTargetHash,
@@ -210,6 +252,12 @@ export class ConfirmationTokenManager {
     }
 
     // バインド整合性の厳格検証
+    if (expectedManifest.finalPreflightExecutionId && tokenData.finalPreflightExecutionId !== expectedManifest.finalPreflightExecutionId) {
+      throw new AutomationError('CHECKPOINT_MISMATCH', 'トークンの FinalPreflightExecutionId と現在の Manifest が一致しません');
+    }
+    if (expectedManifest.finalValidationSnapshotId && tokenData.finalValidationSnapshotId !== expectedManifest.finalValidationSnapshotId) {
+      throw new AutomationError('CHECKPOINT_MISMATCH', 'トークンの FinalValidationSnapshotId と現在の Manifest が一致しません');
+    }
     if (tokenData.profileSnapshotId !== expectedManifest.profileSnapshotId) {
       throw new AutomationError('CHECKPOINT_MISMATCH', 'トークンの ProfileSnapshotId と現在の Manifest が一致しません');
     }
