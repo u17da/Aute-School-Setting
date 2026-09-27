@@ -457,12 +457,13 @@
       <ul>
         <li><a href="#sec1">1. 本ツールの全体概要と安全原則</a></li>
         <li><a href="#sec2">2. 【準備編】ツールの起動とCSV作成</a></li>
-        <li><a href="#sec3">3. 【STEP 1】設定と事前検証（画面1）</a></li>
-        <li><a href="#sec4">4. 【STEP 2】検証の進行状況（画面2）</a></li>
-        <li><a href="#sec5">5. 【STEP 3】検証結果の確認（画面3）</a></li>
+        <li><a href="#sec3">3. 【STEP 1】対象学校の指定（画面1）</a></li>
+        <li><a href="#sec4">4. 【STEP 2】現状調査の実行（画面2）</a></li>
+        <li><a href="#sec5">5. 【STEP 3】設定・差分確認（画面3）</a></li>
         <li><a href="#sec6">6. 【STEP 4】設定の反映・適用（画面4）</a></li>
-        <li><a href="#sec7">7. トラブルシューティング &amp; よくある質問 (FAQ)</a></li>
-        <li><a href="#sec8">8. ステータスコード・エラー用語早見表</a></li>
+        <li><a href="#sec7">7. 【STEP 5】実行結果とレポート出力（画面5）</a></li>
+        <li><a href="#sec8">8. トラブルシューティング &amp; よくある質問 (FAQ)</a></li>
+        <li><a href="#sec9">9. ステータスコード・エラー用語早見表</a></li>
       </ul>
     </nav>
 
@@ -476,36 +477,42 @@
           本ツールは、まなびポケットの公式マニュアル <strong>「9.2 学校設定」（p.197〜200）</strong> に記載されている11項目の設定について、対象校（最大約400校）の設定状態を自動検証し、安全に統一反映を行うための<strong>運用支援Webコンソール</strong>です。
         </p>
 
-        <!-- ワークフローマップ -->
+        <!-- ワークフローマップ (5ステップ) -->
         <div class="workflow-flow">
           <div class="workflow-step">
-            <div class="workflow-step-title">① 設定と事前検証</div>
-            <div class="workflow-step-desc">CSV選択・設定指定・入力チェック</div>
+            <div class="workflow-step-title">① 対象学校</div>
+            <div class="workflow-step-desc">CSV選択・入力確認</div>
           </div>
           <div class="workflow-arrow">&rarr;</div>
           <div class="workflow-step">
-            <div class="workflow-step-title">② 検証の進行状況</div>
-            <div class="workflow-step-desc">全校の現在値を自動読み取り</div>
+            <div class="workflow-step-title">② 現状調査</div>
+            <div class="workflow-step-desc">全校の現在値を自動収集</div>
           </div>
           <div class="workflow-arrow">&rarr;</div>
           <div class="workflow-step">
-            <div class="workflow-step-title">③ 検証結果</div>
-            <div class="workflow-step-desc">差分・削除リスク・契約外の確認</div>
+            <div class="workflow-step-title">③ 設定・差分確認</div>
+            <div class="workflow-step-desc">目標設定 &amp; 最終事前検証</div>
+          </div>
+          <div class="workflow-arrow">&rarr;</div>
+          <div class="workflow-step">
+            <div class="workflow-step-title">④ 本番反映</div>
+            <div class="workflow-step-desc">安全な変更のみを本番適用</div>
           </div>
           <div class="workflow-arrow">&rarr;</div>
           <div class="workflow-step active">
-            <div class="workflow-step-title">④ 設定の反映・適用</div>
-            <div class="workflow-step-desc">安全な変更のみを本番反映</div>
+            <div class="workflow-step-title">⑤ 実行結果</div>
+            <div class="workflow-step-desc">結果サマリ &amp; レポート出力</div>
           </div>
         </div>
 
         <div class="callout callout-success">
-          <div class="callout-title">🛡️ 事故を防ぐ4つの安全設計（Fail-Safe）</div>
+          <div class="callout-title">🛡️ 事故を防ぐ5つの安全設計（Fail-Safe）</div>
           <ul>
-            <li><strong>二段階実行モデル:</strong> 事前検証（読み取りのみ）を全校100%成功させない限り、設定の反映（書き込み）は物理的にロックされます。いきなり本番反映されることは絶対にありません。</li>
-            <li><strong>予約投稿削除リスクの自動保護:</strong> タイムラインやチャンネルを非表示にする（予約投稿が消去される）設定変更は、標準状態で<strong>自動的にスキップ</strong>され、誤消去を防ぎます。</li>
-            <li><strong>ログイン情報の完全保護:</strong> CSV内の学校管理者パスワードは、PCのメモリ上でのみ厳重に扱われ、画面表示・ログ・レポートファイルには一切残りません。</li>
-            <li><strong>通信遮断時の自動停止:</strong> 設定保存中に通信が途切れた場合、二重クリックによる事故を防ぐため自動的に処理を即時停止（Circuit Breaker）し、自動リトライを禁止します。</li>
+            <li><strong>現状調査ファースト（Discovery-First）:</strong> 設定値を決める前に、まず全校の「ありのままの現在値」を安全に読み取ります。いきなり本番反映されることは絶対にありません。</li>
+            <li><strong>二重Gateと最終事前検証:</strong> 設定を確定した後、本番反映直前に「最終事前検証（Final Preflight）」が100%成功しない限り、本番反映ボタンは物理的にロックされます。</li>
+            <li><strong>予約投稿削除リスクの自動保護:</strong> タイムラインやチャンネルを非表示にする（予約投稿が消去される）設定変更は、標準状態で<strong>自動的にスキップ</strong>され、現場の投稿データ誤消去を防ぎます。</li>
+            <li><strong>通信切断時の即時停止（Circuit Breaker）:</strong> 設定保存中に通信が途切れた場合、二重クリックによる事故を防ぐため自動的に処理を即時完全停止し、自動リトライを禁止します。</li>
+            <li><strong>世代不一致の自動検出（Fail-Closed）:</strong> サーバー再起動や更新が発生した場合、画面上に警告バナーを表示して反映ボタンを即時ロックし、不整合操作を防止します。</li>
           </ul>
         </div>
       </section>
@@ -545,10 +552,6 @@
           <div class="callout callout-success">
             <div class="callout-title">💡 既に起動している場合</div>
             <code>Start-Manapoke.cmd</code> を二重に実行した場合でも、二重起動は防止され、既存の操作画面がブラウザで前面に開きます。
-          </div>
-          <div class="callout">
-            <div class="callout-title">ℹ️ 開発環境で起動する場合</div>
-            開発PCのソースコードから直接起動する場合は、ターミナルで <code>npm run console</code> を実行することでも起動可能です。
           </div>
         </div>
 
@@ -611,9 +614,9 @@
 
       <!-- 第3章 -->
       <section id="sec3" class="guide-card">
-        <h2>3. 【STEP 1】設定と事前検証（画面1）</h2>
+        <h2>3. 【STEP 1】対象学校の指定（画面1）</h2>
         <p>
-          CSVの投入、一括変更したい設定内容の指定、および入力チェックを行う最初のステップです。
+          CSVの投入、学校数とアカウント情報の事前検証を行い、処理対象の学校群を確定させる最初のステップです。
         </p>
 
         <div class="step-card">
@@ -624,7 +627,7 @@
           <div class="ui-mockup">
             <div class="mockup-header">📁 読み込み後の表示例</div>
             <p><strong>選択ファイル:</strong> <code>schools.csv</code> (227 B)</p>
-            <p><strong>読み込み結果:</strong> 合計 3 校 (有効: 3 校, 無効: 0 校)</p>
+            <p><strong>読み込み結果:</strong> 全 3 校（有効: 3 校）</p>
             <table class="guide-table" style="margin-top: 0.5rem;">
               <thead>
                 <tr><th>#</th><th>学校コード</th><th>学校名</th><th>ログイン情報</th></tr>
@@ -636,57 +639,33 @@
             </table>
           </div>
           <p>
-            「学校一覧プレビュー」に学校が表示され、ログイン情報が「設定済 (非表示)」となっていることを確認します。また、「有効学校数」が予定している校数と合っているか確認してください。
+            「学校一覧プレビュー」に学校が表示され、ログイン情報が「設定済 (非表示)」となっていることを確認します。<br>
+            ※ セキュリティ保護のため、パスワード等の秘密情報はブラウザ画面やログに一切露出しません。
           </p>
         </div>
 
         <div class="step-card">
-          <div class="step-title"><span class="step-num">2</span>一括変更する設定項目を指定する（Profile Editor）</div>
+          <div class="step-title"><span class="step-num">2</span>対象学校を確定し、現状調査へ進む</div>
           <p>
-            画面下部の「<strong>一括変更する設定項目の指定</strong>」テーブルで、11項目の設定値をプルダウンで指定します。
-          </p>
-          <div class="ui-mockup">
-            <div class="mockup-header">便利ボタンの活用</div>
-            <p>
-              <span class="key-badge">デフォルトを一括設定</span> : まなびポケット推奨の一般的な設定値をまとめて自動セットします。<br>
-              <span class="key-badge">全項目を変更しない</span> : 全項目を「UNMANAGED (変更しない)」にし、全校の現在値をそのまま維持します。
-            </p>
-          </div>
-          <ul>
-            <li><strong>設定値（例: ON / OFF / 利用する / 利用しない等）を指定した場合:</strong> 全校をその設定値に統一変更する計画を立てます。</li>
-            <li><strong>「UNMANAGED (変更しない)」を指定した場合:</strong> その項目は触らず、各学校の現在の設定をそのまま引き継ぎます。</li>
-          </ul>
-        </div>
-
-        <div class="step-card">
-          <div class="step-title"><span class="step-num">3</span>親機能・子機能の不整合警告が出ていないか確認する</div>
-          <p>
-            まなびポケットの仕様上、<strong>「タイムライン・チャンネル機能」がOFF</strong> の状態で、子機能である「全体チャンネル」や「保護者チャンネル」を ON にすることはできません。
-          </p>
-          <div class="callout callout-danger" style="margin: 0.8rem 0;">
-            <div class="callout-title">⚠️ 設定の不整合警告が出た場合の対処法</div>
-            <p>
-              赤色の警告「<strong>『タイムライン・チャンネル機能』がOFFの場合、子機能をONに設定することはできません</strong>」が表示された場合は、親機能を ON にするか、子機能を OFF または「変更しない」に合わせてください。不整合が解消されるまで事前検証は開始できません。
-            </p>
-          </div>
-        </div>
-
-        <div class="step-card">
-          <div class="step-title"><span class="step-num">4</span>「事前検証を開始する」ボタンをクリックする</div>
-          <p>
-            画面最下部の青色ボタン <strong>[事前検証を開始する（読み取りのみ・変更なし）]</strong> をクリックします。<br>
-            ※ 設定値に不整合がある場合はボタンが無効化（薄い色）されています。<br>
-            クリックすると自動的に「2. 検証の進行状況」画面へ切り替わり、各校の設定読み取りが始まります。
+            有効学校数を確認後、青色の <strong>[対象学校を確定して現状調査へ進む]</strong> ボタンをクリックします。<br>
+            対象学校のスナップショットが確定され、自動的に「2. 現状調査」タブへ移動します。
           </p>
         </div>
       </section>
 
       <!-- 第4章 -->
       <section id="sec4" class="guide-card">
-        <h2>4. 【STEP 2】検証の進行状況（画面2）</h2>
+        <h2>4. 【STEP 2】現状調査の実行（画面2）</h2>
         <p>
-          自動化ブラウザが対象校の管理画面へ順番にログインし、現在の設定値を安全に読み取ります（この段階では書き込みは一切行われません）。
+          自動化ブラウザが対象校の管理画面へ順番にログインし、各校の「ありのままの現在設定値」を安全に読み取ります（この段階では書き込みは一切行われません）。
         </p>
+
+        <div class="step-card">
+          <div class="step-title"><span class="step-num">1</span>「現状調査を開始する」をクリックする</div>
+          <p>
+            青色の <strong>[現状調査を開始する（読み取りのみ）]</strong> ボタンをクリックすると、調査バッチが起動します。
+          </p>
+        </div>
 
         <h3>進行状況の見方</h3>
         <table class="guide-table">
@@ -702,11 +681,11 @@
               <td>全体の進行率（％）と、完了した学校数（例: <code>150 / 400 校</code>）です。</td>
             </tr>
             <tr>
-              <td><strong>読み取り完了 (正常)</strong></td>
+              <td><strong>読み取り成功</strong></td>
               <td>ログインと11項目の読み取りが完了した学校数です（緑色）。</td>
             </tr>
             <tr>
-              <td><strong>エラー発生 (失敗)</strong></td>
+              <td><strong>読み取り失敗</strong></td>
               <td>パスワード相違や通信タイムアウト等で失敗した学校数です（赤色）。</td>
             </tr>
             <tr>
@@ -724,86 +703,68 @@
           <div class="callout-title">🛑 途中で処理を止めたい場合（安全中断）</div>
           <p>
             業務終了時間やネットワークトラブル等で処理を中断したい場合は、赤色の <strong>[安全に中断・停止する]</strong> ボタンを押してください。<br>
-            <strong>現在処理中の1校が完了した直後に安全に停止</strong>し、中断状態として自動保存されます。後から中断箇所から続きを再開できますので、強制終了等は行わないでください。
+            <strong>現在処理中の1校が完了した直後に安全に停止</strong>し、中断状態として自動保存されます。後から <strong>[中断箇所から再開する]</strong> や <strong>[失敗した学校のみ再読み取りする]</strong> で安全に続きを実行できます。
+          </p>
+        </div>
+
+        <div class="callout callout-success">
+          <div class="callout-title">🚀 全校の読み取りが完了すると</div>
+          <p>
+            読み取り成功率が <strong>100%</strong> に達すると、画面上部の <strong>[3. 設定・差分確認]</strong> タブがアンロックされ、目標設定の検討に進むことができます。
           </p>
         </div>
       </section>
 
       <!-- 第5章 -->
       <section id="sec5" class="guide-card">
-        <h2>5. 【STEP 3】検証結果の確認（画面3）</h2>
+        <h2>5. 【STEP 3】設定・差分確認（画面3）</h2>
         <p>
-          全校の事前検証が完了すると、自動的に「3. 検証結果」画面へ切り替わります。<br>
-          ここでは、現状の設定分布や、設定変更に伴うリスクの有無を確認します。
+          現状調査で収集した各校の現在値をベースに、一括変更したい目標設定を指定し、<strong>ブラウザ再アクセスなしで即時に差分・影響範囲を確認</strong>するステップです。
         </p>
 
-        <h3>集計結果の読み解き方</h3>
-        <p>画面は上から順に、分かりやすく整理されて表示されます：</p>
-        <div class="ui-mockup">
-          <div class="mockup-header">集計指標の構成</div>
-          <p><strong>最上段: 対象学校数（全校）</strong> &hellip; 今回投入された学校の総数（例: 400校）</p>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 0.5rem;">
-            <div style="background: #fff; padding: 0.8rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm);">
-              <strong>① 読み取り結果の内訳</strong><br>
-              ・読み取り成功（正常）<br>
-              ・読み取り失敗（エラー）
-            </div>
-            <div style="background: #fff; padding: 0.8rem; border: 1px solid var(--border-color); border-radius: var(--radius-sm);">
-              <strong>② 反映判定の内訳</strong><br>
-              ・安全に反映可能（変更あり・リスクなし）<br>
-              ・反映ブロック（注意が必要な学校）<br>
-              ・予約投稿削除リスクの学校（投稿消去リスクあり）
-            </div>
+        <div class="step-card">
+          <div class="step-title"><span class="step-num">1</span>目標設定を指定する（Profile Editor）</div>
+          <p>
+            画面上部の「<strong>一括変更する設定項目の指定</strong>」テーブルで、11項目の設定値をプルダウンで指定します。
+          </p>
+          <div class="ui-mockup">
+            <div class="mockup-header">便利ボタンの活用</div>
+            <p>
+              <span class="key-badge">デフォルトを一括設定</span> : まなびポケット推奨の一般的な設定値をまとめて自動セットします。<br>
+              <span class="key-badge">全項目を変更しない</span> : 全項目を「UNMANAGED (変更しない)」にし、全校の現在値をそのまま維持します。
+            </p>
           </div>
+          <ul>
+            <li><strong>設定値（ON / OFF / 利用する / 利用しない等）を指定した場合:</strong> 全校をその設定値に統一変更する計画を立てます。</li>
+            <li><strong>「UNMANAGED (変更しない)」を指定した場合:</strong> その項目は触らず、各学校の現在の設定をそのまま引き継ぎます。</li>
+          </ul>
         </div>
 
-        <h3>重要な警告アラートの確認</h3>
-        <ul>
-          <li>
-            <strong>⚠️ 予約投稿削除リスクの学校（DESTRUCTIVE_CHANGE_RISK）:</strong><br>
-            設定変更を行うと、すでに教員が設定した未来の予約投稿が消えてしまうリスクがある学校の一覧です。
-          </li>
-          <li>
-            <strong>⚠️ 契約外機能の有効化警告（CONTRACT_NOT_AVAILABLE）:</strong><br>
-            「心の健康観察」など、その学校で契約がなく画面上に存在しない項目を有効化しようとした学校の一覧です（設定項目を「変更しない」に戻すことを推奨します）。
-          </li>
-        </ul>
-
-        <h3>現在の設定値と変更予定の内訳（11項目統合テーブル）</h3>
-        <p>
-          11項目それぞれについて、<strong>「現在の各校の設定状況」</strong> と <strong>「適用後にどの設定に変わるか（内訳校数）」</strong> が1つの表で確認できます。<br>
-          例: 「現在すでにONの学校: 350校 / 変更なし」「現在OFFの学校: 50校 / OFF&rarr;ONへ変更」など、影響範囲が一目で分かります。
-        </p>
-
-        <h3>失敗校への対応とやり直しボタンの使い分け</h3>
-        <table class="guide-table">
-          <thead>
-            <tr>
-              <th style="width: 32%;">画面右上のボタン</th>
-              <th>動作内容と使用場面</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><strong>[中断箇所から再開する]</strong></td>
-              <td>途中で「安全に中断・停止」した場合や、未着手の学校がある場合に、続きから処理を再開します。</td>
-            </tr>
-            <tr>
-              <td><strong>[失敗した学校のみ再読み取りする]</strong></td>
-              <td>通信エラー等で読み取り失敗（エラー）となった学校のみを対象に、再度読み取りを行います。</td>
-            </tr>
-            <tr>
-              <td><strong style="color: var(--danger);">[🗑️ 実行結果をリセット]</strong></td>
-              <td><strong>新機能:</strong> 過去の実行結果やチェックポイントを完全に初期化し、最初からやり直したい場合に使用します（確認ダイアログが表示されます）。</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <div class="callout callout-success">
-          <div class="callout-title">🚀 「4. 設定の反映・適用」タブへの進み方</div>
+        <div class="step-card">
+          <div class="step-title"><span class="step-num">2</span>差分プレビューを即時確認する</div>
           <p>
-            読み取り成功率が <strong>100%</strong> に達すると、画面上部のナビゲーションバーにある <strong>[4. 設定の反映・適用]</strong> タブがアンロックされ、クリックできるようになります。
+            設定値を変更すると、下部の「<strong>設定差分プレビュー</strong>」が瞬時に再計算されます：
           </p>
+          <ul>
+            <li><strong>変更対象校数:</strong> 設定値が変更される学校の総数</li>
+            <li><strong>変更なし校数:</strong> 現在の設定がすでに目標値と一致している学校数</li>
+            <li><strong>予約投稿削除リスク校数:</strong> タイムラインやチャンネルをOFFにするため投稿消去リスクがある学校数</li>
+            <li><strong>契約外機能の警告:</strong> 「心の健康観察」など、その学校で契約がなく画面上に存在しない項目を有効化しようとした場合の警告</li>
+          </ul>
+        </div>
+
+        <div class="step-card">
+          <div class="step-title"><span class="step-num">3</span>設定を確定し、最終事前検証（Final Preflight）を実行する</div>
+          <p>
+            設定内容に問題がなければ、青色の <strong>[この設定内容を確定する]</strong> ボタンを押します。<br>
+            設定が確定（Profile Snapshot生成）された後、<strong>[最終事前検証を開始する（Final Preflight）]</strong> をクリックします。
+          </p>
+          <div class="callout callout-success">
+            <div class="callout-title">🔒 最終事前検証の二重ロック</div>
+            <p>
+              確定した設定内容で全校への書き込み計画が100%成立するかを、事前に検証します。この最終事前検証が正常完了（有効期限内）して初めて、本番反映の実行が可能になります。
+            </p>
+          </div>
         </div>
       </section>
 
@@ -811,102 +772,138 @@
       <section id="sec6" class="guide-card">
         <h2>6. 【STEP 4】設定の反映・適用（画面4）</h2>
         <p>
-          事前検証の結果に基づき、対象学校へ実際に設定の書き込み（本番反映）を行う最終ステップです。
+          最終事前検証の結果に基づき、対象学校へ実際に設定の書き込み（本番反映）を行うステップです。
         </p>
 
         <div class="step-card">
-          <div class="step-title"><span class="step-num">1</span>反映前チェック状態を確認する</div>
+          <div class="step-title"><span class="step-num">1</span>反映準備（Prepare Apply）を行う</div>
           <p>
-            画面上部の「<strong>反映前チェック状態: 正常（書き込み可能）</strong>」が表示されていることを確認します。<br>
-            ※ 設定ファイルの変更や有効期限切れ（24時間経過）がある場合は警告が表示され、事前検証のやり直しが求められます。
+            青色の <strong>[本番反映の準備を行う（安全チェック）]</strong> ボタンをクリックします。<br>
+            システムが Global Gate を検証し、破壊的変更（予約投稿消去リスク）の学校を<strong>自動的に除外（安全スキップ）</strong>した上で、安全な学校のみを対象とする Manifest を生成し、1回限りの確認トークンを発行します。
           </p>
         </div>
 
         <div class="step-card">
-          <div class="step-title"><span class="step-num">2</span>予約投稿削除リスクの取り扱いを選択する</div>
+          <div class="step-title"><span class="step-num">2</span>最終確認モーダルで内容を承認し、本番反映を開始する</div>
           <p>
-            タイムラインやチャンネルをOFFにする学校（予約投稿が消去される学校）の取り扱いを決めます：
-          </p>
-          <div class="ui-mockup" style="background: var(--warning-bg); border-color: #FFE0B2;">
-            <label style="font-weight: 700; color: #5C3800;">
-              <input type="checkbox" disabled> 予約投稿削除のリスクを確認した上で、チャンネル非表示化も含めて反映する
-            </label>
-            <p style="margin-top: 0.4rem; font-size: 0.86rem; color: #7A4100;">
-              ※ <strong>チェックOFF（標準推奨）:</strong> 予約投稿削除リスクのある学校は<strong>自動的にスキップ</strong>され、安全な学校のみに反映されます。<br>
-              ※ <strong>チェックON:</strong> 学校現場と事前合意が取れており、消去を承諾した上で全校に反映させたい場合のみチェックを入れます。
-            </p>
-          </div>
-        </div>
-
-        <div class="step-card">
-          <div class="step-title"><span class="step-num">3</span>「反映内容を確認する」をクリックし、最終承認を行う</div>
-          <p>
-            青色の <strong>[反映内容を確認する]</strong> ボタンを押すと、最終確認モーダル画面が表示されます。
-          </p>
-          <div class="ui-mockup">
-            <div class="mockup-header">⚠️ 設定反映の最終確認モーダル</div>
-            <p><strong>反映対象校:</strong> ○○ 校 ／ <strong>スキップ校:</strong> ○○ 校</p>
-            <div style="margin-top: 0.6rem; padding: 0.6rem; background: #fff; border: 1px solid var(--border-color);">
-              <label style="font-weight: 700;">
-                ☑ 上記の反映対象校数および設定変更の内容を確認しました
-              </label>
-            </div>
-          </div>
-          <p>
-            モーダル内の対象校数を確認し、<strong>同意チェックボックスにチェックを入れる</strong>と、赤色の <strong>[設定変更を本番反映する]</strong> ボタンが押せるようになります。
-          </p>
-        </div>
-
-        <div class="step-card">
-          <div class="step-title"><span class="step-num">4</span>反映の進行状況を見守る</div>
-          <p>
-            反映が始まると、ブラウザが各校にログインし、設定変更・保存・保存後の再検証を1校ずつ安全に実行します。<br>
-            進行バーと実行ログで進行状況をリアルタイムに確認できます。
+            表示される最終確認モーダルで、反映対象校数およびスキップ校数を確認します。<br>
+            「<strong>上記の内容を確認しました</strong>」チェックボックスにチェックを入れると、赤色の <strong>[本番反映を開始する]</strong> ボタンが有効になります。
           </p>
           <div class="callout callout-danger">
-            <div class="callout-title">🔒 万が一の通信遮断時の安全保護</div>
-            <p>
-              「保存する」ボタンを押した直後にネットワークが切断される等のトラブルが起きた場合、本ツールは二重クリック事故を防ぐため<strong>直ちに全体の処理を自動停止</strong>します。自動再試行は行われませんので、該当校の状況を管理画面でご確認ください。
-            </p>
+            <div class="callout-title">🔒 二重実行防止と通信遮断保護</div>
+            <ul>
+              <li><strong>二重実行防止（Single-Flight Guard）:</strong> ボタンの連打や同時リクエストはサーバー側で物理的に拒絶されます。</li>
+              <li><strong>通信切断時の安全停止:</strong> 設定保存ボタン押下直後にネットワークが途切れた場合、二重クリック事故を防ぐため自動的に即時停止します。</li>
+            </ul>
           </div>
         </div>
       </section>
 
       <!-- 第7章 -->
       <section id="sec7" class="guide-card">
-        <h2>7. トラブルシューティング &amp; よくある質問 (FAQ)</h2>
+        <h2>7. 【STEP 5】実行結果とレポート出力（画面5）</h2>
+        <p>
+          本番反映が完了すると、自動的に「5. 実行結果」画面へ切り替わります。<br>
+          サーバーから受け取った確実な実行結果実績が表示され、監査・エビデンス用のレポートファイルをダウンロードできます。
+        </p>
 
-        <h3>Q1. 画面1で「事前検証を開始する」ボタンが押せません（色が薄い）。</h3>
-        <div class="callout callout-amber">
-          <div class="callout-title">チェックリスト</div>
-          <ol>
-            <li><strong>CSVファイルは選択されていますか？</strong> &rarr; ドロップゾーンにファイルを入れてください。</li>
-            <li><strong>「設定の不整合」警告が出ていませんか？</strong> &rarr; タイムライン機能がOFFなのに、子機能（全体/保護者チャンネル）がONになっていると開始できません。設定を揃えてください。</li>
-            <li><strong>ログイン情報の「未設定・不足」がありませんか？</strong> &rarr; CSV内のIDやパスワードが空欄の学校がないか確認してください。</li>
-          </ol>
+        <h3>実行結果の実績サマリ（6分類）</h3>
+        <p>各学校の実行結果は、以下の6つのカテゴリに厳密に分類されて表示されます：</p>
+        <table class="guide-table">
+          <thead>
+            <tr>
+              <th style="width: 25%;">分類名</th>
+              <th style="width: 15%;">ステータス</th>
+              <th>内容説明</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>反映成功</strong></td>
+              <td><span class="badge badge-success">APPLIED</span></td>
+              <td>設定値の変更・保存・再検証がすべて正常に完了した学校です。</td>
+            </tr>
+            <tr>
+              <td><strong>変更なし</strong></td>
+              <td><span class="badge badge-primary">ALREADY_CONFIGURED</span></td>
+              <td>すでに目標通りの設定になっていたため、不要な書き込みを行わず正常完了した学校です。</td>
+            </tr>
+            <tr>
+              <td><strong>安全スキップ</strong></td>
+              <td><span class="badge badge-warning">SKIPPED</span></td>
+              <td>予約投稿削除リスク等があるため、事故防止ポリシーに基づき自動除外された学校です。</td>
+            </tr>
+            <tr>
+              <td><strong>反映ブロック</strong></td>
+              <td><span class="badge badge-danger">BLOCKED</span></td>
+              <td>設定矛盾や契約不一致等により、事前検証時点でブロックされた学校です。</td>
+            </tr>
+            <tr>
+              <td><strong>失敗</strong></td>
+              <td><span class="badge badge-danger">FAILED</span></td>
+              <td>通信タイムアウトやログイン失敗等で正常に保存できなかった学校です。</td>
+            </tr>
+            <tr>
+              <td><strong>未処理</strong></td>
+              <td><span class="badge badge-gray">NOT_PROCESSED</span></td>
+              <td>安全停止や中断により、処理が到達しなかった残りの学校です。</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>レポート・エビデンスのダウンロード</h3>
+        <p>画面下部のダウンロードエリアから、監査提出用のレポート（JSON）をダウンロードできます：</p>
+        <ul>
+          <li><strong>📄 本番集計レポート（Production Summary）:</strong> 今回の本番反映の全校実績・変更前後値・実行時間を記録した公式サマリです。</li>
+          <li><strong>📋 最終事前検証レポート（Final Preflight Report）:</strong> 本番反映直前の検証結果とハッシュ整合性のエビデンスです。</li>
+          <li><strong>🔍 現状調査スナップショット（Observation Snapshot）:</strong> 設定変更前に収集した全校の初期状態データです。</li>
+          <li><strong>💾 チェックポイント（Checkpoint）:</strong> 途中の実行進捗と各校詳細を記録した復旧用データです。</li>
+        </ul>
+
+        <div class="callout callout-warning">
+          <div class="callout-title">🗑️ 過去データのリセットについて</div>
+          <p>
+            画面右上の <strong>[🗑️ 実行結果をリセット]</strong> ボタンを押すと、過去の実行記録やチェックポイントを退避（archive）し、初期状態に戻すことができます。別の案件や新しいCSVで最初から作業を開始する際にご利用ください。
+          </p>
         </div>
-
-        <h3>Q2. 一部の学校で「予約投稿削除リスク」の警告が出ました。どうすればよいですか？</h3>
-        <p>
-          タイムラインや全体チャンネルを非表示にする設定が含まれているためです。<br>
-          そのまま「4. 設定の反映・適用」に進むと、その学校は<strong>自動的にスキップ（変更されない）</strong>されますので安全です。もし反映させたい場合は、学校現場に予約投稿がないことを確認した上で、画面4の許可チェックボックスにチェックを入れてください。
-        </p>
-
-        <h3>Q3. 最初からすべてやり直したいです。</h3>
-        <p>
-          画面3（検証結果）の右上にある赤字の <strong>[🗑️ 実行結果をリセット]</strong> ボタンを押してください。確認ダイアログで「OK」を押すと、過去の実行記録がクリアされ、初期状態に戻すことができます。
-        </p>
-
-        <h3>Q4. 画面4で「反映内容を確認する」ボタンが押せません。</h3>
-        <p>
-          事前検証でエラーとなった学校（読み取り失敗校）が残っている可能性があります。<br>
-          画面3の「失敗した学校のみ再読み取りする」を実行し、成功率を 100% にしてください。
-        </p>
       </section>
 
       <!-- 第8章 -->
       <section id="sec8" class="guide-card">
-        <h2>8. ステータスコード・エラー用語早見表</h2>
+        <h2>8. トラブルシューティング &amp; よくある質問 (FAQ)</h2>
+
+        <h3>Q1. 画面1で「対象学校を確定する」ボタンが押せません。</h3>
+        <div class="callout callout-amber">
+          <div class="callout-title">チェックリスト</div>
+          <ol>
+            <li><strong>CSVファイルは選択されていますか？</strong> &rarr; ドロップゾーンにファイルを入れてください。</li>
+            <li><strong>CSVのヘッダー名は正しいですか？</strong> &rarr; <code>schoolCode,schoolName,userId,password</code> が含まれているか確認してください。</li>
+            <li><strong>Excel保存形式は正しいですか？</strong> &rarr; 「CSV UTF-8（コンマ区切り）（*.csv）」で保存されているか確認してください。</li>
+          </ol>
+        </div>
+
+        <h3>Q2. 画面上部に「サーバーの再起動またはバージョン更新が検出されました」と黄色いバナーが出ました。</h3>
+        <p>
+          サーバープロセスが再起動したか、新しいバージョンのプログラムが配置されたことを検知しました。<br>
+          古い画面のまま操作を続けると不整合事故（旧画面＋新サーバー）を起こす危険があるため、安全装置（Fail-Closed）が働き、本番反映ボタンが一時ロックされています。<br>
+          バナー右側の <strong>[画面を再読み込み]</strong> ボタン（またはブラウザのF5キー）を押して画面を更新してください。
+        </p>
+
+        <h3>Q3. 「設定・差分確認」で設定の不整合警告が出ます。</h3>
+        <p>
+          「タイムライン・チャンネル機能」をOFFに設定している状態で、子機能（全体チャンネル・保護者チャンネル）をONにしようとすると発生します。<br>
+          親機能をONにするか、子機能を「OFF」または「変更しない」に合わせてください。
+        </p>
+
+        <h3>Q4. 最初からすべてやり直したいです。</h3>
+        <p>
+          画面右上にある赤字の <strong>[🗑️ 実行結果をリセット]</strong> ボタンを押してください。確認ダイアログで「OK」を押すと、過去の実行記録が安全にアーカイブされ、STEP 1 の初期状態に戻すことができます。
+        </p>
+      </section>
+
+      <!-- 第9章 -->
+      <section id="sec9" class="guide-card">
+        <h2>9. ステータスコード・エラー用語早見表</h2>
         <p>
           ログや失敗校一覧に表示される主要なコードの意味と、オペレーターの対応手順です。
         </p>
@@ -933,7 +930,12 @@
             <tr>
               <td><code>SKIPPED_DESTRUCTIVE</code></td>
               <td>安全スキップ</td>
-              <td>予約投稿削除リスクがあるため、事故防止のため書き込みをスキップしました。</td>
+              <td>予約投稿削除リスクがあるため、事故防止のため書き込みを自動除外しました。</td>
+            </tr>
+            <tr>
+              <td><code>NOT_PROCESSED</code></td>
+              <td>未処理</td>
+              <td>安全停止や中断により、処理が到達しなかった学校です。</td>
             </tr>
             <tr>
               <td><code>PREFLIGHT_STATE_CHANGED</code></td>
