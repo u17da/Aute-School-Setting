@@ -29,6 +29,7 @@ let initialServerBuildFingerprint = null;
 let hasVersionMismatch = false;
 let resultsFetchSeq = 0;
 let isApplyingInFlight = false;
+let initialTabRestored = false;
 
 document.addEventListener('DOMContentLoaded', () => {
   const metaInstance = document.querySelector('meta[name="server-instance-id"]');
@@ -239,6 +240,21 @@ async function fetchStatus() {
       }
       if (goToApply) goToApply.disabled = !serverApplyReady || hasVersionMismatch;
       updateApplyGate(activeFinalPreflightReport);
+    } else if (activeProfileSnapshot || draftProfile) {
+      // ダイレクト反映モード時の Apply Gate 更新
+      updateApplyGate(previewPlan || draftProfile);
+    }
+
+    // 初回ロード時に最高到達ステップへ自動遷移（リロードによる一からの誤認を防止）
+    if (!initialTabRestored) {
+      initialTabRestored = true;
+      if (activeProfileSnapshot || (targetSnapshot && observationSnapshot && draftProfile)) {
+        switchTab('apply');
+      } else if (observationSnapshot) {
+        switchTab('decide');
+      } else if (targetSnapshot) {
+        switchTab('observe');
+      }
     }
   } catch (err) {
     console.error('Failed to fetch status:', err);
@@ -292,7 +308,8 @@ function updateStepAccessibility() {
 
   if (tabObserve) tabObserve.disabled = !targetSnapshot;
   if (tabDecide) tabDecide.disabled = !observationSnapshot;
-  if (tabApply) tabApply.disabled = (!serverApplyReady && !activeFinalPreflightReport) || hasVersionMismatch;
+  const isDirectReady = Boolean(targetSnapshot && observationSnapshot && (draftProfile || activeProfileSnapshot));
+  if (tabApply) tabApply.disabled = ((!serverApplyReady && !activeFinalPreflightReport && !isDirectReady) || hasVersionMismatch);
 }
 
 function invalidateTarget(reason) {
