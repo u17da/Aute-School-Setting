@@ -88,6 +88,16 @@ export async function runSchoolProduction(params: ProductionSchoolRunParams): Pr
     context = await createSchoolBrowserContext(browser, envConfig);
     page = await context.newPage();
 
+    // 破壊的変更（OFF等）クリック時にブラウザ確認ダイアログ (window.confirm) が出現するため自動承諾
+    page.on('dialog', async (dialog: any) => {
+      logger.warn(`[${schoolCode}] ブラウザ確認ダイアログ検知: "${dialog.message()}" -> 自動承諾 (accept)`);
+      try {
+        await dialog.accept();
+      } catch (err: any) {
+        logger.warn(`[${schoolCode}] ダイアログ承諾エラー (無視): ${err.message}`);
+      }
+    });
+
     // 1. ログイン画面アクセス & 学校コード入力 & 認証方式観測 (指示12: Read-only処理は安全にリトライ可)
     const loginPage = new LoginPage(page);
     const authObs = await withRetry(

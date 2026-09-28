@@ -451,10 +451,19 @@ export class SchoolSettingsPage extends BasePage {
     }
 
     logger.info(`ラジオボタンを選択中: [${row.label}] -> "${targetRadio.label}" (${targetValue})`);
-    await targetRadio.locator.check({ force: true });
+    try {
+      await targetRadio.locator.check({ force: true, timeout: 5000 });
+    } catch {
+      // confirm ダイアログ等で check() が完了待機タイムアウトした場合は click() でフォールバック
+      await targetRadio.locator.click({ force: true });
+    }
 
     // チェック状態を即時検証
-    const isChecked = await targetRadio.locator.isChecked();
+    let isChecked = await targetRadio.locator.isChecked();
+    if (!isChecked) {
+      await this.page.waitForTimeout(300);
+      isChecked = await targetRadio.locator.isChecked();
+    }
     if (!isChecked) {
       throw new AutomationError(
         'PRE_SAVE_VALIDATION_FAILED',
