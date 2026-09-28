@@ -181,11 +181,11 @@ export async function runSchoolProduction(params: ProductionSchoolRunParams): Pr
     const evaluation = evaluateExecutionPlan(plan);
     resultManager.setPlanAndEvaluation(plan, evaluation);
 
-    // 指示24: 破壊的変更のBatch書き込み実行は強制ブロック (Dry Runでは観測・集計のため通過)
-    if (isBatchMode && executionOptions.apply && plan.hasDestructiveChanges) {
+    // 指示24: 破壊的変更のBatch書き込み実行は強制ブロック (Dry Runでは観測・集計のため通過。--allow-destructive 指定時は合意の上で許可)
+    if (isBatchMode && executionOptions.apply && plan.hasDestructiveChanges && !executionOptions.allowDestructive) {
       throw new AutomationError(
         'DESTRUCTIVE_CHANGE_BLOCKED',
-        'Batch実行での破壊的変更（予約投稿削除リスク）を含む設定書き込みは安全のため強制ブロックされます',
+        'Batch実行での破壊的変更（予約投稿削除リスク）を含む設定書き込みは安全のため強制ブロックされます (--allow-destructive が未指定です)',
         { hasDestructiveChanges: plan.hasDestructiveChanges, actions: plan.actions }
       );
     }

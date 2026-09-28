@@ -874,15 +874,44 @@ export class BatchProcessAdapter extends EventEmitter {
   }
 
   /**
-   * 指示5 & Phase 6A: Production Apply の準備 (最新Preflight探索fallback完全廃止, Exact Executionバインド, Override禁止)
+   * 指示5 & Phase 6B & Direct Apply: Production Apply の準備 (破壊的変更合意フラグ allowDestructive & Preflightスキップ対応)
    */
-  prepareProductionApply(customPreflight?: PreflightReport, customSummary?: any): { manifest: ApplyTargetManifest; tokenData: ConfirmationTokenData } {
+  prepareProductionApply(
+    customPreflight?: PreflightReport,
+    customSummary?: any,
+    allowDestructive?: boolean,
+    directApply?: boolean
+  ): { manifest: ApplyTargetManifest; tokenData: ConfirmationTokenData } {
     if (this.isAnyJobRunning()) {
       throw new ConsoleError('JOB_CONFLICT', '現在別の処理が実行中または停止処理中のため、Production Applyの準備を開始できません');
     }
 
     let preflightReport: PreflightReport | null = customPreflight || null;
     let summaryReport: any | null = customSummary || null;
+
+    // ダイレクト反映モード (Preflight ドライラン巡回の明示的スキップ)
+    const isDirect = directApply === true;
+
+    if (isDirect) {
+      if (!this.observationSnapshot) {
+        throw new AutomationError('CONFIG_INVALID', '直接本番反映を行うには、先に現状調査 (STEP 2: Discovery) を完了してください');
+      }
+      if (!this.activeProfileSnapshot) {
+        throw new AutomationError('CONFIG_INVALID', '有効な Profile Snapshot が存在しません。STEP 3 で設定を確定してください');
+      }
+
+      const manifest = validateGlobalGateAndBuildManifest({
+        observationSnapshot: this.observationSnapshot,
+        activeProfileSnapshot: this.activeProfileSnapshot,
+        currentValidationSnapshot: this.currentSnapshot,
+        finalValidationSnapshot: this.finalValidationSnapshot,
+        allowDestructive: allowDestructive === true,
+        directApply: true
+      });
+
+      const tokenData = this.tokenManager.createToken(manifest);
+      return { manifest, tokenData };
+    }
 
     if (!preflightReport) {
       if (!this.activeFinalPreflightContext || !this.currentFinalPreflightExecutionId || this.activeFinalPreflightContext.executionId !== this.currentFinalPreflightExecutionId) {
@@ -912,14 +941,14 @@ export class BatchProcessAdapter extends EventEmitter {
       }
     }
 
-    // Global Gate 検証と Manifest 導出 (Override禁止: allowDestructive=false)
+    // Global Gate 検証と Manifest 導出 (Phase 6B: allowDestructive を反映)
     const manifest = validateGlobalGateAndBuildManifest({
       preflightReport,
       activeProfileSnapshot: effectiveProfileSnapshot,
       currentValidationSnapshot: this.currentSnapshot,
       finalValidationSnapshot: this.finalValidationSnapshot,
       summaryReport,
-      allowDestructive: false
+      allowDestructive: allowDestructive === true
     });
 
     if (this.activeFinalPreflightContext?.executionId) {
@@ -1272,6 +1301,7 @@ export class BatchProcessAdapter extends EventEmitter {
     credentialsFilePath?: string;
     expectedSchoolCount?: number;
     schoolTimeoutMs?: number;
+    concurrency?: number;
   }): void {
     if (this.isAnyJobRunning()) {
       throw new ConsoleError('JOB_CONFLICT', 'すでに別のジョブが実行中または停止処理中です');
@@ -1346,6 +1376,10 @@ export class BatchProcessAdapter extends EventEmitter {
 
     if (effectiveParams.expectedSchoolCount !== undefined) {
       args.push('--expected-school-count', String(effectiveParams.expectedSchoolCount));
+    }
+
+    if (effectiveParams.concurrency !== undefined && effectiveParams.concurrency > 1) {
+      args.push('--concurrency', String(effectiveParams.concurrency));
     }
 
     if (mode === 'RESUME') {
@@ -1592,32 +1626,65 @@ export class BatchProcessAdapter extends EventEmitter {
     this.activeExecutionResultContext = null;
 
     try {
-      if (!this.activeFinalPreflightContext || !this.currentFinalPreflightExecutionId || this.activeFinalPreflightContext.executionId !== this.currentFinalPreflightExecutionId) {
-        throw new AutomationError('CONFIG_INVALID', '有効な Final Preflight レポートが見つかりません。現在のワークフローで先に Final Preflight を実行してください');
-      }
+      // トークン情報から allowDestructive および directApply の権限を確認
+      const peekedToken = this.tokenManager.peekToken(confirmationToken);
+      const isDestructiveAllowed = peekedToken?.allowDestructive === true;
+      const isDirect = peekedToken?.directApply === true;
 
-      const preflightReport = this.activeFinalPreflightContext.report;
-      const summaryReport = this.activeFinalPreflightContext.summary;
+      let manifest: ApplyTargetManifest;
+      let deploymentId: string;
+      let runId: string;
 
-      let effectiveProfileSnapshot = this.activeProfileSnapshot;
-      if (!effectiveProfileSnapshot && preflightReport) {
-        const snapId = this.finalValidationSnapshot?.profileSnapshotId || preflightReport.profileSnapshotId;
-        if (snapId && this.profileSnapshots.has(snapId)) {
-          effectiveProfileSnapshot = this.profileSnapshots.get(snapId)!;
-          this.activeProfileSnapshot = effectiveProfileSnapshot;
+      if (isDirect) {
+        if (!this.observationSnapshot) {
+          throw new AutomationError('CONFIG_INVALID', '有効な Observation Snapshot が見つかりません');
         }
-      }
+        if (!this.activeProfileSnapshot) {
+          throw new AutomationError('CONFIG_INVALID', '有効な Profile Snapshot が見つかりません');
+        }
 
-      // Global Gate 再検証 & Manifest 導出 (破壊的変更 Override は完全禁止: allowDestructive=false)
-      const manifest = validateGlobalGateAndBuildManifest({
-        preflightReport,
-        activeProfileSnapshot: effectiveProfileSnapshot,
-        currentValidationSnapshot: this.currentSnapshot,
-        finalValidationSnapshot: this.finalValidationSnapshot,
-        summaryReport,
-        allowDestructive: false
-      });
-      manifest.finalPreflightExecutionId = this.activeFinalPreflightContext.executionId;
+        manifest = validateGlobalGateAndBuildManifest({
+          observationSnapshot: this.observationSnapshot,
+          activeProfileSnapshot: this.activeProfileSnapshot,
+          currentValidationSnapshot: this.currentSnapshot,
+          finalValidationSnapshot: this.finalValidationSnapshot,
+          allowDestructive: isDestructiveAllowed,
+          directApply: true
+        });
+
+        deploymentId = `direct-dep-${this.observationSnapshot.observationSnapshotId}`;
+        runId = `direct-run-${Date.now()}`;
+      } else {
+        if (!this.activeFinalPreflightContext || !this.currentFinalPreflightExecutionId || this.activeFinalPreflightContext.executionId !== this.currentFinalPreflightExecutionId) {
+          throw new AutomationError('CONFIG_INVALID', '有効な Final Preflight レポートが見つかりません。現在のワークフローで先に Final Preflight を実行してください');
+        }
+
+        const preflightReport = this.activeFinalPreflightContext.report;
+        const summaryReport = this.activeFinalPreflightContext.summary;
+
+        let effectiveProfileSnapshot = this.activeProfileSnapshot;
+        if (!effectiveProfileSnapshot && preflightReport) {
+          const snapId = this.finalValidationSnapshot?.profileSnapshotId || preflightReport.profileSnapshotId;
+          if (snapId && this.profileSnapshots.has(snapId)) {
+            effectiveProfileSnapshot = this.profileSnapshots.get(snapId)!;
+            this.activeProfileSnapshot = effectiveProfileSnapshot;
+          }
+        }
+
+        // Global Gate 再検証 & Manifest 導出 (Phase 6B: トークンに付与された allowDestructive を反映)
+        manifest = validateGlobalGateAndBuildManifest({
+          preflightReport,
+          activeProfileSnapshot: effectiveProfileSnapshot,
+          currentValidationSnapshot: this.currentSnapshot,
+          finalValidationSnapshot: this.finalValidationSnapshot,
+          summaryReport,
+          allowDestructive: isDestructiveAllowed
+        });
+        manifest.finalPreflightExecutionId = this.activeFinalPreflightContext.executionId;
+
+        deploymentId = this.activeFinalPreflightContext.deploymentId;
+        runId = this.activeFinalPreflightContext.runId;
+      }
 
       // Confirmation Token の厳格検証と一回限り消費 (再利用・二重実行防止)
       this.tokenManager.verifyAndConsumeToken(confirmationToken, manifest);
@@ -1632,8 +1699,8 @@ export class BatchProcessAdapter extends EventEmitter {
         schemaVersion: '1.0',
         executionId: productionExecutionId,
         state: 'RUNNING',
-        deploymentId: this.activeFinalPreflightContext.deploymentId,
-        runId: this.activeFinalPreflightContext.runId,
+        deploymentId,
+        runId,
         profileSnapshotId: manifest.profileSnapshotId,
         finalPreflightExecutionId: manifest.finalPreflightExecutionId || this.currentFinalPreflightExecutionId || undefined,
         finalValidationSnapshotId: manifest.finalValidationSnapshotId,
@@ -1659,7 +1726,7 @@ export class BatchProcessAdapter extends EventEmitter {
         }
       };
 
-      // 厳格な引数列構築: Write関連フラグを明示付与, --allow-destructive は絶対に含めない (Exact Lineage Binding)
+      // 厳格な引数列構築: Write関連フラグを明示付与, --allow-destructive は合意トークン時のみ付与
       const args: string[] = [
         '-T',
         'src/index.ts',
@@ -1670,9 +1737,15 @@ export class BatchProcessAdapter extends EventEmitter {
         '--schools', schoolsPath,
         '--profile', effectiveProfilePath,
         '--execution-id', productionExecutionId,
+        '--deployment-id', deploymentId,
+        '--clear-stale-lock',
         '--summary-output', exactSummaryPath,
         '--apply-target-hash', manifest.applyTargetHash
       ];
+
+      if (isDestructiveAllowed) {
+        args.push('--allow-destructive');
+      }
 
       if (this.activeProfileSnapshot?.snapshotId) {
         args.push('--profile-snapshot-id', this.activeProfileSnapshot.snapshotId);
@@ -1984,9 +2057,10 @@ export class BatchProcessAdapter extends EventEmitter {
         if (!boundSuccessfully) {
           this.activeExecutionResultContext = null;
           if (execId) {
+            const errorTail = this.stdoutBuffer.filter(l => l.includes('Error') || l.includes('ERROR') || l.includes('異常') || l.includes('拒絶')).slice(-3).join('; ');
             updateCurrentLedgerState('RESULT_INVALID', {
               finishedAt: new Date().toISOString(),
-              errorMessage: 'Production result binding failed or summary missing'
+              errorMessage: errorTail ? `Production failed: ${errorTail}` : 'Production result binding failed or summary missing'
             });
           }
         }

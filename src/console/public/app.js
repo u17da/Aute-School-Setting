@@ -60,7 +60,7 @@ function switchTab(tabName) {
     }
   });
 
-  if (tabName === 'apply' && activeFinalPreflightReport) {
+  if (tabName === 'apply') {
     updateApplyGate(activeFinalPreflightReport);
   }
 
@@ -405,15 +405,23 @@ async function goToObserveAndStart() {
 // ==========================================
 // STEP 2: 対象学校の現状調査
 // ==========================================
+function getDiscoveryConcurrency() {
+  const concEl = document.getElementById('discoveryConcurrencySelect');
+  if (!concEl) return 3;
+  const val = parseInt(concEl.value, 10);
+  return isNaN(val) ? 3 : Math.max(1, Math.min(val, 5));
+}
+
 async function startDiscovery() {
   try {
+    const concurrency = getDiscoveryConcurrency();
     const res = await fetch('/api/discovery/start', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-CSRF-Nonce': csrfToken
       },
-      body: JSON.stringify({})
+      body: JSON.stringify({ concurrency })
     });
 
     const data = await res.json();
@@ -431,13 +439,14 @@ async function startDiscovery() {
 
 async function resumeDiscovery() {
   try {
+    const concurrency = getDiscoveryConcurrency();
     const res = await fetch('/api/discovery/resume', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-CSRF-Nonce': csrfToken
       },
-      body: JSON.stringify({})
+      body: JSON.stringify({ concurrency })
     });
     if (!res.ok) {
       const data = await res.json();
@@ -452,13 +461,14 @@ async function resumeDiscovery() {
 
 async function retryFailedDiscovery() {
   try {
+    const concurrency = getDiscoveryConcurrency();
     const res = await fetch('/api/discovery/retry-failed', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-CSRF-Nonce': csrfToken
       },
-      body: JSON.stringify({})
+      body: JSON.stringify({ concurrency })
     });
     if (!res.ok) {
       const data = await res.json();
@@ -499,6 +509,11 @@ function setDiscoveryActionButtons(state) {
   const stopBtn = document.getElementById('discoveryStopBtn');
   const resumeBtn = document.getElementById('discoveryResumeBtn');
   const retryBtn = document.getElementById('discoveryRetryFailedBtn');
+  const concSelect = document.getElementById('discoveryConcurrencySelect');
+
+  if (concSelect) {
+    concSelect.disabled = (state === 'RUNNING');
+  }
 
   if (state === 'RUNNING') {
     if (startBtn) startBtn.style.display = 'none';
@@ -1121,7 +1136,65 @@ async function confirmProfileAndStartFinalPreflight() {
     alert(`通信エラー: ${err.message}`);
     if (btn) {
       btn.disabled = false;
-      btn.textContent = 'この内容で最終確認を実行する →';
+      btn.textContent = '事前検証(ドライラン巡回)を実行する';
+    }
+  }
+}
+
+// 最終確認 (ドライラン巡回) を省略し、直接本番反映画面へ進む
+async function confirmProfileAndGoToApply() {
+  if (editorDirty || !previewVerified) {
+    alert('【確認エラー】\n設定が変更されているか、プレビューが最新ではありません。先に「この設定での差分を確認」を実行してください。');
+    return;
+  }
+  if (!draftProfile) {
+    alert('設定内容の準備が完了していません。設定値を指定して差分を確認してください。');
+    return;
+  }
+
+  const btn = document.getElementById('profileDirectApplyBtn');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '設定を確定中...';
+  }
+
+  try {
+    // 1. プロファイル確定
+    const res = await fetch('/api/profile/confirm', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Nonce': csrfToken
+      },
+      body: JSON.stringify({
+        targetSnapshotId: draftProfile.targetSnapshotId,
+        observationSnapshotId: draftProfile.observationSnapshotId,
+        expectedDraftRevision: draftProfile.draftRevision,
+        expectedDraftHash: draftProfile.draftHash
+      })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      alert(`設定確定エラー: ${data.message || data.error}`);
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'この内容で本番反映へ進む (最終チェック省略) →';
+      }
+      return;
+    }
+
+    activeProfileSnapshot = data.profileSnapshot;
+
+    // 2. ドライランをスキップして直接本番反映画面へ切り替え
+    switchTab('apply');
+    updateApplyGate(null);
+  } catch (err) {
+    alert(`通信エラー: ${err.message}`);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'この内容で本番反映へ進む (最終チェック省略) →';
     }
   }
 }
@@ -1153,17 +1226,73 @@ async function startFinalPreflight() {
 // ==========================================
 // STEP 4: 本番反映
 // ==========================================
-function updateApplyGate(report) {
+async function ensurePreviewPlan() {
+  if (previewPlan) return previewPlan;
+  if (!observationSnapshot || !draftProfile) return null;
+  try {
+    const prevRes = await fetch('/api/preview/calculate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Nonce': csrfToken
+      },
+      body: JSON.stringify({
+        observationSnapshotId: observationSnapshot.observationSnapshotId,
+        draftRevision: draftProfile.draftRevision,
+        draftHash: draftProfile.draftHash
+      })
+    });
+    if (prevRes.ok) {
+      previewPlan = await prevRes.json();
+      return previewPlan;
+    }
+  } catch {}
+  return null;
+}
+
+async function updateApplyGate(report) {
   const badge = document.getElementById('applyGateBadge');
   const alertBox = document.getElementById('applyGateAlert');
   const statusText = document.getElementById('applyGateStatusText');
+  const applyBtn = document.getElementById('applyExecuteBtn');
 
   if (!report || report.status !== 'COMPLETE') {
+    // previewPlan が未ロードなら自動補完
+    if (!previewPlan) {
+      await ensurePreviewPlan();
+    }
+
+    // Preflight が未実行でも、previewPlan があれば直接反映可能
+    if (previewPlan && (activeProfileSnapshot || draftProfile)) {
+      if (badge) {
+        badge.textContent = '直接反映準備完了';
+        badge.className = 'badge badge-success';
+      }
+      if (alertBox) alertBox.className = 'alert-box alert-success mb-3';
+      if (statusText) statusText.textContent = '現状調査（STEP 2）の確認結果に基づき、直接本番反映を開始できます（事前ドライラン省略モード）。';
+
+      const allowDestructiveCheckbox = document.getElementById('applyAllowDestructiveCheckbox');
+      const isAllowDestructiveChecked = Boolean(allowDestructiveCheckbox && allowDestructiveCheckbox.checked);
+      updateApplyGateCounts(null, isAllowDestructiveChecked);
+
+      const destructiveSchools = previewPlan.destructiveCount || 0;
+      const desRiskContainer = document.getElementById('destructiveRiskContainer');
+      if (destructiveSchools > 0) {
+        if (desRiskContainer) desRiskContainer.style.display = 'block';
+      } else {
+        if (desRiskContainer) desRiskContainer.style.display = 'none';
+      }
+
+      if (applyBtn) applyBtn.disabled = false;
+      return;
+    }
+
     if (badge) {
       badge.textContent = 'チェック未完了';
       badge.className = 'badge badge-warning';
     }
-    if (statusText) statusText.textContent = '最終確認が完了していません。先にSTEP 3で最終確認を行ってください。';
+    if (statusText) statusText.textContent = '最終確認が完了していません。先にSTEP 3で設定の差分確認・確定を行ってください。';
+    if (applyBtn) applyBtn.disabled = true;
     return;
   }
 
@@ -1186,51 +1315,89 @@ function updateApplyGate(report) {
     if (statusText) statusText.textContent = '全校の安全確認が完了しました。本番反映を開始できます。';
   }
 
-  // 集計カードの更新
+  // 集計カードの更新 (Phase 6B: allowDestructive チェック状態を反映)
+  const allowDestructiveCheckbox = document.getElementById('applyAllowDestructiveCheckbox');
+  const isAllowDestructiveChecked = Boolean(allowDestructiveCheckbox && allowDestructiveCheckbox.checked);
+
+  updateApplyGateCounts(report, isAllowDestructiveChecked);
+
+  // 予約投稿削除リスクの案内表示制御
+  const destructiveSchools = report.destructiveChangeSchools !== undefined ? report.destructiveChangeSchools : (report.destructiveSchoolsCount || report.destructiveSchools || 0);
+  const desRiskContainer = document.getElementById('destructiveRiskContainer');
+  if (destructiveSchools > 0) {
+    if (desRiskContainer) desRiskContainer.style.display = 'block';
+  } else {
+    if (desRiskContainer) desRiskContainer.style.display = 'none';
+  }
+
+  // 実行ボタンの制御 (Server SSOT: serverApplyReady)
+  if (applyBtn) {
+    applyBtn.disabled = !serverApplyReady || hasFailures || hasBlocks;
+  }
+}
+
+// Phase 6B: 画面4の集計カード動的更新
+function updateApplyGateCounts(report, isAllowDestructiveChecked) {
+  const source = report || previewPlan;
+  if (!source) return;
+
   const setVal = (id, val) => {
     const el = document.getElementById(id);
     if (el) el.textContent = val;
   };
 
-  const targetCount = report.requiresChange !== undefined ? report.requiresChange : (report.writeEligibleCount || report.writeEligible || 0);
-  const skippedCount = report.destructiveChangeSchools !== undefined ? report.destructiveChangeSchools : (report.destructiveSchoolsCount || report.destructiveSchools || 0);
-  const alreadyCount = report.alreadyConfigured !== undefined ? report.alreadyConfigured : (report.alreadyConfiguredCount || 0);
+  const totalRequiresChange = source.requiresChange !== undefined ? source.requiresChange : (source.targetCount || source.writeEligibleCount || 0);
+  const totalDestructive = source.destructiveChangeSchools !== undefined ? source.destructiveChangeSchools : (source.destructiveCount || source.destructiveSchoolsCount || 0);
+  const alreadyCount = source.alreadyConfigured !== undefined ? source.alreadyConfigured : (source.alreadyConfiguredCount || 0);
+
+  let targetCount = 0;
+  let skippedCount = 0;
+
+  if (isAllowDestructiveChecked) {
+    // 破壊的変更も合意の上で反映: 変更対象校すべてが反映対象
+    targetCount = totalRequiresChange;
+    skippedCount = 0;
+  } else {
+    // 破壊的変更は自動除外 (非破壊のみ反映)
+    targetCount = Math.max(0, totalRequiresChange - totalDestructive);
+    skippedCount = totalDestructive;
+  }
 
   setVal('applyTargetCountVal', `${targetCount} 校`);
   setVal('applySkippedDestructiveVal', `${skippedCount} 校`);
   setVal('applyAlreadyConfiguredVal', `${alreadyCount} 校`);
 
-  // 予約投稿削除リスクの案内表示制御
-  const desRiskContainer = document.getElementById('destructiveRiskContainer');
   const skippedCard = document.getElementById('applySkippedDestructiveCard');
-  if (skippedCount > 0) {
-    if (desRiskContainer) desRiskContainer.style.display = 'block';
-    if (skippedCard) skippedCard.style.opacity = '1.0';
-  } else {
-    if (desRiskContainer) desRiskContainer.style.display = 'none';
-    if (skippedCard) skippedCard.style.opacity = '0.6';
+  if (skippedCard) {
+    skippedCard.style.opacity = skippedCount > 0 ? '1.0' : '0.6';
   }
+}
 
-  // 実行ボタンの制御 (Server SSOT: serverApplyReady)
-  const applyBtn = document.getElementById('applyExecuteBtn');
-  if (applyBtn) {
-    applyBtn.disabled = !serverApplyReady || hasFailures || hasBlocks;
-  }
+// Phase 6B: チェックボックス切り替えイベント
+function onAllowDestructiveToggled(isChecked) {
+  updateApplyGateCounts(activeFinalPreflightReport || previewPlan, isChecked);
 }
 
 async function onApplyExecuteClicked() {
   const btn = document.getElementById('applyExecuteBtn');
   if (btn) btn.disabled = true;
 
+  const allowDestructiveCheckbox = document.getElementById('applyAllowDestructiveCheckbox');
+  const allowDestructive = Boolean(allowDestructiveCheckbox && allowDestructiveCheckbox.checked);
+  const isDirect = !activeFinalPreflightReport && Boolean(previewPlan);
+
   try {
-    // 1. 自動で適用準備 (承認トークン発行) を呼び出し
+    // 1. 自動で適用準備 (承認トークン発行) を呼び出し (Phase 6B: allowDestructive & directApply を送信)
     const res = await fetch('/api/apply/prepare', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-CSRF-Nonce': csrfToken
       },
-      body: JSON.stringify({})
+      body: JSON.stringify({
+        allowDestructive,
+        directApply: isDirect
+      })
     });
 
     const data = await res.json();
@@ -1251,6 +1418,32 @@ async function onApplyExecuteClicked() {
     setVal('modalAlreadyCount', data.alreadyConfiguredCount);
     setVal('modalSkippedCount', data.skippedDestructiveCount);
 
+    // Phase 6B: モーダル内の破壊的変更警告と同意チェックボックス制御
+    const modalDestructiveAlert = document.getElementById('modalDestructiveAlert');
+    const modalNonDestructiveNote = document.getElementById('modalNonDestructiveNote');
+    const modalDestructiveConfirmCheckbox = document.getElementById('modalDestructiveConfirmCheckbox');
+    const modalStartBtn = document.getElementById('modalApplyStartBtn');
+
+    const destructiveCount = activeFinalPreflightReport?.destructiveChangeSchools || previewPlan?.destructiveCount || 0;
+    if (allowDestructive && destructiveCount > 0) {
+      if (modalDestructiveAlert) modalDestructiveAlert.style.display = 'block';
+      if (modalNonDestructiveNote) modalNonDestructiveNote.style.display = 'none';
+      setVal('modalDestructiveIncludedCount', destructiveCount);
+
+      if (modalDestructiveConfirmCheckbox) {
+        modalDestructiveConfirmCheckbox.checked = false;
+      }
+      if (modalStartBtn) {
+        modalStartBtn.disabled = true; // 同意チェックを入れるまでボタン無効化
+      }
+    } else {
+      if (modalDestructiveAlert) modalDestructiveAlert.style.display = 'none';
+      if (modalNonDestructiveNote) modalNonDestructiveNote.style.display = 'block';
+      if (modalStartBtn) {
+        modalStartBtn.disabled = false;
+      }
+    }
+
     // 3. 画面中央に確認モーダルを表示
     const modal = document.getElementById('applyConfirmModal');
     if (modal) modal.style.display = 'flex';
@@ -1258,6 +1451,15 @@ async function onApplyExecuteClicked() {
     alert(`通信エラー: ${err.message}`);
   } finally {
     if (btn) btn.disabled = false;
+  }
+}
+
+// Phase 6B: モーダル内の承諾チェックボックス変更ハンドラ
+function updateModalApplyStartBtn() {
+  const checkbox = document.getElementById('modalDestructiveConfirmCheckbox');
+  const btn = document.getElementById('modalApplyStartBtn');
+  if (btn && checkbox) {
+    btn.disabled = !checkbox.checked;
   }
 }
 
@@ -1669,18 +1871,45 @@ function subscribeSse() {
     }
   });
 
+  let logBuffer = [];
+  let logFlushTimer = null;
+  const MAX_LOG_LINES = 250;
+
+  function appendLog(line) {
+    logBuffer.push(line);
+    if (!logFlushTimer) {
+      logFlushTimer = setTimeout(() => {
+        const chunk = logBuffer.join('\n') + '\n';
+        logBuffer = [];
+        logFlushTimer = null;
+
+        const updateBox = (id) => {
+          const box = document.getElementById(id);
+          if (box) {
+            box.textContent += chunk;
+            const lines = box.textContent.split('\n');
+            if (lines.length > MAX_LOG_LINES) {
+              box.textContent = lines.slice(-MAX_LOG_LINES).join('\n');
+            }
+            box.scrollTop = box.scrollHeight;
+          }
+        };
+
+        updateBox('observeLogOutput');
+        updateBox('applyLogConsole');
+      }, 100);
+    }
+  }
+
   eventSource.addEventListener('log', (e) => {
-    const text = e.data;
-    const logBox = document.getElementById('observeLogOutput');
-    if (logBox) {
-      logBox.textContent += text + '\n';
-      logBox.scrollTop = logBox.scrollHeight;
-    }
-    const applyLogBox = document.getElementById('applyLogConsole');
-    if (applyLogBox) {
-      applyLogBox.textContent += text + '\n';
-      applyLogBox.scrollTop = applyLogBox.scrollHeight;
-    }
+    let text = e.data;
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed.line === 'string') {
+        text = parsed.line;
+      }
+    } catch {}
+    appendLog(text);
   });
 }
 

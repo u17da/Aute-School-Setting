@@ -394,6 +394,11 @@ export type ApplyStartRequest = z.infer<typeof ApplyStartRequestSchema>;
 export const EmptyActionRequestSchema = z.object({}).strict();
 export type EmptyActionRequest = z.infer<typeof EmptyActionRequestSchema>;
 
+export const DiscoveryStartRequestSchema = z.object({
+  concurrency: z.number().int().min(1).max(5).optional()
+}).strict();
+export type DiscoveryStartRequest = z.infer<typeof DiscoveryStartRequestSchema>;
+
 // Write-related fields to explicitly check & reject (Defense in depth)
 export const FORBIDDEN_WRITE_FIELDS = [
   'apply',

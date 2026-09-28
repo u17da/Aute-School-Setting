@@ -1,8 +1,10 @@
 import * as crypto from 'crypto';
 import { PreflightReport, ApplyTargetItem, ApplyTargetManifest, ConfirmationTokenData } from '../types/batch';
-import { ProfileSnapshot, ValidationSnapshot, FinalValidationSnapshot } from './types';
-import { generateApplyTargetHash } from '../utils/hash';
+import { ProfileSnapshot, ValidationSnapshot, FinalValidationSnapshot, ObservationSnapshot } from './types';
+import { generateApplyTargetHash, generateSettingsHash } from '../utils/hash';
 import { AutomationError } from '../types/errors';
+import { buildExecutionPlan } from '../automation/buildExecutionPlan';
+import { evaluateExecutionPlan } from '../automation/evaluateExecutionPlan';
 
 export interface GlobalGateValidationResult {
   eligible: boolean;
@@ -11,22 +13,22 @@ export interface GlobalGateValidationResult {
 }
 
 /**
- * 指示4 & Phase 6A: Production Apply の Global Gate 検証と Manifest 生成
- * 1件でも Read Failed, NOT_PROCESSED, PLAN_BLOCKED, CONFIG_CONFLICT, DEPENDENCY_UNSATISFIED があれば Apply 開始禁止
- * - purpose === 'FINAL_PREFLIGHT' 必須 (DISCOVERY レポートからの生成は完全拒否)
- * - FinalValidationSnapshot による State Lineage バインド
- * - 破壊的変更の Override は完全禁止 (強制スキップ)
+ * 指示4, Phase 6A, Phase 6B: Production Apply の Global Gate 検証と Manifest 生成
+ * - preflightReport が存在する場合は Preflight 結果の整合性を厳格検証
+ * - directApply === true の場合は ObservationSnapshot と ProfileSnapshot から直接 Manifest を導出 (Preflight巡回スキップ)
  */
 export function validateGlobalGateAndBuildManifest(params: {
-  preflightReport: PreflightReport;
+  preflightReport?: PreflightReport | null;
+  observationSnapshot?: ObservationSnapshot | null;
   activeProfileSnapshot: ProfileSnapshot | null;
   currentValidationSnapshot: ValidationSnapshot | null;
   finalValidationSnapshot?: FinalValidationSnapshot | null;
   summaryPath?: string;
-  summaryReport?: any; // 詳細な actions や expectedFinalState が格納された summary
-  allowDestructive?: boolean; // Phase 6A: 常に無視 (Override禁止)
+  summaryReport?: any;
+  allowDestructive?: boolean;
+  directApply?: boolean;
 }): ApplyTargetManifest {
-  const { preflightReport, activeProfileSnapshot, currentValidationSnapshot, finalValidationSnapshot, summaryReport } = params;
+  const { preflightReport, observationSnapshot, activeProfileSnapshot, currentValidationSnapshot, finalValidationSnapshot, summaryReport, directApply } = params;
 
   const effectiveValidation = currentValidationSnapshot || (finalValidationSnapshot ? {
     schoolsHash: finalValidationSnapshot.schoolsHash,
@@ -34,13 +36,103 @@ export function validateGlobalGateAndBuildManifest(params: {
     authMode: finalValidationSnapshot.authMode
   } : null);
 
-  // 1. Snapshot / Preflight 存在確認
+  // 1. Snapshot 存在確認
   if (!activeProfileSnapshot) {
     throw new AutomationError('CONFIG_INVALID', '有効な Profile Snapshot が存在しません。事前に「入力を検証」を実行してください');
   }
   if (!effectiveValidation) {
     throw new AutomationError('CONFIG_INVALID', '有効な Validation Snapshot が存在しません。事前に「入力を検証」を実行してください');
   }
+
+  // --- ダイレクト反映モード (Preflight ドライラン巡回の省略) ---
+  if (directApply === true) {
+    if (!observationSnapshot) {
+      throw new AutomationError('CONFIG_INVALID', '直接本番反映には調査結果 (Observation Snapshot) が必要です');
+    }
+
+    const applyTargets: ApplyTargetItem[] = [];
+    let skippedDestructiveCount = 0;
+    let alreadyConfiguredCount = 0;
+    let blockedCount = 0;
+
+    for (const s of observationSnapshot.schools) {
+      if (s.readStatus !== 'SUCCESS') {
+        blockedCount++;
+        continue;
+      }
+
+      const plan = buildExecutionPlan({
+        schoolCode: s.schoolCode,
+        schoolName: s.schoolName,
+        currentObservation: s.observation,
+        requestedSettings: activeProfileSnapshot.requestedSettings
+      });
+
+      const evaluation = evaluateExecutionPlan(plan);
+      if (!evaluation.isExecutable) {
+        blockedCount++;
+        continue;
+      }
+
+      // 破壊的変更校の判定
+      if (plan.hasDestructiveChanges) {
+        if (!params.allowDestructive) {
+          skippedDestructiveCount++;
+          continue;
+        }
+      }
+
+      // 設定変更なし
+      if (plan.actions.length === 0) {
+        alreadyConfiguredCount++;
+        continue;
+      }
+
+      // baselineHash の導出 (現行値から計算)
+      const baselineValues: Record<string, string | null> = {};
+      if (s.observation) {
+        for (const [k, v] of Object.entries(s.observation)) {
+          baselineValues[k] = (v as any)?.value ?? null;
+        }
+      }
+      const baselineHash = generateSettingsHash(baselineValues as any);
+
+      applyTargets.push({
+        schoolCode: s.schoolCode,
+        baselineHash,
+        plannedActions: plan.actions,
+        expectedFinalState: activeProfileSnapshot.requestedSettings as any
+      });
+    }
+
+    if (blockedCount > 0) {
+      throw new AutomationError('UNSAFE_CONFIGURATION', `ブロック対象校が ${blockedCount} 校存在するため、Production Apply を開始できません`);
+    }
+    if (applyTargets.length === 0) {
+      throw new AutomationError('CONFIG_INVALID', '適用対象となる学校が 0 校です（全校が変更なしまたは破壊的変更除外です）');
+    }
+
+    const applyTargetHash = generateApplyTargetHash(applyTargets);
+    return {
+      finalValidationSnapshotId: finalValidationSnapshot?.finalValidationSnapshotId,
+      profileSnapshotId: activeProfileSnapshot.snapshotId,
+      preflightId: `direct-${observationSnapshot.observationSnapshotId || Date.now()}`,
+      profileHash: activeProfileSnapshot.profileHash,
+      schoolsHash: effectiveValidation.schoolsHash,
+      applyTargetHash,
+      authMode: observationSnapshot.authMode || finalValidationSnapshot?.authMode,
+      createdAt: new Date().toISOString(),
+      totalSchools: observationSnapshot.schools.length,
+      applyTargets,
+      skippedDestructiveCount,
+      alreadyConfiguredCount,
+      blockedCount,
+      allowDestructive: params.allowDestructive === true,
+      directApply: true
+    };
+  }
+
+  // --- 通常モード: Preflight レポートの厳格検証 ---
   if (!preflightReport) {
     throw new AutomationError('CONFIG_INVALID', '有効な Preflight レポートが存在しません');
   }
@@ -144,8 +236,8 @@ export function validateGlobalGateAndBuildManifest(params: {
       continue;
     }
 
-    // Phase 6A 要件4: 破壊的変更校の自動除外 (Override禁止: 例外なくスキップ)
-    if (s.hasDestructiveChanges) {
+    // Phase 6B: 破壊的変更校の自動除外 (allowDestructive が false または未指定時のみスキップ)
+    if (!params.allowDestructive && s.hasDestructiveChanges) {
       skippedDestructiveCount++;
       continue;
     }
@@ -197,7 +289,8 @@ export function validateGlobalGateAndBuildManifest(params: {
     applyTargets,
     skippedDestructiveCount,
     alreadyConfiguredCount,
-    blockedCount
+    blockedCount,
+    allowDestructive: params.allowDestructive === true
   };
 
   return manifest;
@@ -225,11 +318,20 @@ export class ConfirmationTokenManager {
       applyTargetHash: manifest.applyTargetHash,
       targetCount: manifest.applyTargets.length,
       skippedDestructiveCount: manifest.skippedDestructiveCount,
+      allowDestructive: manifest.allowDestructive === true,
+      directApply: manifest.directApply === true,
       createdAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + ttlMs).toISOString()
     };
     this.tokens.set(rawToken, tokenData);
     return tokenData;
+  }
+
+  /**
+   * トークン情報を参照 (消費はしない)
+   */
+  peekToken(token: string): ConfirmationTokenData | undefined {
+    return this.tokens.get(token);
   }
 
   /**

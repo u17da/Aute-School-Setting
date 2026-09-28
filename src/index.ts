@@ -32,6 +32,7 @@ export interface CliOptions extends Phase2BOptions {
   summaryOutputPath?: string;
   observationOutputPath?: string;
   applyTargetHash?: string;
+  concurrency?: number;
 }
 
 export function parseCliArgs(args: string[]): CliOptions {
@@ -112,6 +113,8 @@ export function parseCliArgs(args: string[]): CliOptions {
       options.observationOutputPath = args[++i];
     } else if (arg === '--apply-target-hash' && i + 1 < args.length) {
       options.applyTargetHash = args[++i];
+    } else if (arg === '--concurrency' && i + 1 < args.length) {
+      options.concurrency = parseInt(args[++i], 10);
     } else if (arg === '--production') {
       options.phase = 'PRODUCTION';
     }
@@ -159,7 +162,8 @@ async function main() {
       targetSnapshotId: options.targetSnapshotId,
       summaryOutputPath: options.summaryOutputPath,
       observationOutputPath: options.observationOutputPath,
-      applyTargetHash: options.applyTargetHash
+      applyTargetHash: options.applyTargetHash,
+      concurrency: options.concurrency
     });
   } else if (options.phase === 'PRODUCTION') {
     console.log('まなびポケット 学校設定 自動化ツール [Phase 3: Single Production Run]');

@@ -138,6 +138,18 @@
         <h2>2. 対象学校の現状調査</h2>
         <p class="section-desc">対象校の現在の設定値を安全に読み取ります（読み取り専用。設定の変更や書き込みは一切行いません）。</p>
 
+        <!-- 並行セッション数設定 -->
+        <div class="mt-2 mb-3 p-3 bg-light rounded" style="border: 1px solid #cbd5e1; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.75rem; background: #f8fafc;">
+          <label for="discoveryConcurrencySelect" class="font-bold" style="margin: 0; font-size: 0.9rem;">並行調査セッション数:</label>
+          <select id="discoveryConcurrencySelect" class="form-control" style="width: auto; padding: 0.35rem 0.6rem; border: 1px solid #cbd5e1; border-radius: 4px; font-weight: 600;">
+            <option value="3" selected>3並行（推奨: 約3倍高速 / 400校で約12分）</option>
+            <option value="4">4並行（超高速: 約4倍高速 / 400校で約10分）</option>
+            <option value="2">2並行（安定高速: 約2倍高速 / 400校で約20分）</option>
+            <option value="1">1並行（通常: 1校ずつ安全実行 / 400校で約40分）</option>
+          </select>
+          <span class="text-muted" style="font-size: 0.8rem;">※ 読み取り専用の現状調査のみ並行実行されます。</span>
+        </div>
+
         <!-- ジョブ実行制御ボタン -->
         <div class="action-bar mt-2">
           <button id="discoveryStartBtn" class="btn btn-primary" onclick="startDiscovery()">現状調査を開始する</button>
@@ -357,10 +369,13 @@
             </table>
           </div>
 
-          <!-- アクションバー: 最終確認実行 -->
-          <div class="action-bar mt-4 text-right">
-            <button id="profileConfirmBtn" class="btn btn-primary btn-lg" onclick="confirmProfileAndStartFinalPreflight()">
-              この内容で最終確認を実行する →
+          <!-- アクションバー: 本番反映へ進む / 事前検証実行 -->
+          <div class="action-bar mt-4" style="display: flex; justify-content: flex-end; gap: 12px; align-items: center;">
+            <button id="profileConfirmBtn" class="btn btn-secondary" onclick="confirmProfileAndStartFinalPreflight()">
+              事前検証(ドライラン巡回)を実行する
+            </button>
+            <button id="profileDirectApplyBtn" class="btn btn-success btn-lg" onclick="confirmProfileAndGoToApply()">
+              この内容で本番反映へ進む (最終チェック省略) →
             </button>
           </div>
 
@@ -409,14 +424,20 @@
           <span class="font-bold">反映前チェック状態:</span> <span id="applyGateStatusText">確認中...</span>
         </div>
 
-        <!-- 予約投稿削除リスク（チャンネル非表示化）の安全案内 (Override UIは完全廃止) -->
-        <div id="destructiveRiskContainer" class="mt-3" style="display: none; padding: 1rem 1.25rem; background: var(--bg-muted, #F5F5F5); border-radius: var(--radius-md, 8px); border: 1px solid var(--color-border, #E0E0E0);">
-          <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--color-text, #333); font-weight: bold;">
-            <span>ℹ️ 予約投稿削除リスクのある学校について:</span>
+        <!-- 予約投稿削除リスク（チャンネル非表示化）の合意選択 (Phase 6B) -->
+        <div id="destructiveRiskContainer" class="mt-3" style="display: none; padding: 1rem 1.25rem; background: #FFF8E1; border-radius: var(--radius-md, 8px); border: 1px solid #FFE082;">
+          <div style="display: flex; align-items: flex-start; gap: 0.75rem;">
+            <input type="checkbox" id="applyAllowDestructiveCheckbox" style="margin-top: 4px; transform: scale(1.3); cursor: pointer;" onchange="onAllowDestructiveToggled(this.checked)">
+            <div>
+              <label for="applyAllowDestructiveCheckbox" style="font-weight: bold; color: #7A4100; cursor: pointer; font-size: 0.95rem;">
+                予約投稿削除のリスクを確認した上で、チャンネル非表示化も含めて反映する
+              </label>
+              <p id="allowDestructiveHelpText" class="help-text" style="margin-top: 4px; margin-bottom: 0; color: #5C3800; font-size: 0.88rem;">
+                ※ <strong>チェックOFF（標準推奨）:</strong> 予約投稿削除リスクのある学校は<strong>自動的に除外（安全スキップ）</strong>されます。<br>
+                ※ <strong>チェックON:</strong> 予約投稿の自動削除を承諾した上で、全校に反映します。
+              </p>
+            </div>
           </div>
-          <p id="allowDestructiveHelpText" class="help-text" style="margin-top: 4px; margin-bottom: 0; color: var(--color-muted, #666); font-size: 0.9rem;">
-            予約投稿の自動削除を伴う設定変更（チャンネル非表示化等）を含む学校は、安全のため今回の本番反映対象から自動除外されます。
-          </p>
         </div>
 
         <!-- 設定反映の対象集計 -->
@@ -560,7 +581,23 @@
             <li>安全スキップ校数 (予約投稿リスク): <strong id="modalSkippedCount">0</strong> 校</li>
           </ul>
         </div>
-        <p class="mt-2 text-muted">破壊的変更（予約投稿の削除リスク）を含む学校はすべてスキップされ、安全な非破壊更新のみが実行されます。</p>
+        <p id="modalNonDestructiveNote" class="mt-2 text-muted">破壊的変更（予約投稿の削除リスク）を含む学校はすべてスキップされ、安全な非破壊更新のみが実行されます。</p>
+
+        <!-- 破壊的変更（予約投稿削除）を含む場合の重大警告と明示的承諾チェックボックス (Phase 6B) -->
+        <div id="modalDestructiveAlert" class="alert-box alert-danger mt-3" style="display: none;">
+          <p class="font-bold text-danger" style="margin: 0 0 6px 0;">⚠️ 【重大警告】予約投稿の自動削除を伴う本番反映です</p>
+          <p style="margin: 0; font-size: 0.9rem;">
+            この反映には、全体チャンネルまたは保護者チャンネルを非表示にする設定が含まれています。<br>
+            <strong>対象校（<span id="modalDestructiveIncludedCount">0</span>校）において、登録済みの予約投稿がすべて自動削除されます。</strong>
+          </p>
+          <div style="margin-top: 10px; padding: 8px 12px; background: #fff; border: 1px solid #d32f2f; border-radius: 4px;">
+            <label style="font-weight: bold; color: #b71c1c; cursor: pointer; display: flex; align-items: center; gap: 8px;">
+              <input type="checkbox" id="modalDestructiveConfirmCheckbox" onchange="updateModalApplyStartBtn()">
+              予約投稿が消去されるリスクを承諾した上で本番反映を実行します
+            </label>
+          </div>
+        </div>
+
         <p class="font-bold mt-3">本当に実行しますか？</p>
       </div>
       <div class="modal-footer mt-4" style="display: flex; justify-content: flex-end; gap: 0.75rem;">

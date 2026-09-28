@@ -65,6 +65,8 @@ export interface ApplyTargetManifest {
   skippedDestructiveCount: number;
   alreadyConfiguredCount: number;
   blockedCount: number;
+  allowDestructive?: boolean;
+  directApply?: boolean;
 }
 
 export interface ConfirmationTokenData {
@@ -81,6 +83,8 @@ export interface ConfirmationTokenData {
   createdAt: string;
   expiresAt: string;
   consumedAt?: string;
+  allowDestructive?: boolean;
+  directApply?: boolean;
 }
 
 export const CHECKPOINT_SCHEMA_VERSION = '1.1';

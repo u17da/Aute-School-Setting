@@ -9,6 +9,7 @@ import {
   DraftProfileRequestSchema,
   ProfileConfirmRequestSchema,
   EmptyActionRequestSchema,
+  DiscoveryStartRequestSchema,
   FORBIDDEN_WRITE_FIELDS,
   ConsoleJobState,
   ActiveUploadedBatch,
@@ -1138,7 +1139,7 @@ export class ConsoleServer {
       return;
     }
 
-    // 11. POST /api/apply/prepare (指示5 & Phase 6A: Confirmation Token 発行, Override禁止)
+    // 11. POST /api/apply/prepare (指示5 & Phase 6B: Confirmation Token 発行, allowDestructive 対応)
     if (method === 'POST' && pathname === '/api/apply/prepare') {
       const state = this.adapter.getJobState();
       if (state === 'RUNNING' || state === 'STOPPING') {
@@ -1154,16 +1155,24 @@ export class ConsoleServer {
         return;
       }
 
-      // Write関連の不正フィールド拒絶
+      // Write関連の不正フィールド拒絶 (allowDestructive のみ boolean 値として安全に許可)
       for (const field of FORBIDDEN_WRITE_FIELDS) {
         if (field in body) {
+          if (field === 'allowDestructive' && typeof body.allowDestructive === 'boolean') {
+            continue;
+          }
           this.sendJson(res, 400, { error: 'WRITE_FORBIDDEN', message: `Write関連フィールド '${field}' は許可されていません` });
           return;
         }
       }
 
       try {
-        const result = this.adapter.prepareProductionApply();
+        const result = this.adapter.prepareProductionApply(
+          undefined,
+          undefined,
+          Boolean(body.allowDestructive),
+          Boolean(body.directApply)
+        );
         this.sendJson(res, 200, {
           status: 'PREPARED',
           manifest: result.manifest,
@@ -1171,7 +1180,9 @@ export class ConsoleServer {
           expiresAt: result.tokenData.expiresAt,
           targetCount: result.manifest.applyTargets.length,
           skippedDestructiveCount: result.manifest.skippedDestructiveCount,
-          alreadyConfiguredCount: result.manifest.alreadyConfiguredCount
+          alreadyConfiguredCount: result.manifest.alreadyConfiguredCount,
+          allowDestructive: result.manifest.allowDestructive === true,
+          directApply: result.manifest.directApply === true
         });
       } catch (err: any) {
         const statusCode =
@@ -1270,21 +1281,24 @@ export class ConsoleServer {
       }
     }
 
-    const parseRes = EmptyActionRequestSchema.safeParse(body);
+    const parseRes = DiscoveryStartRequestSchema.safeParse(body);
     if (!parseRes.success) {
       this.sendJson(res, 400, {
         error: 'INVALID_REQUEST',
-        message: `リクエスト検証エラー: 未知のフィールドが存在します: ${parseRes.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', ')}`
+        message: `リクエスト検証エラー: ${parseRes.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', ')}`
       });
       return;
     }
 
     try {
-      this.adapter.startDiscoveryProcess(mode, {});
+      this.adapter.startDiscoveryProcess(mode, {
+        concurrency: parseRes.data.concurrency
+      });
       this.sendJson(res, 200, {
         status: 'STARTED',
         mode: 'DISCOVERY',
         runId: this.adapter.getCurrentRunId(),
+        concurrency: parseRes.data.concurrency || 1,
         message: '現状調査プロセスを開始しました (DISCOVERY: Read-only)'
       });
     } catch (err: any) {
