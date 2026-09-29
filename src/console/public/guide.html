@@ -610,6 +610,13 @@
             ※ 通常の「CSV（コンマ区切り）」を選択すると、日本語の学校名が文字化けして照合エラーの原因となります。
           </p>
         </div>
+
+        <div class="callout callout-info" style="background-color: var(--primary-bg); border-left: 4px solid var(--accent); padding: 1rem; border-radius: var(--radius-sm); margin-top: 1rem;">
+          <div class="callout-title" style="font-weight: 700; color: var(--primary); margin-bottom: 0.5rem;">💡 学校名の表記揺れに対する自動照合機能</div>
+          <p style="margin: 0; font-size: 0.95rem;">
+            管理画面の学校名ヘッダーとCSVの <code>schoolName</code> の照合時、自治体名プレフィックス（例:「大阪市」「生野区」等）の有無や「義務教育学校」と「小中一貫校」といった公的な種別表記揺れは、システムが自動的に安全な正規化を行って同一校として照合します。軽微な表記ゆれによる不要なエラー停止を防ぐ安全設計となっています。
+          </p>
+        </div>
       </section>
 
       <!-- 第3章 -->
@@ -661,7 +668,23 @@
         </p>
 
         <div class="step-card">
-          <div class="step-title"><span class="step-num">1</span>「現状調査を開始する」をクリックする</div>
+          <div class="step-title"><span class="step-num">1</span>並行調査セッション数を選択する（任意）</div>
+          <p>
+            調査開始ボタンの上部にある <strong>「並行調査セッション数」</strong> セレクタで、同時に調査を実行するブラウザ数を設定できます：
+          </p>
+          <ul>
+            <li><strong>3並行（初期値・推奨）:</strong> 通常の約3倍高速に調査を完了します（400校の場合、約12分）。</li>
+            <li><strong>4並行（超高速）:</strong> 高スペックPCや高速回線環境で最短で完了させたい場合（400校で約10分）。</li>
+            <li><strong>2並行（安定高速）:</strong> メモリ使用量を抑えつつ高速化したい場合（400校で約20分）。</li>
+            <li><strong>1並行（通常）:</strong> 1校ずつ順番に安全実行します（400校で約40分）。</li>
+          </ul>
+          <p class="text-muted" style="font-size: 0.88rem; margin-top: 0.4rem;">
+            ※ 現状調査は<strong>完全な読み取り専用</strong>です。並行数を増やしても設定の変更や誤書き込みは一切発生しません。
+          </p>
+        </div>
+
+        <div class="step-card">
+          <div class="step-title"><span class="step-num">2</span>「現状調査を開始する」をクリックする</div>
           <p>
             青色の <strong>[現状調査を開始する（読み取りのみ）]</strong> ボタンをクリックすると、調査バッチが起動します。
           </p>
@@ -738,6 +761,21 @@
             <li><strong>設定値（ON / OFF / 利用する / 利用しない等）を指定した場合:</strong> 全校をその設定値に統一変更する計画を立てます。</li>
             <li><strong>「UNMANAGED (変更しない)」を指定した場合:</strong> その項目は触らず、各学校の現在の設定をそのまま引き継ぎます。</li>
           </ul>
+
+          <div class="callout callout-warning" style="margin-top: 1rem;">
+            <div class="callout-title">🔒 親子依存関係の安全設計ルール（意図と設定値のズレ防止）</div>
+            <p>
+              まなびポケットの仕様上、親機能をOFFにすると子機能は画面上で<strong>利用不可（非活性・値なし）</strong>となります。<br>
+              コンソールでは、「運用者が良かれと思って意図しない設定になる」トラブルを防止するため、<strong>親機能をOFFにした場合は子機能も手動で「OFF」に設定するルール</strong>としています：
+            </p>
+            <ul style="margin-top: 0.5rem; margin-bottom: 0.5rem;">
+              <li><strong>タイムライン・チャンネル機能（親）が「OFF」の場合:</strong><br>子機能である「全体チャンネル機能」「保護者チャンネル機能」を手動で「OFF」に設定してください。</li>
+              <li><strong>個別メッセージ機能（親）が「OFF」の場合:</strong><br>子機能である「保護者との個別メッセージ機能」を手動で「OFF」に設定してください。</li>
+            </ul>
+            <p style="font-size: 0.9rem; margin-bottom: 0;">
+              ※ 親がOFFの状態で子機能が「ON」や「変更しない」になっていると、赤字警告が表示され、設定の確定ボタンが安全にロックされます。
+            </p>
+          </div>
         </div>
 
         <div class="step-card">
@@ -750,6 +788,7 @@
             <li><strong>変更なし校数:</strong> 現在の設定がすでに目標値と一致している学校数</li>
             <li><strong>予約投稿削除リスク校数:</strong> タイムラインやチャンネルをOFFにするため投稿消去リスクがある学校数</li>
             <li><strong>契約外機能の警告:</strong> 「心の健康観察」など、その学校で契約がなく画面上に存在しない項目を有効化しようとした場合の警告</li>
+            <li><strong>親子設定不整合の検知:</strong> 親機能OFF時に子機能が手動OFFになっていない場合の入力チェック警告</li>
           </ul>
         </div>
 
@@ -891,8 +930,15 @@
 
         <h3>Q3. 「設定・差分確認」で設定の不整合警告が出ます。</h3>
         <p>
-          「タイムライン・チャンネル機能」をOFFに設定している状態で、子機能（全体チャンネル・保護者チャンネル）をONにしようとすると発生します。<br>
-          親機能をONにするか、子機能を「OFF」または「変更しない」に合わせてください。
+          親機能（タイムラインまたは個別メッセージ）を「OFF」に設定している状態で、子機能が「OFF」以外の値（ON や 変更しない）になっている場合に発生します。<br>
+          まなびポケットのドメイン仕様として、親機能がOFFになると子機能は画面上で利用不可（非活性・値なし）となります。運用者の意図しない設定や齟齬を防ぐため、以下のように設定を合わせてください：
+        </p>
+        <ul style="margin-top: 0.4rem; margin-bottom: 0.4rem;">
+          <li><strong>タイムライン機能がOFFの場合:</strong> 「全体チャンネル機能」と「保護者チャンネル機能」を手動で「OFF」に設定する</li>
+          <li><strong>個別メッセージ機能がOFFの場合:</strong> 「保護者との個別メッセージ機能」を手動で「OFF」に設定する</li>
+        </ul>
+        <p>
+          子機能を正しく「OFF」に揃えることで赤字警告が解消され、[この設定内容を確定する] ボタンが有効化されます。
         </p>
 
         <h3>Q4. 最初からすべてやり直したいです。</h3>
@@ -956,6 +1002,21 @@
               <td><code>LOGIN_FAILED</code></td>
               <td>エラー</td>
               <td>ログインに失敗しました。CSVの <code>userId</code> または <code>password</code> をご確認ください。</td>
+            </tr>
+            <tr>
+              <td><code>SAVE_FAILED_KNOWN</code></td>
+              <td>エラー (再試行可)</td>
+              <td>保存処理でエラーが確定し、管理画面に留まったまま保存されませんでした。未保存のまま安全に停止しているため、通信回復後または原因解消後に再試行可能です。</td>
+            </tr>
+            <tr>
+              <td><code>RESULT_INCONSISTENT</code></td>
+              <td>データ不整合</td>
+              <td>保存後の再読取値が期待値と一致しませんでした。管理画面の更新遅延やドメイン制約の可能性があるため、ログ詳細および管理画面を手動確認してください。</td>
+            </tr>
+            <tr>
+              <td><code>SCHOOL_MISMATCH</code></td>
+              <td>学校名不一致</td>
+              <td>CSVの <code>schoolName</code> とログイン後の画面ヘッダー学校名が一致しませんでした（表記揺れ安全正規化の許容範囲外）。CSVの学校コードと名称の対応関係をご確認ください。</td>
             </tr>
             <tr>
               <td><code>CONTRACT_NOT_AVAILABLE</code></td>

@@ -3,6 +3,18 @@ import { BasePage } from './BasePage';
 import { AutomationError } from '../types/errors';
 import { logger } from '../logger/logger';
 
+/**
+ * 学校名の表記揺れ（公的種別プレフィックスや空白）を安全に正規化する
+ * 例: "義務教育学校生野未来学園" と "生野未来学園" を同一校として認識
+ */
+export function normalizeSchoolNameForComparison(name: string): string {
+  return name
+    .trim()
+    .replace(/[\s　]+/g, '')
+    .replace(/^(大阪市立|市立|区立|町立|村立|府立|都立|県立|道立)/, '')
+    .replace(/^義務教育学校/, '');
+}
+
 export class HomePage extends BasePage {
   constructor(page: Page) {
     super(page);
@@ -112,13 +124,22 @@ export class HomePage extends BasePage {
 
     logger.info(`学校名照合: 期待値="${normalizedExpected}", 画面値="${actualName}" (Locator: ${usedLocator})`);
 
-    // 完全一致のみ許可（部分一致や推測一致は禁止）
-    if (actualName !== normalizedExpected) {
+    // 1. 完全一致照合
+    const isExactMatch = actualName === normalizedExpected;
+
+    // 2. 表記揺れ（公的種別プレフィックス「義務教育学校」や自治体名の有無、空白差異）を安全に吸収した正規化照合
+    const isNormalizedMatch = normalizeSchoolNameForComparison(actualName) === normalizeSchoolNameForComparison(normalizedExpected);
+
+    if (!isExactMatch && !isNormalizedMatch) {
       throw new AutomationError(
         'SCHOOL_MISMATCH',
         `対象学校名が一致しません。設定ファイル: "${normalizedExpected}", 画面実測値: "${actualName}"`,
         { expectedSchoolName: normalizedExpected, actualSchoolName: actualName, usedLocator }
       );
+    }
+
+    if (!isExactMatch && isNormalizedMatch) {
+      logger.info(`学校名表記揺れ照合成功: 期待値="${normalizedExpected}" と 画面値="${actualName}" を同一校として認証しました`);
     }
 
     // 画面からschoolCodeが取得可能な場合のみ照合

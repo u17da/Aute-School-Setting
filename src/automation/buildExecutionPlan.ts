@@ -62,41 +62,52 @@ export function buildExecutionPlan(params: BuildPlanParams): ExecutionPlan {
     let expectedAvailability: SettingAvailability | undefined = current.availability;
     let reason: ChangeReason = 'UNCHANGED';
 
-    if (requested !== null) {
+    const parentRule = getParentDependencyRule(key);
+    const parentItem = parentRule ? items[parentRule.parentKey] : undefined;
+    const isParentBecomingOff = Boolean(
+      parentRule &&
+      parentItem &&
+      parentItem.expected.value !== null &&
+      parentRule.isParentOff(parentItem.expected.value)
+    );
+
+    if (isParentBecomingOff && parentRule) {
+      // 親設定がOFFになる場合:
+      // まなびポケットの実機仕様では、サーバー永続化後の画面で親がOFFになると子は非活性(DISABLED_BY_DEPENDENCY)かつ未選択(null)となる。
+      // ユーザーが手動で requested === 'OFF' と指定した場合でも、または未指定の場合でも、
+      // 最終永続状態は親の依存関係によって非活性・連動OFFとなる。
+      expectedValue = parentRule.forcedChildValueWhenParentOff;
+      expectedAvailability = parentRule.forcedChildAvailabilityWhenParentOff ?? 'DISABLED_BY_DEPENDENCY';
+      reason = 'DEPENDENCY';
+
+      if (current.value !== expectedValue || current.availability !== expectedAvailability) {
+        dependencyEffects.push({
+          sourceSettingKey: parentRule.parentKey,
+          targetSettingKey: key,
+          targetLabel: def.label,
+          effectType: parentRule.effectType,
+          beforeValue: current.value,
+          expectedValue,
+          expectedAvailability,
+          rule: parentRule.effectType === 'AVAILABILITY_CHANGE'
+            ? `親設定「${parentItem!.label}」がOFFになるため利用不能(${expectedAvailability})`
+            : `親設定「${parentItem!.label}」がOFFになるため連動OFF`
+        });
+      }
+    } else if (requested !== null) {
       expectedValue = requested;
       reason = 'EXPLICIT';
-    } else {
-      // requested が null の場合、親設定の期待値による依存伝播を確認
-      const parentRule = getParentDependencyRule(key);
-      if (parentRule) {
-        const parentItem = items[parentRule.parentKey];
-        if (parentItem && parentItem.expected.value !== null && parentRule.isParentOff(parentItem.expected.value)) {
-          expectedValue = parentRule.forcedChildValueWhenParentOff;
-          expectedAvailability = parentRule.forcedChildAvailabilityWhenParentOff ?? current.availability;
-          if (current.value !== expectedValue || current.availability !== expectedAvailability) {
-            reason = 'DEPENDENCY';
-            dependencyEffects.push({
-              sourceSettingKey: parentRule.parentKey,
-              targetSettingKey: key,
-              targetLabel: def.label,
-              effectType: parentRule.effectType,
-              beforeValue: current.value,
-              expectedValue,
-              expectedAvailability,
-              rule: parentRule.effectType === 'AVAILABILITY_CHANGE'
-                ? `親設定「${parentItem.label}」がOFFになるため利用不能(${expectedAvailability})`
-                : `親設定「${parentItem.label}」がOFFになるため連動OFF`
-            });
-          }
-        }
-      }
     }
 
-    // 破壊的変更（予約投稿削除リスク）の判定: current=ON かつ expected=OFF
+    // 破壊的変更（予約投稿削除リスク）の判定: current=ON かつ (expected=OFF または 連動による利用不能化)
     let isDestructive = false;
     let destructiveWarning: string | undefined;
 
-    if (def.destructiveWhenOff && current.value === 'ON' && expectedValue === 'OFF') {
+    if (
+      def.destructiveWhenOff &&
+      current.value === 'ON' &&
+      (expectedValue === 'OFF' || expectedAvailability === 'DISABLED_BY_DEPENDENCY')
+    ) {
       isDestructive = true;
       destructiveWarning = `「${def.label}」をONからOFFにするため、未投稿の予約投稿が削除される可能性があります`;
       warnings.push(destructiveWarning);

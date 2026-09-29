@@ -1,5 +1,6 @@
 import { SettingKey, SettingObservation, SettingExpectation, SchoolSettingsObservation } from '../types/settings';
 import { ExecutionPlan, ChangeReason } from '../types/plan';
+import { getParentDependencyRule } from '../settings/dependencies';
 
 export interface SettingComparisonResult {
   matches: boolean;
@@ -112,9 +113,29 @@ export function validateObservationMatchesPlan(
     const res = compareObservationToExpectation(act, exp);
 
     if (!res.matches) {
+      // ドメイン仕様セーフティネット:
+      // 親設定が OFF の場合、まなびポケットの実機仕様では子は非活性(DISABLED_BY_DEPENDENCY)かつ値未選択(null)になる。
+      // もし期待値が OFF または null で、実測値が DISABLED_BY_DEPENDENCY かつ null の場合は、
+      // 親設定が実際にOFFであれば、ドメイン仕様上の正常な無効化として合致とみなす。
+      const parentRule = getParentDependencyRule(key);
+      const parentActual = parentRule ? actual[parentRule.parentKey] : undefined;
+      const parentIsActuallyOff = Boolean(
+        parentRule && parentActual && parentRule.isParentOff(parentActual.value as any)
+      );
+
+      if (
+        parentIsActuallyOff &&
+        act.availability === 'DISABLED_BY_DEPENDENCY' &&
+        act.value === null &&
+        (exp.value === 'OFF' || exp.value === null)
+      ) {
+        continue;
+      }
+
       if (stage === 'PRE_SAVE') {
         const isActionTarget = plan.actions.some((a) => a.settingKey === key);
-        if (!isActionTarget) {
+        const isParentActionTarget = parentRule && plan.actions.some((a) => a.settingKey === parentRule.parentKey);
+        if (!isActionTarget && !isParentActionTarget) {
           hasUnexpectedSideEffect = true;
         }
       } else {

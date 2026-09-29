@@ -646,12 +646,14 @@ function renderProfileEditor() {
 
   tbody.innerHTML = '';
   const distData = observationSnapshot?.distribution || observationSnapshot?.settingDistribution || null;
-  const isParentOff = currentDraftSettings['timelineChannel'] === 'OFF';
-
-  // タイムライン機能OFF時に子機能が手動でOFFになっているか判定
+  const isTimelineOff = currentDraftSettings['timelineChannel'] === 'OFF';
   const allChannelVal = currentDraftSettings['allChannel'];
   const parentChannelVal = currentDraftSettings['parentChannel'];
-  const hasTimelineConflict = isParentOff && (allChannelVal !== 'OFF' || parentChannelVal !== 'OFF');
+  const hasTimelineConflict = isTimelineOff && (allChannelVal !== 'OFF' || parentChannelVal !== 'OFF');
+
+  const isDmOff = currentDraftSettings['directMessage'] === 'OFF';
+  const parentDmVal = currentDraftSettings['parentDirectMessage'];
+  const hasDmConflict = isDmOff && parentDmVal !== 'OFF';
 
   settingDefinitions.forEach((def) => {
     const currentVal = currentDraftSettings[def.key] ?? null;
@@ -674,9 +676,11 @@ function renderProfileEditor() {
     // 心の健康観察の未契約チェック
     const isMentalHealthUncontracted = def.key === 'mentalHealth' && distData?.mentalHealth?.['CONTRACT_NOT_AVAILABLE'] > 0;
 
-    // 子機能（全体チャンネル・保護者チャンネル）の親矛盾チェック
+    // 子機能（全体チャンネル・保護者チャンネル・保護者個別メッセージ）の親矛盾チェック
     const isChildOfTimeline = (def.key === 'allChannel' || def.key === 'parentChannel');
-    const childNeedsManualOff = isParentOff && isChildOfTimeline && currentVal !== 'OFF';
+    const childNeedsManualOff = isTimelineOff && isChildOfTimeline && currentVal !== 'OFF';
+    const isChildOfDm = def.key === 'parentDirectMessage';
+    const dmChildNeedsManualOff = isDmOff && isChildOfDm && currentVal !== 'OFF';
 
     // 選択肢（英語コードを排除し、まなびポケットの日本語表記に統一）
     const options = [
@@ -696,6 +700,8 @@ function renderProfileEditor() {
     let alertText = '<span class="text-muted">-</span>';
     if (childNeedsManualOff) {
       alertText = '<span class="text-danger font-bold">⚠️ タイムライン機能がOFFのため、手動で「OFF」に設定してください</span>';
+    } else if (dmChildNeedsManualOff) {
+      alertText = '<span class="text-danger font-bold">⚠️ 個別メッセージ機能がOFFのため、手動で「OFF」に設定してください</span>';
     } else if (isMentalHealthUncontracted) {
       alertText = '<span class="text-warning font-sm font-bold">※ 未契約の学校が含まれるためONにできません</span>';
     }
@@ -714,7 +720,7 @@ function renderProfileEditor() {
     tbody.appendChild(tr);
   });
 
-  checkEditorWarnings(hasTimelineConflict);
+  checkEditorWarnings(hasTimelineConflict, hasDmConflict);
   updateDestructiveNoticeState();
 }
 
@@ -761,7 +767,7 @@ function applyPreset(presetId) {
   renderProfileEditor();
 }
 
-function checkEditorWarnings(hasTimelineConflict) {
+function checkEditorWarnings(hasTimelineConflict, hasDmConflict) {
   const depWarn = document.getElementById('editorDependencyWarning');
   const depMsg = document.getElementById('editorDependencyMessage');
   const desWarn = document.getElementById('editorDestructiveWarning');
@@ -769,15 +775,19 @@ function checkEditorWarnings(hasTimelineConflict) {
   const btnCheckDiff = document.getElementById('calculatePreviewBtn') || document.getElementById('btnCheckDiff');
   const btnConfirm = document.getElementById('profileConfirmBtn');
 
-  // 依存関係チェック（タイムラインOFF時の手動OFF強制）
-  let depIssue = null;
+  // 依存関係チェック（タイムライン・個別メッセージOFF時の手動OFF強制）
+  const depIssues = [];
   if (hasTimelineConflict) {
-    depIssue = '「タイムライン・チャンネル機能」をOFFにする場合、子機能（全体チャンネル・保護者チャンネル）も手動で「OFF」に設定する必要があります。アラートの出ている項目を「OFF」に設定してください。';
+    depIssues.push('「タイムライン・チャンネル機能」をOFFにする場合、子機能（全体チャンネル・保護者チャンネル）も手動で「OFF」に設定する必要があります。');
+  }
+  if (hasDmConflict) {
+    depIssues.push('「個別メッセージ機能」をOFFにする場合、子機能（保護者との個別メッセージ）も手動で「OFF」に設定する必要があります。');
   }
 
+  const hasConflict = depIssues.length > 0;
   if (depWarn && depMsg) {
-    if (depIssue) {
-      depMsg.textContent = depIssue;
+    if (hasConflict) {
+      depMsg.textContent = depIssues.join(' ') + ' アラートの出ている項目を「OFF」に設定してください。';
       depWarn.style.display = 'block';
     } else {
       depWarn.style.display = 'none';
@@ -785,11 +795,11 @@ function checkEditorWarnings(hasTimelineConflict) {
   }
 
   if (btnCheckDiff) {
-    btnCheckDiff.disabled = Boolean(hasTimelineConflict);
+    btnCheckDiff.disabled = hasConflict;
   }
   if (btnConfirm) {
-    // タイムライン矛盾があるか、または設定が未確認(dirty / unverified)の場合は確定ボタンを無効化
-    btnConfirm.disabled = Boolean(hasTimelineConflict) || editorDirty || !previewVerified;
+    // 依存関係矛盾があるか、または設定が未確認(dirty / unverified)の場合は確定ボタンを無効化
+    btnConfirm.disabled = hasConflict || editorDirty || !previewVerified;
     if (editorDirty) {
       btnConfirm.title = '設定が変更されています。「この設定での差分を確認」を実行してください';
     } else if (!previewVerified) {
@@ -838,11 +848,18 @@ function updateDestructiveNoticeState() {
 
 // ユーザーが明示的に「この設定での差分を確認 ↓」をクリックした時の処理
 async function onCheckDiffClicked() {
-  const isParentOff = currentDraftSettings['timelineChannel'] === 'OFF';
+  const isTimelineOff = currentDraftSettings['timelineChannel'] === 'OFF';
   const allChannelVal = currentDraftSettings['allChannel'];
   const parentChannelVal = currentDraftSettings['parentChannel'];
-  if (isParentOff && (allChannelVal !== 'OFF' || parentChannelVal !== 'OFF')) {
+  if (isTimelineOff && (allChannelVal !== 'OFF' || parentChannelVal !== 'OFF')) {
     alert('【設定エラー】\nタイムライン・チャンネル機能がOFFのため、全体チャンネル・保護者チャンネルを手動で「OFF」に設定してください。');
+    return;
+  }
+
+  const isDmOff = currentDraftSettings['directMessage'] === 'OFF';
+  const parentDmVal = currentDraftSettings['parentDirectMessage'];
+  if (isDmOff && parentDmVal !== 'OFF') {
+    alert('【設定エラー】\n個別メッセージ機能がOFFのため、保護者との個別メッセージを手動で「OFF」に設定してください。');
     return;
   }
 

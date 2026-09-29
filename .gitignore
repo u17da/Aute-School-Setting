@@ -56,3 +56,8 @@ dist-package/
 review_pack/
 review_package.zip
 scripts/investigate_content_order.ts
+
+# Live data and raw production files (Strictly confidential)
+data/
+*.zip
+*.pdf

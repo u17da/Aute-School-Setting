@@ -94,6 +94,7 @@ export class BatchProcessAdapter extends EventEmitter {
   private runStartedAt: number | null = null;
   private currentRunId: string | null = null;
   private progressInterval: NodeJS.Timeout | null = null;
+  private lastProgressInfo: BatchProgressInfo | null = null;
   private stdoutBuffer: string[] = [];
   private spawnFn: typeof spawn;
   private lastSpawnInfo: { command: string; args: string[]; env: any } | null = null;
@@ -1903,15 +1904,20 @@ export class BatchProcessAdapter extends EventEmitter {
         this.currentJobState = 'INTERRUPTED'; // 安全停止完了時は INTERRUPTED
       } else if (code === 0) {
         this.currentJobState = 'COMPLETED';
+        // 完了時に最新のチェックポイントをポーリングして正確な確定値を取得
+        this.pollStructuredProgress();
         const total = this.targetSnapshot?.enabledSchoolCount || this.currentSnapshot?.enabledSchoolCount || 1;
         const elapsedSeconds = this.runStartedAt ? Math.floor((Date.now() - this.runStartedAt) / 1000) : 0;
+        const finalSuccess = this.lastProgressInfo ? this.lastProgressInfo.success : total;
+        const finalFailed = this.lastProgressInfo ? this.lastProgressInfo.failed : 0;
+        const finalProcessed = this.lastProgressInfo ? this.lastProgressInfo.processed : total;
         this.emit('progress', {
-          processed: total,
+          processed: finalProcessed,
           total,
           percentage: 100,
-          success: total,
-          failed: 0,
-          remaining: 0,
+          success: finalSuccess,
+          failed: finalFailed,
+          remaining: Math.max(0, total - finalProcessed),
           elapsedSeconds,
           estimatedRemainingSeconds: 0
         });
@@ -2195,6 +2201,7 @@ export class BatchProcessAdapter extends EventEmitter {
               currentSchool
             };
 
+            this.lastProgressInfo = progressInfo;
             this.emit('progress', progressInfo);
             return;
           }
@@ -2216,7 +2223,7 @@ export class BatchProcessAdapter extends EventEmitter {
       const success = parseInt(matchEnd[5], 10);
       const failed = parseInt(matchEnd[6], 10);
       const remaining = parseInt(matchEnd[7], 10);
-      this.emit('progress', {
+      const info: BatchProgressInfo = {
         processed,
         total,
         percentage: total > 0 ? Math.round((processed / total) * 100) : 0,
@@ -2225,7 +2232,9 @@ export class BatchProcessAdapter extends EventEmitter {
         remaining,
         elapsedSeconds,
         estimatedRemainingSeconds: processed > 0 && remaining > 0 ? Math.round((elapsedSeconds / processed) * remaining) : 0
-      });
+      };
+      this.lastProgressInfo = info;
+      this.emit('progress', info);
       return;
     }
 
@@ -2237,15 +2246,16 @@ export class BatchProcessAdapter extends EventEmitter {
       const schoolName = matchStart[3].trim();
       const schoolCode = matchStart[4].trim();
       const processed = Math.max(0, currentIdx - 1);
+      // 学校開始ログからは成否カウント(success, failed)を捏造・上書きせず、確定値を引き継ぐ
       this.emit('progress', {
-        processed,
+        processed: Math.max(processed, this.lastProgressInfo?.processed || 0),
         total,
-        percentage: total > 0 ? Math.round((processed / total) * 100) : 0,
-        success: processed,
-        failed: 0,
-        remaining: Math.max(0, total - processed),
+        percentage: total > 0 ? Math.round((Math.max(processed, this.lastProgressInfo?.processed || 0) / total) * 100) : 0,
+        success: this.lastProgressInfo?.success,
+        failed: this.lastProgressInfo?.failed,
+        remaining: Math.max(0, total - Math.max(processed, this.lastProgressInfo?.processed || 0)),
         elapsedSeconds,
-        estimatedRemainingSeconds: null,
+        estimatedRemainingSeconds: this.lastProgressInfo?.estimatedRemainingSeconds ?? null,
         currentSchool: { schoolCode, schoolName }
       });
       return;
@@ -2256,15 +2266,16 @@ export class BatchProcessAdapter extends EventEmitter {
     if (matchFallback) {
       const processed = parseInt(matchFallback[1], 10);
       const total = parseInt(matchFallback[2], 10);
+      // 補助進捗ログからも成否カウント(success, failed)を捏造せず、確定値を引き継ぐ
       this.emit('progress', {
-        processed,
+        processed: Math.max(processed, this.lastProgressInfo?.processed || 0),
         total,
-        percentage: Math.round((processed / total) * 100),
-        success: processed,
-        failed: 0,
-        remaining: Math.max(0, total - processed),
+        percentage: Math.round((Math.max(processed, this.lastProgressInfo?.processed || 0) / total) * 100),
+        success: this.lastProgressInfo?.success,
+        failed: this.lastProgressInfo?.failed,
+        remaining: Math.max(0, total - Math.max(processed, this.lastProgressInfo?.processed || 0)),
         elapsedSeconds,
-        estimatedRemainingSeconds: null
+        estimatedRemainingSeconds: this.lastProgressInfo?.estimatedRemainingSeconds ?? null
       });
     }
   }

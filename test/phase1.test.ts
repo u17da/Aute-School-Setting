@@ -62,8 +62,14 @@ const defaultOptions: EffectiveExecutionOptions = {
   assert(plan.actions.length === 1, 'Actions should only contain timelineChannel');
   assert(plan.actions[0].settingKey === 'timelineChannel', 'Action key should be timelineChannel');
   assert(plan.dependencyEffects.length === 2, 'Should have 2 dependency effects (allChannel, parentChannel)');
-  assert(plan.dependencyEffects.some((e) => e.targetSettingKey === 'allChannel' && e.expectedValue === 'OFF'), 'allChannel effect should be OFF');
-  assert(plan.dependencyEffects.some((e) => e.targetSettingKey === 'parentChannel' && e.expectedValue === 'OFF'), 'parentChannel effect should be OFF');
+  assert(
+    plan.dependencyEffects.some((e) => e.targetSettingKey === 'allChannel' && e.expectedValue === null && e.expectedAvailability === 'DISABLED_BY_DEPENDENCY'),
+    'allChannel effect should be null and DISABLED_BY_DEPENDENCY'
+  );
+  assert(
+    plan.dependencyEffects.some((e) => e.targetSettingKey === 'parentChannel' && e.expectedValue === null && e.expectedAvailability === 'DISABLED_BY_DEPENDENCY'),
+    'parentChannel effect should be null and DISABLED_BY_DEPENDENCY'
+  );
   assert(plan.hasDestructiveChanges === true, 'Should have destructive changes');
   console.log('✓ Case 1: 連動OFFとリスク検知 (actionsに連動項目を含めずdependencyEffectsへ分離)');
 }

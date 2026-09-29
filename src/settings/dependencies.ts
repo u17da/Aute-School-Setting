@@ -17,16 +17,18 @@ export const DEPENDENCY_RULES: DependencyRule[] = [
     parentKey: 'timelineChannel',
     childKey: 'allChannel',
     isParentOff: (v) => v === 'OFF',
-    forcedChildValueWhenParentOff: 'OFF',
-    effectType: 'VALUE_CHANGE',
+    forcedChildValueWhenParentOff: null,
+    forcedChildAvailabilityWhenParentOff: 'DISABLED_BY_DEPENDENCY',
+    effectType: 'AVAILABILITY_CHANGE',
     destructiveIfChildChangedToOff: true // 予約投稿削除の副作用あり
   },
   {
     parentKey: 'timelineChannel',
     childKey: 'parentChannel',
     isParentOff: (v) => v === 'OFF',
-    forcedChildValueWhenParentOff: 'OFF',
-    effectType: 'VALUE_CHANGE',
+    forcedChildValueWhenParentOff: null,
+    forcedChildAvailabilityWhenParentOff: 'DISABLED_BY_DEPENDENCY',
+    effectType: 'AVAILABILITY_CHANGE',
     destructiveIfChildChangedToOff: true // 予約投稿削除の副作用あり
   },
   {
