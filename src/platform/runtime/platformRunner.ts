@@ -204,12 +204,13 @@ export class PlatformRunner {
 
         // B. Execute operations in the plan
         for (const op of job.executionPlan.operations) {
-          summary.currentOperation = op.operationType;
-          const cap = registry.get(op.operationType);
+          const capId = op.capabilityId || op.operationType;
+          summary.currentOperation = capId;
+          const cap = registry.get(capId);
 
           if (!cap) {
             schoolStatus = 'BLOCKED';
-            schoolError = `操作 "${op.operationType}" はカタログに登録されていません。`;
+            schoolError = `操作 "${capId}" はカタログに登録されていません。`;
             break;
           }
 

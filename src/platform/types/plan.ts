@@ -48,7 +48,7 @@ export interface OperationVerification {
 export interface OperationIR {
   operationId: string;
   operationType: string; // e.g. "LOGIN_AND_VERIFY", "CREATE_SCHOOL_ADMIN", "CHANGE_SCHOOL_SETTING", "REORDER_CONTENTS", "CREATE_GRADE_AND_CLASS", "ADD_BOOKMARK"
-  capabilityId?: string;
+  capabilityId: string; // 単一情報源 (SSOT) として Capability を識別する必須ID
   targetSchoolCodes?: string[]; // If undefined, applies to all ready schools in targetSet
   targetSelector?: Record<string, any>;
   inputMapping: Record<string, any>;
