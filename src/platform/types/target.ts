@@ -1,0 +1,33 @@
+/**
+ * Target Normalization Models for AI-Governed Browser Automation Platform
+ */
+
+export type TargetValidationStatus = 'READY' | 'MISSING' | 'AMBIGUOUS';
+
+export interface TargetSchool {
+  schoolCode: string;
+  schoolName: string;
+  userId?: string;
+  credentialRef: string; // Secret handle / reference. Never store plaintext password here.
+  enabled: boolean;
+  metadata?: Record<string, any>;
+  sourceReference?: string;
+  validationStatus: TargetValidationStatus;
+  missingFields?: string[];
+  ambiguityReason?: string;
+}
+
+export interface TargetSet {
+  targetSetId: string;
+  name: string;
+  createdAt: string;
+  sourceFiles: string[];
+  rawTextProvided?: string;
+  schools: TargetSchool[];
+  summary: {
+    total: number;
+    ready: number;
+    missing: number;
+    ambiguous: number;
+  };
+}
