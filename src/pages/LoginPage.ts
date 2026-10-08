@@ -120,9 +120,160 @@ export class LoginPage extends BasePage {
   }
 
   /**
+   * 認証後URL判定（IdP除外かつhome/dashboard等）
+   */
+  private isAuthenticatedUrl(targetUrl: URL | string): boolean {
+    try {
+      const u = typeof targetUrl === 'string' ? new URL(targetUrl) : targetUrl;
+      if (u.hostname.includes('idp')) return false;
+      const p = u.pathname;
+      return p.includes('home') || p.includes('dashboard') || p.includes('organization') || p === '/';
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Phase 1: 認証後DOMシグナル検知 (.school-name は除外)
+   */
+  private async waitForAuthenticatedDomSignal(timeoutMs: number): Promise<'DOM'> {
+    const locator = this.page.locator(
+      '.v2-header, .v2-nav-menu-header__label, .v2-sidebar-current-account, .v2-sidenav, .dropup.v2-nav-footer__item'
+    ).first();
+    await locator.waitFor({ state: 'visible', timeout: timeoutMs });
+    logger.info('[AUTH] authenticated DOM signal detected');
+    return 'DOM';
+  }
+
+  /**
+   * Phase 1: 認証後URLシグナル検知 (waitUntil: 'domcontentloaded')
+   */
+  private async waitForAuthenticatedUrlSignal(timeoutMs: number): Promise<'URL'> {
+    await this.page.waitForURL((url) => this.isAuthenticatedUrl(url), {
+      waitUntil: 'domcontentloaded',
+      timeout: timeoutMs
+    });
+    logger.info(`[AUTH] authenticated URL signal detected: ${this.page.url()}`);
+    return 'URL';
+  }
+
+  /**
+   * 残り待機時間の厳密計算 (deadline超過時は0以下で即座に例外)
+   */
+  private getRemainingTimeout(deadline: number, phaseName = 'LOGIN_WAIT'): number {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      throw new AutomationError(
+        'LOGIN_FAILED',
+        `ログイン処理の制限時間を超過しました (フェーズ: ${phaseName}, 現在URL: ${this.page.url()})`,
+        { phase: phaseName, currentUrl: this.page.url() }
+      );
+    }
+    return remaining;
+  }
+
+  /**
+   * Phase 1: 早期成功シグナル待機 (Promise.any)
+   */
+  private async waitForEarlySuccessSignal(deadline: number): Promise<'DOM' | 'URL'> {
+    const startTs = Date.now();
+    const timeoutMs = this.getRemainingTimeout(deadline, 'PHASE1_EARLY_SIGNAL');
+
+    try {
+      const winner = await Promise.any([
+        this.waitForAuthenticatedDomSignal(timeoutMs),
+        this.waitForAuthenticatedUrlSignal(timeoutMs)
+      ]);
+      logger.info(`[AUTH] early success signal detected (${winner}) in ${Date.now() - startTs}ms`);
+      return winner;
+    } catch (err: any) {
+      const elapsedMs = Date.now() - startTs;
+      const currentUrl = this.page.url();
+      logger.warn(
+        `[AUTH] Phase 1 失敗: LOGIN_SIGNAL_TIMEOUT (elapsed: ${elapsedMs}ms, url: ${currentUrl})`
+      );
+      throw new AutomationError(
+        'LOGIN_FAILED',
+        `ログイン早期成功シグナル（DOMまたはURL）を検知できませんでした (${timeoutMs}ms経過, 現在URL: ${currentUrl})`,
+        { phase: 'LOGIN_SIGNAL_TIMEOUT', currentUrl, elapsedMs }
+      );
+    }
+  }
+
+  /**
+   * Phase 2: 認証後画面の厳格検証 (各待機の直前にdeadlineから残時間を再計算)
+   */
+  async verifyAuthenticatedHome(deadlineOrTimeoutMs = 15000): Promise<void> {
+    // 既存の単独呼び出し時はtimeoutMs、loginWithLocalPasswordからは共有deadlineを受け取る
+    const deadline = deadlineOrTimeoutMs > 1000000000000 ? deadlineOrTimeoutMs : Date.now() + deadlineOrTimeoutMs;
+
+    logger.info('[AUTH] Verifying authenticated home...');
+
+    // A. Authenticated app shell待機 (認証後固有DOM。※.school-nameは除外)
+    const authShellLocator = this.page.locator(
+      '.v2-header, .v2-nav-menu-header__label, .v2-sidebar-current-account, .v2-sidenav, .dropup.v2-nav-footer__item'
+    ).first();
+    try {
+      const remainingForShell = this.getRemainingTimeout(deadline, 'PHASE2_APP_SHELL');
+      await authShellLocator.waitFor({ state: 'visible', timeout: remainingForShell });
+    } catch (err: any) {
+      const currentUrl = this.page.url();
+      logger.warn(`[AUTH] Phase 2 失敗: AUTHENTICATED_HOME_NOT_CONFIRMED - DOMシェル未出現 (URL: ${currentUrl})`);
+      throw new AutomationError(
+        'LOGIN_FAILED',
+        `認証後画面固有のDOM要素が確認できませんでした (現在URL: ${currentUrl})`,
+        { phase: 'AUTHENTICATED_HOME_NOT_CONFIRMED', currentUrl }
+      );
+    }
+
+    // B. Authenticated URL確認 (短時間待機を含む。直前に残時間を再計算)
+    let isAuthUrl = this.isAuthenticatedUrl(this.page.url());
+    if (!isAuthUrl) {
+      try {
+        const remainingForUrl = Math.min(5000, this.getRemainingTimeout(deadline, 'PHASE2_URL'));
+        await this.page.waitForURL((url) => this.isAuthenticatedUrl(url), {
+          waitUntil: 'domcontentloaded',
+          timeout: remainingForUrl
+        });
+        isAuthUrl = true;
+      } catch {
+        isAuthUrl = this.isAuthenticatedUrl(this.page.url());
+      }
+    }
+    if (!isAuthUrl) {
+      const currentUrl = this.page.url();
+      logger.warn(`[AUTH] Phase 2 失敗: AUTHENTICATED_HOME_NOT_CONFIRMED - 想定外URL (URL: ${currentUrl})`);
+      throw new AutomationError(
+        'LOGIN_FAILED',
+        `認証後の想定URLへの遷移が確認できませんでした (現在URL: ${currentUrl})`,
+        { phase: 'AUTHENTICATED_HOME_NOT_CONFIRMED', currentUrl }
+      );
+    }
+
+    // C. Login UI離脱確認 (ログインボタンやパスワード入力欄が非表示であること。直前に残時間を再計算)
+    const loginInputs = this.page.locator('input[type="password"]:visible, button:has-text("ログイン"):visible');
+    try {
+      const remainingForUiClear = Math.min(3000, this.getRemainingTimeout(deadline, 'PHASE2_UI_CLEAR'));
+      await loginInputs.waitFor({ state: 'hidden', timeout: remainingForUiClear }).catch(() => {});
+    } catch {}
+    const hasLoginInputVisible = await loginInputs.first().isVisible().catch(() => false);
+    if (hasLoginInputVisible) {
+      const currentUrl = this.page.url();
+      logger.warn(`[AUTH] Phase 2 失敗: AUTHENTICATED_HOME_NOT_CONFIRMED - ログインフォームが依然として可視 (URL: ${currentUrl})`);
+      throw new AutomationError(
+        'LOGIN_FAILED',
+        `認証後画面の検証に失敗しました: ログイン入力欄が依然として表示されています (現在URL: ${currentUrl})`,
+        { phase: 'AUTHENTICATED_HOME_NOT_CONFIRMED', currentUrl }
+      );
+    }
+
+    logger.info('[AUTH] authenticated home verified');
+  }
+
+  /**
    * AUTH_MODE=A: ローカル ID/パスワードによる通常ログイン
    */
-  async loginWithLocalPassword(userId: string, password?: string): Promise<void> {
+  async loginWithLocalPassword(userId: string, password?: string, timeoutMs = 30000): Promise<void> {
     if (!password) {
       throw new AutomationError(
         'LOGIN_FAILED',
@@ -131,6 +282,8 @@ export class LoginPage extends BasePage {
     }
 
     logger.info(`ローカルアカウントでログインを実行中`);
+    // ログイン処理全体で1つのdeadlineを共有
+    const deadline = Date.now() + timeoutMs;
 
     let submitCompleted = false;
     try {
@@ -138,12 +291,12 @@ export class LoginPage extends BasePage {
       const userIdInput = this.page.locator(
         'input[placeholder*="ユーザーID"], input[placeholder*="ログインID"], input[name*="loginId"], input[name*="userId"], input[type="text"]'
       ).first();
-      await userIdInput.waitFor({ state: 'visible', timeout: 15000 });
+      await userIdInput.waitFor({ state: 'visible', timeout: Math.min(15000, this.getRemainingTimeout(deadline, 'PRE_SUBMIT_USER_ID')) });
       await userIdInput.fill(userId);
 
       // パスワード入力欄
       const passwordInput = this.page.locator('input[type="password"]').first();
-      await passwordInput.waitFor({ state: 'visible', timeout: 15000 });
+      await passwordInput.waitFor({ state: 'visible', timeout: Math.min(15000, this.getRemainingTimeout(deadline, 'PRE_SUBMIT_PASSWORD')) });
       await passwordInput.fill(password);
 
       // ログインボタン押下
@@ -152,13 +305,19 @@ export class LoginPage extends BasePage {
       ).first();
 
       submitCompleted = true;
+      logger.info('[AUTH] login button clicked');
       await Promise.all([
-        this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {}),
+        this.page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: Math.min(15000, this.getRemainingTimeout(deadline, 'SUBMIT_NAVIGATION')) }).catch(() => {}),
         loginButton.click()
       ]);
 
-      await this.waitForLoginSuccess();
-      logger.info('ログイン完了を検知しました');
+      // Phase 1: 早期成功シグナル待機 (Promise.any, 共有deadline)
+      await this.waitForEarlySuccessSignal(deadline);
+
+      // Phase 2: 認証後画面の厳格検証 (verifyAuthenticatedHome, 共有deadline)
+      await this.verifyAuthenticatedHome(deadline);
+
+      logger.info('[AUTH] 認証済みHome画面への到達を確認しました');
     } catch (err: any) {
       if (err instanceof AutomationError) throw err;
 
@@ -173,7 +332,8 @@ export class LoginPage extends BasePage {
         }
         throw new AutomationError(
           'AUTH_OUTCOME_UNKNOWN',
-          `認証情報送信後に成否を確認できませんでした (タイムアウトまたは切断): ${err.message}`
+          `認証情報送信後に成否を確認できませんでした (タイムアウトまたは切断): ${err.message}`,
+          { currentUrl: this.page.url(), originalError: err.message }
         );
       }
 
@@ -280,15 +440,8 @@ export class LoginPage extends BasePage {
    * ログイン完了（まなびポケットのホーム画面またはユーザーメニュー出現）を待機
    */
   private async waitForLoginSuccess(timeoutMs = 30000): Promise<void> {
-    // ログイン完了判定インジケーター（実画面で確認された.v2-sidebar-current-account、.v2-header、.v2-nav-menu-header__label等）
-    // ※.school-name はログイン画面（IdP側）にも存在するため、成功インジケーターとしては除外
-    const successIndicator = this.page.locator(
-      '.v2-sidebar-current-account, .v2-header, .v2-nav-menu-header__label, .v2-sidenav, [aria-label*="ユーザー"], .user-icon, .dropup.v2-nav-footer__item'
-    ).first();
-
-    await Promise.race([
-      successIndicator.waitFor({ state: 'visible', timeout: timeoutMs }),
-      this.page.waitForURL((url) => !url.hostname.includes('idp') && (url.pathname.includes('home') || url.pathname.includes('dashboard') || url.pathname.includes('organization') || url.pathname === '/'), { timeout: timeoutMs })
-    ]);
+    const deadline = Date.now() + timeoutMs;
+    await this.waitForEarlySuccessSignal(deadline);
+    await this.verifyAuthenticatedHome(deadline);
   }
 }

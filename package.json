@@ -5,9 +5,11 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
+    "typecheck": "tsc --noEmit",
     "start": "ts-node -T src/index.ts",
     "generate-schema": "ts-node -T src/config/generateSchema.ts",
-    "test": "ts-node -T test/phase1.test.ts",
+    "test": "ts-node test/run_all_tests.ts",
+    "test:login-flow": "ts-node test/login_verification_flow.test.ts",
     "test:phase2a": "ts-node -T test/phase2a.test.ts",
     "test:phase2b": "ts-node -T test/phase2b.test.ts",
     "test:phase3": "ts-node -T test/phase3.test.ts",
@@ -25,6 +27,7 @@
     "test:portable": "ts-node -T test/portable_package.test.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.132.1",
     "csv-parse": "^7.0.3",
     "dotenv": "^16.4.7",
     "playwright": "^1.50.1",

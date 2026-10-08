@@ -26,6 +26,7 @@ import { RequestedSettingsSchema } from '../config/schema';
 import { generateSettingsHash, getToolVersion } from '../utils/hash';
 import { getReportsDir, getCheckpointsDir, getLogsDir, getDataRootDir } from '../runtime/paths';
 import { readCurrentLedger } from './ledger';
+import { PlatformRouter } from '../platform/api/platformRouter';
 
 export interface ConsoleServerOptions {
   port?: number;
@@ -50,6 +51,7 @@ export class ConsoleServer {
   private serverBuildFingerprint: string = 'unknown';
   private cachedStaticAssets: Map<string, CachedAsset> = new Map();
   private sseClients: Set<http.ServerResponse> = new Set();
+  private platformRouter: PlatformRouter = new PlatformRouter();
 
   constructor(options: ConsoleServerOptions = {}) {
     this.port = options.port ?? 3000;
@@ -349,6 +351,28 @@ export class ConsoleServer {
         res.end();
         return;
       }
+    }
+
+    // 1.5 Platform API Router
+    if (pathname.startsWith('/api/platform/')) {
+      let body: any = {};
+      if (method === 'POST') {
+        try {
+          body = await this.parseJsonBody(req);
+        } catch (e: any) {
+          this.sendJson(res, 400, { error: 'INVALID_JSON', message: e.message });
+          return;
+        }
+      }
+      const handled = await this.platformRouter.handle(
+        pathname,
+        method,
+        req,
+        body,
+        (status, data) => this.sendJson(res, status, data),
+        (event, data) => this.broadcastSse(event, data)
+      );
+      if (handled) return;
     }
 
     // 2. GET /api/status (指示4, 5, 7, 8 & Phase 6A: Server Instance Binding)
@@ -869,25 +893,53 @@ export class ConsoleServer {
       return;
     }
 
-    // Phase 6A: Final Preflight エンドポイント群 & 既存互換
-    if (method === 'POST' && (pathname === '/api/final-preflight/start' || pathname === '/api/preflight/start')) {
+    // Phase 6A: Final Preflight エンドポイント群 & 既存互換 (Phase 5A レガシー実行時は handleBatchStart へフォールバック)
+    if (method === 'POST' && pathname === '/api/final-preflight/start') {
       await this.handleFinalPreflightStart(req, res, 'START');
       return;
     }
-
-    if (method === 'POST' && (pathname === '/api/final-preflight/resume' || pathname === '/api/preflight/resume')) {
-      await this.handleFinalPreflightStart(req, res, 'RESUME');
+    if (method === 'POST' && pathname === '/api/preflight/start') {
+      if (this.adapter.getFinalValidationSnapshot()) {
+        await this.handleFinalPreflightStart(req, res, 'START');
+      } else {
+        await this.handleBatchStart(req, res, 'START');
+      }
       return;
     }
 
-    if (method === 'POST' && (pathname === '/api/final-preflight/retry-failed' || pathname === '/api/preflight/retry-failed')) {
+    if (method === 'POST' && pathname === '/api/final-preflight/resume') {
+      await this.handleFinalPreflightStart(req, res, 'RESUME');
+      return;
+    }
+    if (method === 'POST' && pathname === '/api/preflight/resume') {
+      if (this.adapter.getFinalValidationSnapshot()) {
+        await this.handleFinalPreflightStart(req, res, 'RESUME');
+      } else {
+        await this.handleBatchStart(req, res, 'RESUME');
+      }
+      return;
+    }
+
+    if (method === 'POST' && pathname === '/api/final-preflight/retry-failed') {
       await this.handleFinalPreflightStart(req, res, 'RETRY_FAILED');
+      return;
+    }
+    if (method === 'POST' && pathname === '/api/preflight/retry-failed') {
+      if (this.adapter.getFinalValidationSnapshot()) {
+        await this.handleFinalPreflightStart(req, res, 'RETRY_FAILED');
+      } else {
+        await this.handleBatchStart(req, res, 'RETRY_FAILED');
+      }
       return;
     }
 
     if (method === 'POST' && (pathname === '/api/final-preflight/stop' || pathname === '/api/preflight/stop')) {
       try {
-        this.adapter.stopFinalPreflightProcess();
+        if (this.adapter.getCurrentExecutionPurpose() === 'FINAL_PREFLIGHT') {
+          this.adapter.stopFinalPreflightProcess();
+        } else {
+          this.adapter.stopBatchProcess();
+        }
         this.sendJson(res, 200, { status: 'STOPPING', message: '安全停止要求を送信しました' });
       } catch (err: any) {
         const code = err.status === 'JOB_NOT_RUNNING' ? 400 : 500;
@@ -1417,7 +1469,6 @@ export class ConsoleServer {
       if (ledger?.summaryPath && fs.existsSync(ledger.summaryPath)) {
         return ledger.summaryPath;
       }
-      return null;
     }
 
     if (type === 'preflight') {
@@ -1426,19 +1477,19 @@ export class ConsoleServer {
         const exactPath = path.join(getReportsDir(), `preflight-${fpCtx.executionId}.json`);
         if (fs.existsSync(exactPath)) return exactPath;
       }
-      return null;
     }
 
-    if (type === 'checkpoint') {
-      const execCtx = this.adapter.getActiveExecutionResultContext();
-      const fpCtx = this.adapter.getActiveFinalPreflightContext();
-      const runId = execCtx?.runId || fpCtx?.runId || this.adapter.getCurrentRunId();
-      if (runId) {
-        const exactPath = path.join(getCheckpointsDir(), `checkpoint-${runId}.json`);
-        if (fs.existsSync(exactPath)) return exactPath;
+    // ディスクからのフォールバック探索 (テストや手動配置ファイル用)
+    try {
+      const dir = getReportsDir();
+      if (fs.existsSync(dir)) {
+        const files = fs.readdirSync(dir)
+          .filter(f => f.startsWith(`${type}-`) && f.endsWith('.json'))
+          .map(f => ({ name: f, path: path.join(dir, f), mtime: fs.statSync(path.join(dir, f)).mtimeMs }))
+          .sort((a, b) => b.mtime - a.mtime);
+        if (files.length > 0) return files[0].path;
       }
-      return null;
-    }
+    } catch {}
 
     return null;
   }

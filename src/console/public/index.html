@@ -21,28 +21,498 @@
   </header>
 
   <main class="main-container">
-    <!-- 世代不一致警告バナー (Fail-Closed: 指示9) -->
-    <div id="versionMismatchBanner" class="alert-box alert-warning mb-3" style="display: none; border-left: 4px solid #f59e0b; padding: 12px 16px; background-color: #fffbeb; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-      <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <span style="font-size: 1.5rem;">⚠️</span>
-          <div>
-            <strong style="color: #b45309; font-size: 0.95rem;">サーバーの再起動またはバージョン更新が検出されました</strong>
-            <p style="margin: 2px 0 0 0; color: #78350f; font-size: 0.85rem;">クライアント画面とサーバーの世代が一致していません。安全のため本番反映は一時ロックされています。最新の状態を反映するために画面を再読み込みしてください。</p>
-          </div>
-        </div>
-        <button class="btn btn-sm btn-secondary" onclick="window.location.reload()" style="white-space: nowrap;">画面を再読み込み</button>
+    <!-- Platform / Legacy Mode Switcher -->
+    <div class="platform-top-bar">
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <span style="font-size: 1.2rem;">🤖</span>
+        <strong>AI-Governed Browser Platform</strong>
+        <span class="badge" style="background: #0ea5e9; color: #fff;">V1 READY</span>
+      </div>
+      <div style="display: flex; gap: 8px;">
+        <button id="modePlatformBtn" class="platform-mode-btn active" onclick="switchAppMode('platform')">AI Platform</button>
+        <button id="modeLegacyBtn" class="platform-mode-btn" onclick="switchAppMode('legacy')">Legacy 設定ツール</button>
       </div>
     </div>
 
-    <!-- 5ステップ ワークフロー ナビゲーション -->
-    <nav class="nav-tabs">
-      <button id="tabTargetBtn" class="tab-btn active" onclick="switchTab('target')">1. 対象学校</button>
-      <button id="tabObserveBtn" class="tab-btn" onclick="switchTab('observe')" disabled>2. 現状調査</button>
-      <button id="tabDecideBtn" class="tab-btn" onclick="switchTab('decide')" disabled>3. 設定・差分確認</button>
-      <button id="tabApplyBtn" class="tab-btn" onclick="switchTab('apply')" disabled>4. 本番反映</button>
-      <button id="tabResultBtn" class="tab-btn" onclick="switchTab('result')">5. 実行結果</button>
-    </nav>
+    <!-- ========================================================================= -->
+    <!-- AI GOVERNED BROWSER PLATFORM CONTAINER                                   -->
+    <!-- ========================================================================= -->
+    <div id="platformContainer">
+      <!-- リアルタイム進捗グローバル通知バナー (Backend State完全同期) -->
+      <div id="platformGlobalEventBanner" class="alert-box" style="display: none; margin-bottom: 1rem; border-left: 4px solid #0284c7; background: #f0f9ff; color: #0369a1; padding: 10px 16px; border-radius: 6px;">
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="spinner" id="platformGlobalSpinner" style="display: inline-block; width: 14px; height: 14px; border: 2px solid #0284c7; border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite;"></span>
+            <span id="platformGlobalStageBadge" class="badge" style="background: #0284c7; color: #fff; font-size: 0.75rem;">STATE</span>
+            <strong id="platformGlobalMessageText" style="font-size: 0.95rem;">-</strong>
+          </div>
+          <small id="platformGlobalTimeText" style="opacity: 0.7; font-family: monospace;"></small>
+        </div>
+      </div>
+
+      <!-- 3-Step ウィザードナビゲーション -->
+      <div class="wizard-steps">
+        <button id="wizStep1Btn" class="wizard-step-btn active" onclick="switchWizardStep(1)">
+          <span class="wizard-step-number">1</span>
+          <div>
+            <div>Step 1: 対象学校の指定</div>
+            <small style="opacity: 0.7;">学校リストの入力とログイン確認</small>
+          </div>
+        </button>
+        <button id="wizStep2Btn" class="wizard-step-btn" onclick="switchWizardStep(2)">
+          <span class="wizard-step-number">2</span>
+          <div>
+            <div>Step 2: 作業手順の計画</div>
+            <small style="opacity: 0.7;">AI対話による計画立案・修正・シミュレーション</small>
+          </div>
+        </button>
+        <button id="wizStep3Btn" class="wizard-step-btn" onclick="switchWizardStep(3)">
+          <span class="wizard-step-number">3</span>
+          <div>
+            <div>Step 3: 自動実行ダッシュボード</div>
+            <small style="opacity: 0.7;">先行検証・全体適用・進捗管理</small>
+          </div>
+        </button>
+      </div>
+
+      <!-- ========================================== -->
+      <!-- STEP 1: 対象学校の指定 (完全な上→下フロー)   -->
+      <!-- ========================================== -->
+      <section id="wizScreenStep1" class="screen-section active">
+        <div class="card">
+          <h2>Step 1: 対象学校の指定</h2>
+          <p class="section-desc">変更を行いたい学校のリストを入力してください。システムが自動で読み取り、ログイン確認を行います。</p>
+
+          <!-- ① 入力 -->
+          <div class="mt-3">
+            <label class="font-bold">① 対象学校の入力または貼り付け（CSV形式 / 学校コード, 学校名, パスワード）:</label>
+            <p class="text-muted" style="font-size: 0.85rem; margin: 2px 0 6px 0;">※ 1行に1校ずつ、「学校コード, 学校名, 管理者パスワード」の順で入力してください。</p>
+            <textarea id="targetRawTextInput" class="instruction-input-area mt-1" rows="5" placeholder="例:&#10;C2001001,堀川小学校,admin01&#10;C2001002,滝川小学校,admin02&#10;C2001003,北野中学校,admin03">C2001001,堀川小学校,admin01
+C2001002,滝川小学校,admin02
+C2001003,北野中学校,admin03
+C2001004,梅田小学校,admin04
+C2001005,難波小学校,admin05</textarea>
+          </div>
+
+          <!-- ② 入力内容を読み取るボタン -->
+          <div class="mt-3">
+            <button class="btn btn-primary" id="btnParseTargets" onclick="executeParseTargets()">
+              📥 ① 入力内容を読み取る
+            </button>
+            <span id="parseStatusText" class="text-muted ml-2" style="font-size: 0.85rem; margin-left: 10px;"></span>
+          </div>
+
+          <!-- ③ 読み取り結果一覧 -->
+          <div id="targetSummaryCard" class="mt-4" style="display: none; border-top: 1px solid #e2e8f0; padding-top: 1.2rem;">
+            <h3>③ 入力内容の読み取り結果</h3>
+            <div class="stat-grid-modern">
+              <div class="stat-box-modern">
+                <div class="num text-primary" id="statTargetTotal">0</div>
+                <div class="label">合計学校数</div>
+              </div>
+              <div class="stat-box-modern">
+                <div class="num text-success" id="statTargetReady">0</div>
+                <div class="label">準備完了 (正常)</div>
+              </div>
+              <div class="stat-box-modern">
+                <div class="num text-warning" id="statTargetMissing">0</div>
+                <div class="label">情報不足 (要確認)</div>
+              </div>
+              <div class="stat-box-modern">
+                <div class="num text-danger" id="statTargetAmbiguous">0</div>
+                <div class="label">重複・競合</div>
+              </div>
+            </div>
+
+            <div class="mt-3">
+              <table class="table" style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+                <thead>
+                  <tr style="background: #f1f5f9; text-align: left;">
+                    <th style="padding: 8px;">学校コード</th>
+                    <th style="padding: 8px;">学校名</th>
+                    <th style="padding: 8px;">認証情報の管理状況</th>
+                    <th style="padding: 8px;">状態</th>
+                    <th style="padding: 8px;">確認項目</th>
+                  </tr>
+                </thead>
+                <tbody id="targetSchoolsTableBody"></tbody>
+              </table>
+            </div>
+
+            <!-- ④ ログイン確認ボタン -->
+            <div class="mt-4" style="background: #f8fafc; padding: 16px; border-radius: 8px; border: 1px solid #e2e8f0;">
+              <h4 style="margin: 0 0 6px 0; color: #0f172a;">④ ログインできるか確認する（読み取りのみ）</h4>
+              <p class="text-muted" style="font-size: 0.85rem; margin: 0 0 12px 0;">実際に対象学校のログイン画面を開き、ID・パスワードで正常にログインできるか安全に確認します（設定変更は行いません）。</p>
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <button class="btn btn-secondary" onclick="executeValidateLogin()" id="btnValidateLogin">
+                  🔐 ログイン確認を実行する
+                </button>
+                <span id="loginValidationStatusText" class="text-muted" style="font-size: 0.85rem;"></span>
+              </div>
+
+              <!-- ⑤ ログイン確認の結果 -->
+              <div id="loginValidationResultsBox" class="mt-3 alert-box alert-success" style="display: none;">
+                <strong>✅ ログイン確認 結果:</strong>
+                <div id="loginValidationResultsText" class="mt-1" style="font-size: 0.9rem;"></div>
+              </div>
+            </div>
+
+            <!-- ⑥ 次のステップへ進む -->
+            <div class="mt-4" style="text-align: right;">
+              <button class="btn btn-primary btn-lg" id="btnGoToStep2" onclick="switchWizardStep(2)">
+                作業手順の計画（Step 2）へ進む ➔
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========================================== -->
+      <!-- STEP 2: 作業手順の計画 (対話型 & Haikuまとめ) -->
+      <!-- ========================================== -->
+      <section id="wizScreenStep2" class="screen-section" style="display: none;">
+        <div class="card">
+          <h2>Step 2: 作業手順の計画</h2>
+          <p class="section-desc">行いたい操作（管理者追加、メニュー並び替え、共通ブックマーク登録、設定変更など）を自然な日本語で指示してください。Claude Haiku 5.5 が安全な作業手順を組み立てます。</p>
+
+          <!-- 🔑 Claude API キー設定パネル -->
+          <div class="mt-3 p-3" style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 1.1rem;">🔑</span>
+                <strong>Claude API キー設定 (Claude Haiku 5.5)</strong>
+              </div>
+              <span id="apiKeyStatusBadge" class="badge" style="background: #e2e8f0; color: #475569;">確認中...</span>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+              <input type="password" id="inputClaudeApiKey" class="input-text" style="flex: 1; min-width: 280px; padding: 6px 10px; font-family: monospace;" placeholder="sk-ant-api03-... (Anthropic API Key を入力)">
+              <button class="btn btn-secondary btn-sm" id="btnSaveApiKey" onclick="saveClaudeApiKey()">
+                💾 キーを保存して有効化
+              </button>
+            </div>
+            <div id="apiKeySaveMsg" class="mt-1 text-muted" style="font-size: 0.8rem;"></div>
+          </div>
+
+          <!-- エラー通知アラートボックス -->
+          <div id="planErrorAlertBox" class="mt-3 alert-box alert-danger" style="display: none; border-left: 4px solid #ef4444; background: #fef2f2; color: #991b1b; padding: 12px 16px; border-radius: 6px;">
+            <div style="display: flex; align-items: flex-start; gap: 10px;">
+              <span style="font-size: 1.3rem;">⚠️</span>
+              <div>
+                <strong id="planErrorAlertTitle">計画立案エラー</strong>
+                <p id="planErrorAlertMessage" style="margin: 4px 0 0 0; font-size: 0.9rem; line-height: 1.5;"></p>
+              </div>
+            </div>
+          </div>
+
+          <!-- 指示入力エリア -->
+          <div class="mt-3">
+            <label class="font-bold">あなたの指示（やりたい作業や条件）:</label>
+            <textarea id="taskInstructionInput" class="instruction-input-area mt-1" rows="4" placeholder="例:&#10;各学校に学校管理者アカウントを追加してください。&#10;ただし中学校は対象外とします。&#10;同じIDが既に存在する場合は安全にスキップしてください。&#10;また、共通ブックマークとしてポータルURLも登録してください。">各学校に学校管理者アカウントを追加してください。
+中学校は対象外とします。
+同じIDが既に存在する場合は安全にスキップしてください。
+また、共通ブックマークとしてポータルURLも登録してください。</textarea>
+          </div>
+
+          <div class="mt-3" style="display: flex; align-items: center; gap: 12px;">
+            <button class="btn btn-primary" id="btnGeneratePlan" onclick="executeGeneratePlan()">
+              🧠 AIで作業計画を作成する
+            </button>
+            <span id="planGeneratingStatusText" class="text-muted" style="font-size: 0.85rem;"></span>
+          </div>
+
+          <!-- 作業計画プレビューコンテナ -->
+          <div id="planPreviewContainer" class="mt-4" style="display: none; border-top: 1px solid #e2e8f0; padding-top: 1.2rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--border-color); padding-bottom: 8px;">
+              <h3>作成された作業計画</h3>
+              <div>
+                <span id="planRiskBadge" class="risk-badge risk-sensitive-write">SENSITIVE_WRITE</span>
+              </div>
+            </div>
+
+            <div class="mt-2 text-muted" style="font-size: 0.85rem;">
+              計画識別子 (Plan ID): <code id="planIdLabel">-</code> | 変更対象見込み: <strong id="planAffectedSchoolsLabel">0</strong> 校
+            </div>
+
+            <!-- Haikuによる作業まとめカード (自然な日本語) -->
+            <div id="planHumanSummaryCard" class="mt-3 p-3" style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px;">
+              <h4 style="margin: 0 0 8px 0; color: #1e40af; font-size: 1.05rem;">📝 AI（Claude Haiku 5.5）による作業のまとめ</h4>
+              <div style="display: grid; grid-template-columns: 140px 1fr; gap: 6px 12px; font-size: 0.95rem;">
+                <div style="color: #475569; font-weight: bold;">いただいた指示:</div>
+                <div id="summaryOriginalText" style="color: #0f172a; font-weight: 500;">-</div>
+
+                <div style="color: #475569; font-weight: bold;">解釈した作業の目的:</div>
+                <div id="summaryInterpretedIntent" style="color: #0f172a; font-weight: 600;">-</div>
+
+                <div style="color: #475569; font-weight: bold;">対象の範囲:</div>
+                <div id="summaryTargetScope" style="color: #0f172a;">-</div>
+
+                <div style="color: #475569; font-weight: bold;">変更する内容:</div>
+                <div id="summaryAction" style="color: #0f172a; font-weight: 600;">-</div>
+
+                <div style="color: #475569; font-weight: bold;">設定する値:</div>
+                <div id="summarySettingValue" style="color: #1e40af; font-weight: bold; font-family: monospace;">-</div>
+
+                <div style="color: #475569; font-weight: bold;">既に設定済みの場合:</div>
+                <div id="summarySkipBehavior" style="color: #047857; font-weight: bold;">-</div>
+
+                <div style="color: #475569; font-weight: bold;">利用する機能:</div>
+                <div id="summaryCapability" style="color: #0f172a;">-</div>
+
+                <div style="color: #475569; font-weight: bold;">リスク分類:</div>
+                <div id="summaryRisk" style="color: #b45309; font-weight: bold;">-</div>
+              </div>
+            </div>
+
+            <!-- 対話型修正・再計画フォーム (NGな場合の追加・繰り返し機能) -->
+            <div class="mt-4 p-3" style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px;">
+              <h4 style="margin: 0 0 6px 0; color: #334155; font-size: 1rem;">💬 計画の追加指示・修正</h4>
+              <p class="text-muted" style="font-size: 0.85rem; margin: 0 0 8px 0;">上記のまとめを確認し、もし変更したい点や追加したい条件があれば入力して再作成してください。何度でも対話的に調整できます。</p>
+              <textarea id="planRefinementInput" class="instruction-input-area" rows="2" placeholder="例: やはり中学校も含めてください。または、パスワードを一時的なものに変更してください。"></textarea>
+              <div class="mt-2" style="display: flex; align-items: center; gap: 10px;">
+                <button class="btn btn-secondary" id="btnRefinePlan" onclick="executeRefinePlan()">
+                  🔄 指示を追加・修正して再作成する
+                </button>
+                <span id="refineStatusText" class="text-muted" style="font-size: 0.85rem;"></span>
+              </div>
+            </div>
+
+            <!-- 新旧計画の差分カード (PlanDiff) -->
+            <div id="planDiffCard" class="mt-3 p-3" style="display: none; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px;">
+              <h4 style="margin: 0 0 6px 0; color: #b45309; font-size: 0.95rem;">📊 前回の計画からの変更点（差分）</h4>
+              <div id="planDiffSummaryText" style="font-size: 0.9rem; font-weight: 500; color: #78350f; margin-bottom: 6px;"></div>
+              <ul id="planDiffDetailsList" style="margin: 0 0 0 18px; font-size: 0.85rem; color: #78350f;"></ul>
+            </div>
+
+            <!-- 操作手順リスト -->
+            <div class="mt-4">
+              <h4>具体的な実行ステップ:</h4>
+              <div id="planOperationsList"></div>
+            </div>
+
+            <div class="mt-3" id="planAssumptionsBox" style="background: #f8fafc; padding: 10px; border-radius: 6px; border: 1px solid #e2e8f0;">
+              <strong>安全のための確認事項・前提条件:</strong>
+              <ul id="planAssumptionsList" style="margin: 4px 0 0 18px; font-size: 0.9rem;"></ul>
+            </div>
+
+            <!-- 処理時間予測 & コスト試算 -->
+            <div class="dashboard-hero-card mt-3">
+              <h4 style="margin: 0; color: #38bdf8;">📊 実行予測 & AIコスト試算</h4>
+              <div class="stat-grid-modern">
+                <div class="stat-box-modern">
+                  <div class="num text-primary" id="estDurationDisplay">--</div>
+                  <div class="label">推定所要時間（見込み範囲）</div>
+                </div>
+                <div class="stat-box-modern">
+                  <div class="num text-warning" id="estP95Display">--</div>
+                  <div class="label">1校あたりの最大所要時間</div>
+                </div>
+                <div class="stat-box-modern">
+                  <div class="num text-success" id="estAiCostDisplay">--</div>
+                  <div class="label">AI API 概算コスト</div>
+                </div>
+                <div class="stat-box-modern">
+                  <div class="num text-primary" id="estTokensDisplay">--</div>
+                  <div class="label">合計 トークン数</div>
+                </div>
+              </div>
+              <p style="font-size: 0.8rem; margin: 8px 0 0 0; opacity: 0.8;">※ ブラウザ操作中はクリックごとのAI呼び出しを行わないため、対象校数が多くてもAIコストは急増しません。</p>
+            </div>
+
+            <!-- 確認・シミュレーション手順 (Gate 1 & 2) -->
+            <div class="mt-4 card" style="background: #fffbeb; border: 1px solid #fde68a;">
+              <h4 style="color: #b45309; margin: 0 0 8px 0;">🛡️ 安全確認と事前シミュレーション</h4>
+              <label style="display: flex; align-items: center; gap: 8px; font-weight: bold; cursor: pointer;">
+                <input type="checkbox" id="chkGate1Plan" onchange="toggleGateApproval('GATE_1_PLAN')">
+                【確認 1】作業計画を承認する（手順と対象校の内容を確認しました）
+              </label>
+
+              <div class="mt-3" style="display: flex; gap: 10px; align-items: center;">
+                <button class="btn btn-secondary" id="btnRunDryRun" onclick="executeDryRun()" disabled>
+                  🔍 事前シミュレーションを実行する（読み取りのみ・設定変更なし）
+                </button>
+                <span id="dryRunStatusLabel" class="text-muted" style="font-size: 0.85rem;">【確認 1】の承認後に実行可能になります</span>
+              </div>
+
+              <div class="mt-3">
+                <label style="display: flex; align-items: center; gap: 8px; font-weight: bold; cursor: pointer;">
+                  <input type="checkbox" id="chkGate2DryRun" onchange="toggleGateApproval('GATE_2_DRY_RUN')" disabled>
+                  【確認 2】シミュレーション結果を承認する（変更予定と所要時間予測を確認しました）
+                </label>
+              </div>
+            </div>
+
+            <div class="mt-4" style="text-align: right;">
+              <button class="btn btn-primary btn-lg" id="btnGoToStep3" onclick="switchWizardStep(3)" disabled>
+                自動実行ダッシュボード（Step 3）へ進む ➔
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========================================== -->
+      <!-- STEP 3: 自動実行ダッシュボード (動的先行検証) -->
+      <!-- ========================================== -->
+      <section id="wizScreenStep3" class="screen-section" style="display: none;">
+        <div class="card">
+          <h2>Step 3: 自動実行ダッシュボード</h2>
+          <p class="section-desc">学校の所属確認、安全停止ガード（異常検知時の自動ストップ）、監査台帳に基づく自動実行を行います。</p>
+
+          <!-- 動的先行検証提案カード (学校数固定の排除) -->
+          <div id="validationScopeProposalBox" class="card" style="background: #eff6ff; border: 1px solid #bfdbfe; margin-bottom: 1.5rem;">
+            <h4 style="margin: 0 0 6px 0; color: #1e40af;">🧪 AIが提案した検証スコープ</h4>
+            <div style="font-size: 0.95rem; line-height: 1.6;">
+              <div>先行検証の対象: <strong id="proposalScopeCounts" style="color: #1e40af;">1校（全体 5校中）</strong></div>
+              <div>対象単位: <strong id="proposalScopeUnit">学校</strong></div>
+              <div>提案の理由: <span id="proposalScopeReason" class="text-muted">本番反映の前に表示崩れや入力エラーがないかを安全に確かめるため</span></div>
+            </div>
+          </div>
+
+          <!-- 本番実行の承認パネル -->
+          <div class="card" style="background: #f8fafc; border: 1px solid #cbd5e1; margin-bottom: 1.5rem;">
+            <h4 style="margin: 0 0 10px 0;">🔒 実行承認</h4>
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                <input type="checkbox" id="chkGate3Canary" onchange="toggleGateApproval('GATE_3_CANARY')">
+                <span id="labelGate3Canary">【確認 3】先行検証の実行を承認する（少数の対象で安全確認を行います）</span>
+              </label>
+              <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                <input type="checkbox" id="chkGate4Full" onchange="toggleGateApproval('GATE_4_FULL_PRODUCTION')">
+                <span id="labelGate4Full">【確認 4】全体適用の実行を承認する（すべての対象に設定を反映します）</span>
+              </label>
+              <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: #0284c7; font-size: 0.9rem;">
+                <input type="checkbox" id="chkAutoProceedFull" onchange="toggleAutoProceedFull()">
+                先行検証が成功した場合は、全体適用まで自動で続行する
+              </label>
+            </div>
+
+            <div class="mt-3" style="display: flex; gap: 10px; align-items: center;">
+              <button class="btn btn-secondary" id="btnRunCanary" onclick="executeJobRun('CANARY_VALIDATION')" disabled>
+                🧪 先行検証を開始する
+              </button>
+              <button class="btn btn-danger" id="btnRunFull" onclick="executeJobRun('FULL_PRODUCTION')" disabled>
+                🚀 全体適用を開始する
+              </button>
+              <button class="btn btn-outline" id="btnEmergencyStop" onclick="executeEmergencyStop()" style="display: none; border-color: #dc2626; color: #dc2626;">
+                🛑 緊急停止
+              </button>
+              <span id="runActionStatusText" class="text-muted" style="font-size: 0.85rem;"></span>
+            </div>
+          </div>
+
+          <!-- リアルタイム進捗ダッシュボード -->
+          <div class="dashboard-hero-card">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <h3 style="margin: 0; color: #fff;">⚡ 実行進捗状況</h3>
+              <span id="platformRuntimeHealthBadge" class="badge" style="background: #10b981; color: #fff;">稼働状態: 正常</span>
+            </div>
+
+            <div style="margin: 15px 0 5px 0;">
+              <div style="display: flex; justify-content: space-between; font-size: 0.9rem; margin-bottom: 4px;">
+                <span>進捗: <strong id="progSchoolsCount">0 / 0</strong> 校</span>
+                <span>完了予想時間: <strong id="progEtaLabel">--</strong></span>
+              </div>
+              <div style="height: 12px; background: rgba(255,255,255,0.2); border-radius: 6px; overflow: hidden;">
+                <div id="progBarInner" style="width: 0%; height: 100%; background: #38bdf8; transition: width 0.3s;"></div>
+              </div>
+            </div>
+
+            <div class="stat-grid-modern">
+              <div class="stat-box-modern">
+                <div class="num text-success" id="progSuccessCount">0</div>
+                <div class="label">成功</div>
+              </div>
+              <div class="stat-box-modern">
+                <div class="num text-primary" id="progSkippedCount">0</div>
+                <div class="label">スキップ (設定済)</div>
+              </div>
+              <div class="stat-box-modern">
+                <div class="num text-warning" id="progBlockedCount">0</div>
+                <div class="label">一時停止</div>
+              </div>
+              <div class="stat-box-modern">
+                <div class="num text-danger" id="progFailedCount">0</div>
+                <div class="label">失敗</div>
+              </div>
+            </div>
+
+            <div style="margin-top: 15px; font-size: 0.85rem; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+              <div>現在処理中: <strong id="progCurrentSchool">--</strong></div>
+              <div>実行中の操作: <strong id="progCurrentOp">--</strong></div>
+              <div>経過時間: <strong id="progElapsed">0s</strong></div>
+              <div>累計AIコスト: <strong id="progAiCost">¥0</strong></div>
+              <div>自動停止ガード: <strong id="progCircuitBreaker">待機中 (CLOSED)</strong></div>
+            </div>
+          </div>
+
+          <!-- AI分析結果・改善アドバイス -->
+          <div id="analystReportCard" class="analyst-report-box mt-3" style="display: none;">
+            <h4 style="color: #15803d; margin: 0 0 6px 0;">📋 AI分析レポート・確認事項</h4>
+            <div id="analystHeadline" class="font-bold" style="font-size: 1.05rem;"></div>
+            <div class="mt-2">
+              <strong>主な確認点:</strong>
+              <ul id="analystFindingsList" style="margin: 4px 0 0 18px; font-size: 0.9rem;"></ul>
+            </div>
+            <div class="mt-2">
+              <strong>推奨アクション:</strong>
+              <ul id="analystRecsList" style="margin: 4px 0 0 18px; font-size: 0.9rem;"></ul>
+            </div>
+          </div>
+
+          <!-- 学校別 実行結果テーブル -->
+          <div class="mt-4">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <h3>学校ごとの実行結果詳細</h3>
+              <div style="display: flex; gap: 8px;">
+                <button class="btn btn-sm btn-outline" onclick="exportResults('json')">📥 JSON 形式で保存</button>
+                <button class="btn btn-sm btn-outline" onclick="exportResults('csv')">📥 CSV 形式で保存</button>
+              </div>
+            </div>
+            <table class="table" style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+              <thead>
+                <tr style="background: #f1f5f9; text-align: left;">
+                  <th style="padding: 8px;">学校コード</th>
+                  <th style="padding: 8px;">学校名</th>
+                  <th style="padding: 8px;">結果</th>
+                  <th style="padding: 8px;">実行した操作</th>
+                  <th style="padding: 8px;">反映内容 / スキップ理由</th>
+                  <th style="padding: 8px;">画面確認</th>
+                  <th style="padding: 8px;">所要時間</th>
+                </tr>
+              </thead>
+              <tbody id="resultsSchoolsTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- LEGACY CONSOLE CONTAINER (FOR BACKWARD COMPATIBILITY)                     -->
+    <!-- ========================================================================= -->
+    <div id="legacyContainer" style="display: none;">
+      <!-- 世代不一致警告バナー (Fail-Closed: 指示9) -->
+      <div id="versionMismatchBanner" class="alert-box alert-warning mb-3" style="display: none; border-left: 4px solid #f59e0b; padding: 12px 16px; background-color: #fffbeb; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 1.5rem;">⚠️</span>
+            <div>
+              <strong style="color: #b45309; font-size: 0.95rem;">サーバーの再起動またはバージョン更新が検出されました</strong>
+              <p style="margin: 2px 0 0 0; color: #78350f; font-size: 0.85rem;">クライアント画面とサーバーの世代が一致していません。安全のため本番反映は一時ロックされています。最新の状態を反映するために画面を再読み込みしてください。</p>
+            </div>
+          </div>
+          <button class="btn btn-sm btn-secondary" onclick="window.location.reload()" style="white-space: nowrap;">画面を再読み込み</button>
+        </div>
+      </div>
+
+      <!-- 5ステップ ワークフロー ナビゲーション -->
+      <nav class="nav-tabs">
+        <button id="tabTargetBtn" class="tab-btn active" onclick="switchTab('target')">1. 対象学校</button>
+        <button id="tabObserveBtn" class="tab-btn" onclick="switchTab('observe')" disabled>2. 現状調査</button>
+        <button id="tabDecideBtn" class="tab-btn" onclick="switchTab('decide')" disabled>3. 設定・差分確認</button>
+        <button id="tabApplyBtn" class="tab-btn" onclick="switchTab('apply')" disabled>4. 本番反映</button>
+        <button id="tabResultBtn" class="tab-btn" onclick="switchTab('result')">5. 実行結果</button>
+      </nav>
 
     <!-- ========================================== -->
     <!-- STEP 1: 対象学校 -->
