@@ -77,6 +77,30 @@ export class GuardedPage implements GuardedPageInterface {
     if (this.isMock || !this.page) return;
     const el = this.page.locator(selector).first();
     await el.waitFor({ state: 'visible', timeout: timeoutMs });
+
+    // Inspect underlying element attributes to ensure it is not a submit button or mutation trigger
+    const elementProps = await el.evaluate((node) => {
+      const tag = node.tagName.toUpperCase();
+      const type = node.getAttribute('type')?.toLowerCase();
+      const role = node.getAttribute('role')?.toLowerCase();
+      const formAction = node.getAttribute('formaction');
+      const text = (node.textContent || '').trim().toLowerCase();
+      const dataAction = (node.getAttribute('data-action') || '').toLowerCase();
+      return { tag, type, role, formAction, text, dataAction };
+    }).catch(() => null);
+
+    if (elementProps) {
+      if (elementProps.type === 'submit' || elementProps.formAction) {
+        throw new Error(`MUTATION_ELEMENT_BLOCKED_IN_CLICK_NAV: Element is a form submit control and is rejected in clickNav.`);
+      }
+      if (/(save|submit|delete|remove|update|create|post|put|patch|保存|送信|削除|更新|登録)/i.test(elementProps.dataAction)) {
+        throw new Error(`MUTATION_ELEMENT_BLOCKED_IN_CLICK_NAV: Element data-action "${elementProps.dataAction}" indicates mutation and is rejected in clickNav.`);
+      }
+      if (elementProps.tag === 'BUTTON' && /(save|submit|delete|remove|update|create|保存|送信|削除|更新|登録)/i.test(elementProps.text)) {
+        throw new Error(`MUTATION_ELEMENT_BLOCKED_IN_CLICK_NAV: Button text "${elementProps.text}" indicates mutation and is rejected in clickNav.`);
+      }
+    }
+
     await el.click();
   }
 

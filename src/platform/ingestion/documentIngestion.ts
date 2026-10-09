@@ -11,67 +11,54 @@ export class LocalSecretVault {
   private static secrets: Map<string, string> = new Map();
   private static secretToJob: Map<string, string> = new Map();
   private static jobSecrets: Map<string, Set<string>> = new Map();
-  private static schoolSecrets: Map<string, string> = new Map();
-  private static jobSchoolSecrets: Map<string, Set<string>> = new Map();
 
-  static storeSecret(plainSecret: string, jobId?: string): string {
+  static storeSecret(plainSecret: string, jobId: string): string {
+    if (!jobId || typeof jobId !== 'string' || jobId.trim().length === 0) {
+      throw new Error('JOB_ID_REQUIRED: Storing secrets in LocalSecretVault requires an explicit non-empty jobId');
+    }
     const handle = `secret_handle_${crypto.randomUUID()}`;
     this.secrets.set(handle, plainSecret);
-    if (jobId) {
-      this.secretToJob.set(handle, jobId);
-      if (!this.jobSecrets.has(jobId)) {
-        this.jobSecrets.set(jobId, new Set());
-      }
-      this.jobSecrets.get(jobId)!.add(handle);
+    this.secretToJob.set(handle, jobId);
+    if (!this.jobSecrets.has(jobId)) {
+      this.jobSecrets.set(jobId, new Set());
     }
+    this.jobSecrets.get(jobId)!.add(handle);
     return handle;
   }
 
-  static storeSecretWithRef(ref: string, plainSecret: string, jobId?: string): void {
+  static storeSecretWithRef(ref: string, plainSecret: string, jobId: string): void {
+    if (!jobId || typeof jobId !== 'string' || jobId.trim().length === 0) {
+      throw new Error('JOB_ID_REQUIRED: Storing secrets in LocalSecretVault requires an explicit non-empty jobId');
+    }
     this.secrets.set(ref, plainSecret);
-    if (jobId) {
-      this.secretToJob.set(ref, jobId);
-      if (!this.jobSecrets.has(jobId)) {
-        this.jobSecrets.set(jobId, new Set());
-      }
-      this.jobSecrets.get(jobId)!.add(ref);
+    this.secretToJob.set(ref, jobId);
+    if (!this.jobSecrets.has(jobId)) {
+      this.jobSecrets.set(jobId, new Set());
     }
-    // Also index by schoolCode if ref is cred_ref_{schoolCode}
-    if (ref.startsWith('cred_ref_')) {
-      const schoolCode = ref.replace('cred_ref_', '');
-      this.schoolSecrets.set(schoolCode, plainSecret);
-      if (jobId) {
-        if (!this.jobSchoolSecrets.has(jobId)) {
-          this.jobSchoolSecrets.set(jobId, new Set());
-        }
-        this.jobSchoolSecrets.get(jobId)!.add(schoolCode);
-      }
-    }
+    this.jobSecrets.get(jobId)!.add(ref);
   }
 
-  static getSecret(handle: string, jobId?: string): string | undefined {
-    // If handle is bound to a specific job and a different jobId is queried, deny access (job-scoping)
+  static getSecret(handle: string, jobId: string): string | undefined {
+    if (!jobId || typeof jobId !== 'string' || jobId.trim().length === 0) {
+      return undefined; // Fail-closed: jobId is mandatory
+    }
     const ownerJobId = this.secretToJob.get(handle);
-    if (ownerJobId && jobId && ownerJobId !== jobId) {
+    // If handle is not owned by this jobId (or unowned), strictly deny access
+    if (!ownerJobId || ownerJobId !== jobId) {
       return undefined;
     }
     return this.secrets.get(handle);
   }
 
-  static getSecretForSchool(schoolCode: string): string | undefined {
-    return this.schoolSecrets.get(schoolCode) || this.secrets.get(`cred_ref_${schoolCode}`);
-  }
-
-  static hasSecret(handle: string, jobId?: string): boolean {
+  static hasSecret(handle: string, jobId: string): boolean {
+    if (!jobId || typeof jobId !== 'string' || jobId.trim().length === 0) {
+      return false; // Fail-closed: jobId is mandatory
+    }
     const ownerJobId = this.secretToJob.get(handle);
-    if (ownerJobId && jobId && ownerJobId !== jobId) {
+    if (!ownerJobId || ownerJobId !== jobId) {
       return false;
     }
     return this.secrets.has(handle);
-  }
-
-  static hasSecretForSchool(schoolCode: string): boolean {
-    return this.schoolSecrets.has(schoolCode) || this.secrets.has(`cred_ref_${schoolCode}`);
   }
 
   static cleanupJob(jobId: string): void {
@@ -83,21 +70,12 @@ export class LocalSecretVault {
       }
       this.jobSecrets.delete(jobId);
     }
-    const schoolCodes = this.jobSchoolSecrets.get(jobId);
-    if (schoolCodes) {
-      for (const sc of schoolCodes) {
-        this.schoolSecrets.delete(sc);
-      }
-      this.jobSchoolSecrets.delete(jobId);
-    }
   }
 
   static clear(): void {
     this.secrets.clear();
     this.secretToJob.clear();
     this.jobSecrets.clear();
-    this.schoolSecrets.clear();
-    this.jobSchoolSecrets.clear();
   }
 }
 
@@ -105,7 +83,8 @@ export class DocumentIngestion {
   /**
    * Ingest arbitrary supported files and normalize to DocumentContent with Credential Boundary
    */
-  static ingest(input: IngestFileInput): DocumentContent {
+  static ingest(input: IngestFileInput, jobId?: string): DocumentContent {
+    const activeJobId = jobId || `ingest_job_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
     const filename = input.filename;
     const ext = filename.split('.').pop()?.toLowerCase() || '';
     const rawText = typeof input.bufferOrText === 'string'
@@ -140,9 +119,9 @@ export class DocumentIngestion {
     }
 
     // 3. Credential Boundary Enforcement
-    // Detect passwords in tables & text, store in local vault, mask for AI
-    const sanitizedTables = this.sanitizeTables(tables);
-    let sanitizedText = this.sanitizeText(extractedText);
+    // Detect passwords in tables & text, store in local vault with activeJobId, mask for AI
+    const sanitizedTables = this.sanitizeTables(tables, activeJobId);
+    let sanitizedText = this.sanitizeText(extractedText, activeJobId);
 
     // If tables were sanitized, ensure any discovered plaintext secrets are also masked in extractedText
     if (sanitizedTables.length > 0) {
@@ -233,7 +212,7 @@ export class DocumentIngestion {
     return { headers, rows };
   }
 
-  private static sanitizeTables(tables: DocumentTable[]): DocumentTable[] {
+  private static sanitizeTables(tables: DocumentTable[], jobId: string): DocumentTable[] {
     return tables.map(table => {
       // Identify password columns and code column
       const pwColIndices = table.headers
@@ -245,9 +224,9 @@ export class DocumentIngestion {
         const schoolCode = codeColIdx !== -1 && row[codeColIdx] ? row[codeColIdx].trim() : (row[0] ? row[0].trim() : '');
         return row.map((col, idx) => {
           if (pwColIndices.includes(idx) && col.length > 0) {
-            const handle = LocalSecretVault.storeSecret(col);
+            const handle = LocalSecretVault.storeSecret(col, jobId);
             if (schoolCode && schoolCode.length >= 2) {
-              LocalSecretVault.storeSecretWithRef(`cred_ref_${schoolCode}`, col);
+              LocalSecretVault.storeSecretWithRef(`cred_ref_${schoolCode}`, col, jobId);
             }
             return `[SECRET:${handle}]`;
           }
@@ -263,10 +242,10 @@ export class DocumentIngestion {
     });
   }
 
-  private static sanitizeText(text: string): string {
+  private static sanitizeText(text: string, jobId: string): string {
     // Regex mask for password assignments e.g. password=xxxx, パスワード: xxxx
     return text.replace(/(password|passwd|パスワード|pw)\s*[:=]\s*([^\s,;]+)/gi, (match, prefix, secret) => {
-      const handle = LocalSecretVault.storeSecret(secret);
+      const handle = LocalSecretVault.storeSecret(secret, jobId);
       return `${prefix}: [SECRET:${handle}]`;
     });
   }

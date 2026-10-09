@@ -6,6 +6,7 @@ import { DocumentIngestion, LocalSecretVault } from '../ingestion/documentIngest
 export interface ParseTargetInput {
   rawText?: string;
   files?: Array<{ filename: string; content: string }>;
+  jobId?: string;
 }
 
 export const TargetSchoolSchema = z.object({
@@ -39,6 +40,7 @@ export class TargetInterpreter {
   static parseTargets(input: ParseTargetInput): TargetSet {
     const schoolsMap = new Map<string, TargetSchool>();
     const sourceFiles: string[] = [];
+    const activeJobId = input.jobId;
 
     // 1. Process files via DocumentIngestion
     if (input.files && input.files.length > 0) {
@@ -47,7 +49,7 @@ export class TargetInterpreter {
         const doc = DocumentIngestion.ingest({
           filename: file.filename,
           bufferOrText: file.content
-        });
+        }, activeJobId);
 
         // 1a. If deterministic table was extracted
         if (doc.tables.length > 0) {
@@ -66,7 +68,7 @@ export class TargetInterpreter {
       const doc = DocumentIngestion.ingest({
         filename: 'direct_input.txt',
         bufferOrText: input.rawText
-      });
+      }, activeJobId);
       if (doc.tables.length > 0) {
         for (const table of doc.tables) {
           this.extractSchoolsFromTable(table, 'direct_input', schoolsMap);

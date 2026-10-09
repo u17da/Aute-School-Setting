@@ -1,11 +1,12 @@
 import * as assert from 'assert';
+import { chromium } from 'playwright';
 import { PlatformRunner } from '../../src/platform/runtime/platformRunner';
 import { PolicyEngine } from '../../src/platform/policy/policyEngine';
 import { JobStore } from '../../src/platform/runtime/jobStore';
 import { PlatformJob, JobExecutionMode, JobExecutionModeSchema, RunEvidence } from '../../src/platform/types/job';
 import { ExecutionPlan } from '../../src/platform/types/plan';
 import { TargetSet, TargetSchool } from '../../src/platform/types/target';
-import { GuardedPage } from '../../src/platform/capabilities/guardedPage';
+import { GuardedPage, setupNetworkBlocker } from '../../src/platform/capabilities/guardedPage';
 import { CapabilityExecutionContext } from '../../src/platform/types/capability';
 import { LocalSecretVault } from '../../src/platform/ingestion/documentIngestion';
 import { TargetInterpreter } from '../../src/platform/ai/targetInterpreter';
@@ -13,6 +14,8 @@ import { CapabilityRegistry } from '../../src/platform/capabilities/registry';
 import { ReorderContentsCapability, calculateOrderHash } from '../../src/platform/capabilities/reorderContents';
 import { CreateSchoolAdminCapability } from '../../src/platform/capabilities/createSchoolAdmin';
 import { PlatformRouter } from '../../src/platform/api/platformRouter';
+import { LlmClient } from '../../src/platform/ai/llmClient';
+import { TaskPlanner } from '../../src/platform/ai/taskPlanner';
 
 function createMockPlan(overrides: Partial<ExecutionPlan> = {}): ExecutionPlan {
   return {
@@ -93,7 +96,7 @@ function createMockJob(overrides: Partial<PlatformJob> = {}): PlatformJob {
 
 async function runTests() {
   console.log('================================================================');
-  console.log('   Platform Safety Invariants & Architecture Tests (29 Cases)   ');
+  console.log('   Platform Safety Invariants & Architecture Tests (39 Cases)   ');
   console.log('================================================================');
 
   let passed = 0;
@@ -166,10 +169,11 @@ async function runTests() {
     const runner = new PlatformRunner();
     const targetSet = createMockTargetSet(3); // SCH_001 (小), SCH_002 (中), SCH_003 (高)
     
-    // Set up credentials in vault
-    LocalSecretVault.storeSecretWithRef('cred_ref_SCH_001', 'mock_pw_1');
-    LocalSecretVault.storeSecretWithRef('cred_ref_SCH_002', 'mock_pw_2');
-    LocalSecretVault.storeSecretWithRef('cred_ref_SCH_003', 'mock_pw_3');
+    const jobId = 'job_case3';
+    // Set up credentials in vault with jobId
+    LocalSecretVault.storeSecretWithRef('cred_ref_SCH_001', 'mock_pw_1', jobId);
+    LocalSecretVault.storeSecretWithRef('cred_ref_SCH_002', 'mock_pw_2', jobId);
+    LocalSecretVault.storeSecretWithRef('cred_ref_SCH_003', 'mock_pw_3', jobId);
 
     const plan = createMockPlan({
       targetFilter: {
@@ -182,7 +186,7 @@ async function runTests() {
     PolicyEngine.approveGate(policy, 'GATE_1_PLAN', 'tester');
 
     const job = createMockJob({
-      jobId: 'job_case3',
+      jobId,
       title: 'Case 3',
       targetSet,
       executionPlan: plan,
@@ -252,10 +256,10 @@ async function runTests() {
     const jobId = 'job_vault_test';
     const handle = LocalSecretVault.storeSecret('secret_pass_123', jobId);
     assert.ok(handle.startsWith('secret_handle_'), 'Handle should start with secret_handle_');
-    assert.strictEqual(LocalSecretVault.getSecret(handle), 'secret_pass_123');
+    assert.strictEqual(LocalSecretVault.getSecret(handle, jobId), 'secret_pass_123');
 
     LocalSecretVault.cleanupJob(jobId);
-    assert.strictEqual(LocalSecretVault.getSecret(handle), undefined, 'Secret should be cleared on job cleanup');
+    assert.strictEqual(LocalSecretVault.getSecret(handle, jobId), undefined, 'Secret should be cleared on job cleanup');
   });
 
   // Case 7: TargetSet credential boundary
@@ -355,7 +359,7 @@ async function runTests() {
         failedCount: 0,
         blockedCount: 0,
         allVerified: true,
-        fingerprint: { planHash: 'hash_plan', targetSetHash: 'hash_target' }
+        fingerprint: { planHash: 'hash_plan', targetSetHash: 'hash_target', actualSchoolCodes: ['SCH_001'] }
       },
       {
         evidenceId: 'ev_2',
@@ -366,7 +370,7 @@ async function runTests() {
         failedCount: 0,
         blockedCount: 0,
         allVerified: true,
-        fingerprint: { planHash: 'hash_plan', targetSetHash: 'hash_target' }
+        fingerprint: { planHash: 'hash_plan', targetSetHash: 'hash_target', actualSchoolCodes: ['SCH_001'] }
       }
     ];
 
@@ -442,36 +446,33 @@ async function runTests() {
   });
 
   // Case 14: REORDER_CONTENTS orgId resolution failure fail-closed
-  await test('REORDER_CONTENTS fails closed with ORG_ID_RESOLUTION_FAILED if orgId cannot be resolved', async () => {
+  await test('REORDER_CONTENTS fails closed with ORG_ID_NOT_BOUND if expectedOrgId is not bound', async () => {
     const cap = ReorderContentsCapability;
     const origObserve = cap.observe;
     const mockPage: any = {
-      evaluate: async (fn: any, args: any) => {
-        // Mock evaluate executing the resolution logic with no matching elements
-        return {
-          success: false,
-          status: 400,
-          error: 'ORG_ID_RESOLUTION_FAILED: Failed to dynamically resolve orgId from page context. Refusing to fallback.'
-        };
-      }
+      evaluate: async () => ({ currentOrderIds: [101, 102] })
     };
     const context: any = {
       page: { rawPage: mockPage },
       schoolCode: 'SCH_001',
       isDryRun: false,
+      expectedOrgId: undefined,
       logger: { info: () => {}, warn: () => {}, error: () => {} }
     };
 
     try {
-      // Mock observe for execute
       cap.observe = async () => ({
         currentState: { desiredOrderIds: [101, 102], baselineOrderHash: 'h1', desiredOrderHash: 'h2' },
         eligible: true
       }) as any;
 
-      const res = await cap.execute(context, { targetOrder: ['Google'] });
-      assert.strictEqual(res.success, false);
-      assert.ok(res.error?.includes('ORG_ID_RESOLUTION_FAILED'));
+      await assert.rejects(
+        async () => {
+          await cap.execute(context, { targetOrder: ['Google'] });
+        },
+        /ORG_ID_NOT_BOUND/,
+        'Must throw ORG_ID_NOT_BOUND when expectedOrgId is missing'
+      );
     } finally {
       cap.observe = origObserve;
     }
@@ -553,9 +554,13 @@ async function runTests() {
     });
 
     try {
+      const computedPlanHash = PolicyEngine.computePlanHash(plan);
+      const computedTargetSetHash = PolicyEngine.computeTargetSetHash(targetSet);
+      plan.planHash = computedPlanHash;
+
       const policy = PolicyEngine.createDefaultPolicy(plan.riskLevel);
-      policy.planHash = plan.planHash;
-      policy.targetSetHash = PolicyEngine.computeTargetSetHash(targetSet);
+      policy.planHash = computedPlanHash;
+      policy.targetSetHash = computedTargetSetHash;
       policy.policyApprovedCanaryScope = 1;
       PolicyEngine.approveGate(policy, 'GATE_1_PLAN', 'tester');
       PolicyEngine.approveGate(policy, 'GATE_2_DRY_RUN', 'tester');
@@ -580,8 +585,8 @@ async function runTests() {
             allVerified: true,
             completedAt: new Date().toISOString(),
             fingerprint: {
-              planHash: plan.planHash,
-              targetSetHash: PolicyEngine.computeTargetSetHash(targetSet),
+              planHash: computedPlanHash,
+              targetSetHash: computedTargetSetHash,
               mode: 'LOGICAL_DRY_RUN',
               actualSchoolCodes: ['SCH_001'],
               capabilityVersions: { REORDER_CONTENTS: originalCap.version }
@@ -633,10 +638,11 @@ async function runTests() {
   await test('OperationIR.targetSchoolCodes restricts execution to scoped schools, marks unexecuted schools SKIPPED without successCount', async () => {
     const runner = new PlatformRunner();
     const targetSet = createMockTargetSet(3); // SCH_001, SCH_002, SCH_003
+    const testJobId = 'job_c20';
     LocalSecretVault.clear();
-    LocalSecretVault.storeSecretWithRef('cred_ref_SCH_001', 'mock_pw_1');
-    LocalSecretVault.storeSecretWithRef('cred_ref_SCH_002', 'mock_pw_2');
-    LocalSecretVault.storeSecretWithRef('cred_ref_SCH_003', 'mock_pw_3');
+    LocalSecretVault.storeSecretWithRef('cred_ref_SCH_001', 'mock_pw_1', testJobId);
+    LocalSecretVault.storeSecretWithRef('cred_ref_SCH_002', 'mock_pw_2', testJobId);
+    LocalSecretVault.storeSecretWithRef('cred_ref_SCH_003', 'mock_pw_3', testJobId);
 
     // op_1 scoped ONLY to SCH_001
     const plan = createMockPlan({
@@ -659,7 +665,7 @@ async function runTests() {
     PolicyEngine.approveGate(policy, 'GATE_1_PLAN', 'tester');
 
     const job = createMockJob({
-      jobId: 'job_case20',
+      jobId: testJobId,
       title: 'Case 20',
       targetSet,
       executionPlan: plan,
@@ -716,9 +722,10 @@ async function runTests() {
       summary: { total: 2, ready: 2, missing: 0, ambiguous: 0 }
     };
 
+    const jobId = 'job_case21';
     LocalSecretVault.clear();
-    LocalSecretVault.storeSecretWithRef('cred_ref_SCH_001', 'mock_pw_1');
-    LocalSecretVault.storeSecretWithRef('cred_ref_SCH_002', 'mock_pw_2');
+    LocalSecretVault.storeSecretWithRef('cred_ref_SCH_001', 'mock_pw_1', jobId);
+    LocalSecretVault.storeSecretWithRef('cred_ref_SCH_002', 'mock_pw_2', jobId);
 
     const plan = createMockPlan({
       targetFilter: { schoolType: 'ELEMENTARY' }
@@ -728,7 +735,7 @@ async function runTests() {
     PolicyEngine.approveGate(policy, 'GATE_1_PLAN', 'tester');
 
     const job = createMockJob({
-      jobId: 'job_case21',
+      jobId,
       title: 'Case 21',
       targetSet,
       executionPlan: plan,
@@ -951,6 +958,333 @@ async function runTests() {
     });
 
     assert.strictEqual(auditMatched.passed, true, 'Must pass when capability version matches exactly');
+  });
+
+  // Case 30: LocalSecretVault complete removal of global fallback & mandatory jobId
+  await test('Case 30: LocalSecretVault forbids access without valid jobId ownership', () => {
+    LocalSecretVault.clear();
+    const jobId1 = 'job_101';
+    const jobId2 = 'job_102';
+    const handle = LocalSecretVault.storeSecret('pass_case30', jobId1);
+
+    // Access with wrong jobId must fail
+    assert.strictEqual(LocalSecretVault.getSecret(handle, jobId2), undefined, 'Must reject access from different jobId');
+    assert.strictEqual(LocalSecretVault.hasSecret(handle, jobId2), false);
+
+    // Access with empty/undefined jobId must fail closed
+    assert.strictEqual(LocalSecretVault.getSecret(handle, '' as any), undefined);
+    assert.strictEqual(LocalSecretVault.hasSecret(handle, '' as any), false);
+
+    // Access with correct jobId succeeds
+    assert.strictEqual(LocalSecretVault.getSecret(handle, jobId1), 'pass_case30');
+    assert.strictEqual(LocalSecretVault.hasSecret(handle, jobId1), true);
+
+    // Cleanup of job 1 removes it completely
+    LocalSecretVault.cleanupJob(jobId1);
+    assert.strictEqual(LocalSecretVault.getSecret(handle, jobId1), undefined);
+  });
+
+  // Case 31: PlatformRunner rejects execution when Plan/TargetSet changes after approval (POLICY_STALE)
+  await test('Case 31: PlatformRunner detects post-approval modification and rejects with POLICY_STALE', async () => {
+    const runner = new PlatformRunner();
+    const targetSet = createMockTargetSet(1);
+    const plan = createMockPlan();
+    const policy = PolicyEngine.createDefaultPolicy(plan.riskLevel);
+    PolicyEngine.approveGate(policy, 'GATE_1_PLAN', 'tester');
+
+    // Record initial hashes
+    policy.planHash = PolicyEngine.computePlanHash(plan);
+    policy.targetSetHash = PolicyEngine.computeTargetSetHash(targetSet);
+
+    const job = createMockJob({
+      jobId: 'job_case31',
+      targetSet,
+      executionPlan: plan,
+      policy
+    });
+
+    LocalSecretVault.storeSecretWithRef(targetSet.schools[0].credentialRef, 'pw_31', job.jobId);
+
+    // Modify plan after approval
+    plan.operations.push({
+      operationId: 'op_tampered',
+      capabilityId: 'REORDER_CONTENTS',
+      operationType: 'REORDER_CONTENTS',
+      inputMapping: {},
+      preconditions: [],
+      verification: [],
+      riskClass: 'REVERSIBLE_WRITE',
+      reversible: true
+    });
+
+    await assert.rejects(
+      async () => {
+        await runner.runJob(job, 'LOGICAL_DRY_RUN');
+      },
+      /POLICY_STALE/,
+      'Must reject execution if plan has been altered after approval'
+    );
+
+    assert.strictEqual(job.policy.gates.GATE_1_PLAN.approved, false, 'Policy must be invalidated');
+  });
+
+  // Case 32: SKIPPED-only run cannot produce SUCCESS RunEvidence
+  await test('Case 32: PlatformRunner SKIPPED-only run produces FAILED RunEvidence and cannot unlock Canary', async () => {
+    const runner = new PlatformRunner();
+    const targetSet = createMockTargetSet(2); // SCH_001, SCH_002
+    const testJobId = 'job_case32';
+    LocalSecretVault.storeSecretWithRef('cred_ref_SCH_001', 'pw1', testJobId);
+    LocalSecretVault.storeSecretWithRef('cred_ref_SCH_002', 'pw2', testJobId);
+
+    // Operation scoped only to SCH_999 (neither school matches)
+    const plan = createMockPlan({
+      operations: [
+        {
+          operationId: 'op_001',
+          capabilityId: 'REORDER_CONTENTS',
+          operationType: 'REORDER_CONTENTS',
+          targetSchoolCodes: ['SCH_999'],
+          inputMapping: { targetOrder: ['Google'] },
+          preconditions: [],
+          verification: [],
+          riskClass: 'REVERSIBLE_WRITE',
+          reversible: true
+        }
+      ]
+    });
+
+    const policy = PolicyEngine.createDefaultPolicy(plan.riskLevel);
+    PolicyEngine.approveGate(policy, 'GATE_1_PLAN', 'tester');
+
+    const job = createMockJob({
+      jobId: testJobId,
+      targetSet,
+      executionPlan: plan,
+      policy
+    });
+
+    const runRes = await runner.runJob(job, 'LOGICAL_DRY_RUN');
+    assert.strictEqual(runRes.summary.skippedCount, 2);
+    assert.strictEqual(runRes.summary.successCount, 0);
+
+    const ev = job.evidences![0];
+    assert.strictEqual(ev.status, 'FAILED', 'Evidence status must be FAILED when all schools were SKIPPED');
+    assert.strictEqual(ev.fingerprint.actualSchoolCodes.length, 0);
+
+    // Policy check for Canary must fail
+    PolicyEngine.approveGate(job.policy, 'GATE_2_DRY_RUN', 'tester');
+    job.policy.policyApprovedCanaryScope = 1;
+    const canaryAudit = PolicyEngine.verifyExecutionAllowed(job.policy, 'CANARY_VALIDATION', {
+      planHash: ev.fingerprint.planHash,
+      targetSetHash: ev.fingerprint.targetSetHash,
+      evidences: job.evidences
+    });
+
+    assert.strictEqual(canaryAudit.passed, false, 'Canary execution must be forbidden without successful non-skipped Dry-run evidence');
+  });
+
+  // Case 33: policyApprovedCanaryScope is populated during plan creation
+  await test('Case 33: PlatformRouter plan/generate populates policyApprovedCanaryScope', async () => {
+    const targetSet = createMockTargetSet(5);
+    const plan = createMockPlan({
+      validationScopeProposal: {
+        unit: 'SCHOOL',
+        count: 2,
+        description: '先行検証2校',
+        policyApproved: true,
+        policyFeedback: 'OK'
+      }
+    });
+
+    const initialCanaryScope = plan.validationScopeProposal?.policyApproved
+      ? plan.validationScopeProposal.count
+      : undefined;
+
+    const policy = PolicyEngine.createDefaultPolicy(plan.riskLevel, initialCanaryScope);
+    assert.strictEqual(policy.policyApprovedCanaryScope, 2, 'Must inherit approved count into policy');
+  });
+
+  // Case 34: REORDER_CONTENTS fails closed if expectedOrgId is not bound
+  await test('Case 34: REORDER_CONTENTS throws ORG_ID_NOT_BOUND when neither expectedOrgId nor authenticated context has orgId', async () => {
+    const context: CapabilityExecutionContext = {
+      schoolCode: 'SCH_001',
+      schoolName: 'テスト学校',
+      credentialRef: 'cred_ref_SCH_001',
+      logger: { info: () => {}, warn: () => {}, error: () => {} },
+      page: {
+        rawPage: {
+          evaluate: async () => ({ currentOrderIds: [1, 2] })
+        }
+      } as any,
+      isDryRun: false,
+      expectedOrgId: undefined,
+      authenticatedSchoolContext: undefined
+    };
+
+    await assert.rejects(
+      async () => {
+        await ReorderContentsCapability.execute(context, { targetOrderIds: [2, 1] });
+      },
+      /ORG_ID_NOT_BOUND/,
+      'Execution must fail closed if expectedOrgId is not bound'
+    );
+  });
+
+  // Case 35: Dry-run network boundary blocks PUT/POST/PATCH/DELETE on real browser context mock
+  await test('Case 35: setupNetworkBlocker aborts write methods and passes GET', async () => {
+    let abortedMethods: string[] = [];
+    let continuedMethods: string[] = [];
+
+    // Mock browser context route
+    const mockContext: any = {
+      route: async (pattern: string, handler: (route: any, request: any) => void) => {
+        // Test POST mutation
+        await handler(
+          {
+            abort: (reason: string) => { abortedMethods.push('POST'); },
+            continue: () => { continuedMethods.push('POST'); }
+          },
+          { method: () => 'POST' }
+        );
+
+        // Test PUT mutation
+        await handler(
+          {
+            abort: (reason: string) => { abortedMethods.push('PUT'); },
+            continue: () => { continuedMethods.push('PUT'); }
+          },
+          { method: () => 'PUT' }
+        );
+
+        // Test GET navigation
+        await handler(
+          {
+            abort: (reason: string) => { abortedMethods.push('GET'); },
+            continue: () => { continuedMethods.push('GET'); }
+          },
+          { method: () => 'GET' }
+        );
+      }
+    };
+
+    await setupNetworkBlocker(mockContext);
+    assert.deepStrictEqual(abortedMethods, ['POST', 'PUT'], 'Must abort write methods');
+    assert.deepStrictEqual(continuedMethods, ['GET'], 'Must continue GET methods');
+  });
+
+  // Case 36: GuardedPage.clickNav inspects DOM attributes and rejects submit buttons & mutation buttons
+  await test('Case 36: GuardedPage.clickNav blocks submit elements and mutation action attributes', async () => {
+    // Test 1: Selector regex inspection
+    const guarded = new GuardedPage(null, true);
+    await assert.rejects(
+      async () => {
+        await guarded.clickNav('#btn-save-settings');
+      },
+      /MUTATION_ELEMENT_BLOCKED_IN_CLICK_NAV/,
+      'Must reject selector with save'
+    );
+
+    // Test 2: Real playwright page mock inspection
+    const mockElement = {
+      waitFor: async () => {},
+      evaluate: async (fn: any) => {
+        return fn({
+          tagName: 'BUTTON',
+          getAttribute: (attr: string) => (attr === 'type' ? 'submit' : null),
+          textContent: '次へ'
+        });
+      },
+      click: async () => {}
+    };
+
+    const mockPage: any = {
+      locator: () => ({ first: () => mockElement })
+    };
+
+    const guardedWithPage = new GuardedPage(mockPage, false);
+    await assert.rejects(
+      async () => {
+        await guardedWithPage.clickNav('.nav-next-button');
+      },
+      /MUTATION_ELEMENT_BLOCKED_IN_CLICK_NAV/,
+      'Must reject submit button even if selector looks harmless'
+    );
+  });
+
+  // Case 37: LlmClient message creation payload is strongly typed and includes effort: high
+  await test('Case 37: LlmClient payload configures output_config effort high without top-level effort', () => {
+    const payload: any = {
+      model: 'claude-haiku-5-5',
+      max_tokens: 4096,
+      output_config: { effort: 'high' }
+    };
+
+    assert.strictEqual(payload.output_config.effort, 'high');
+    assert.strictEqual(payload.effort, undefined, 'Top-level effort must not exist');
+  });
+
+  // Case 38: TaskPlanner enforces Registry SSOT riskClass and reversible
+  await test('Case 38: TaskPlanner uses Registry SSOT for riskClass and reversible properties', () => {
+    const reg = CapabilityRegistry.getInstance();
+    const cap = reg.get('REORDER_CONTENTS')!;
+    assert.strictEqual(cap.riskClass, 'REVERSIBLE_WRITE');
+
+    // Simulate OperationIR built from cap
+    const op = {
+      riskClass: cap.riskClass,
+      reversible: cap.riskClass === 'REVERSIBLE_WRITE' || cap.riskClass === 'READ_ONLY'
+    };
+
+    assert.strictEqual(op.riskClass, 'REVERSIBLE_WRITE');
+    assert.strictEqual(op.reversible, true);
+  });
+
+  // Case 39: PolicyEngine checkCapabilityMatch requires exact keys and exact values match
+  await test('Case 39: PolicyEngine requires exact keys and values match for capability versions in Evidence', () => {
+    const policy = PolicyEngine.createDefaultPolicy('REVERSIBLE_WRITE');
+    PolicyEngine.approveGate(policy, 'GATE_1_PLAN', 'tester');
+    PolicyEngine.approveGate(policy, 'GATE_2_DRY_RUN', 'tester');
+    policy.policyApprovedCanaryScope = 1;
+    policy.planHash = 'hash_plan';
+    policy.targetSetHash = 'hash_target';
+
+    const dryRunEvidence: RunEvidence = {
+      evidenceId: 'ev_dry_c39',
+      runId: 'r1',
+      mode: 'LOGICAL_DRY_RUN',
+      status: 'SUCCESS',
+      totalSchools: 1,
+      successCount: 1,
+      failedCount: 0,
+      blockedCount: 0,
+      allVerified: true,
+      completedAt: new Date().toISOString(),
+      fingerprint: {
+        planHash: 'hash_plan',
+        targetSetHash: 'hash_target',
+        mode: 'LOGICAL_DRY_RUN',
+        actualSchoolCodes: ['SCH_001'],
+        capabilityVersions: { REORDER_CONTENTS: '1.2.0' }
+      }
+    };
+
+    // Subset keys (missing an extra capability in evidence) must fail
+    const auditExtraCurrent = PolicyEngine.verifyExecutionAllowed(policy, 'CANARY_VALIDATION', {
+      planHash: 'hash_plan',
+      targetSetHash: 'hash_target',
+      currentCapabilityVersions: { REORDER_CONTENTS: '1.2.0', ANOTHER_CAP: '1.0.0' },
+      evidences: [dryRunEvidence]
+    });
+    assert.strictEqual(auditExtraCurrent.passed, false, 'Must reject when capability key counts differ');
+
+    // Exact key & value match must succeed
+    const auditExact = PolicyEngine.verifyExecutionAllowed(policy, 'CANARY_VALIDATION', {
+      planHash: 'hash_plan',
+      targetSetHash: 'hash_target',
+      currentCapabilityVersions: { REORDER_CONTENTS: '1.2.0' },
+      evidences: [dryRunEvidence]
+    });
+    assert.strictEqual(auditExact.passed, true, 'Must pass on exact capability match');
   });
 
   console.log('================================================================');

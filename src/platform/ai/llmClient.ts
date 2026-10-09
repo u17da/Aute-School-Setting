@@ -44,7 +44,7 @@ export class LlmClient {
 
     // Anthropic Structured Outputs via Tool Use (Guaranteed schema enforcement)
     const toolName = 'submit_plan';
-    const requestPayload: any = {
+    const requestPayload: Anthropic.MessageCreateParamsNonStreaming = {
       model,
       max_tokens: 4096,
       system: params.systemPrompt,

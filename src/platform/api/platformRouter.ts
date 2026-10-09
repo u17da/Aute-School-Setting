@@ -167,7 +167,8 @@ export class PlatformRouter {
 
     // 5. POST /api/platform/targets/validate-login
     if (method === 'POST' && pathname === '/api/platform/targets/validate-login') {
-      const { schoolCodes, targetSet } = body;
+      const { schoolCodes, targetSet, jobId } = body || {};
+      const validationJobId = jobId || targetSet?.jobId || targetSet?.targetSetId || '';
       const targetList = targetSet?.schools || [];
       const baseUrl = process.env.MANAPOKE_BASE_URL || 'https://ed-cl.com';
       const totalSchools = targetList.length;
@@ -189,11 +190,8 @@ export class PlatformRouter {
         });
 
         let password = '';
-        if (s.credentialRef) {
-          password = LocalSecretVault.getSecret(s.credentialRef) || '';
-        }
-        if (!password) {
-          password = LocalSecretVault.getSecretForSchool(s.schoolCode) || '';
+        if (s.credentialRef && validationJobId) {
+          password = LocalSecretVault.getSecret(s.credentialRef, validationJobId) || '';
         }
 
         if (!password) {
@@ -349,7 +347,10 @@ export class PlatformRouter {
       costEstimate.model = `${planResult.aiProvider} (${planResult.aiModel})`;
 
       // 新しいPlanでは承認ポリシーをゼロから初期化（古い承認を流用禁止: Invalidation）
-      const policy = PolicyEngine.createDefaultPolicy(executionPlan.riskLevel);
+      const initialCanaryScope = executionPlan.validationScopeProposal?.policyApproved
+        ? executionPlan.validationScopeProposal.count
+        : undefined;
+      const policy = PolicyEngine.createDefaultPolicy(executionPlan.riskLevel, initialCanaryScope);
 
       // 新しいJob IDで保存
       const jobId = `job_${Date.now()}`;

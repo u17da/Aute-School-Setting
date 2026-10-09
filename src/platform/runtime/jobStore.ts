@@ -46,7 +46,7 @@ export class JobStore {
     const readySchools = job.targetSet.schools.filter(s => s.validationStatus === 'READY' && s.enabled);
     if (readySchools.length === 0) return false;
     for (const s of readySchools) {
-      if (!LocalSecretVault.hasSecret(s.credentialRef, job.jobId) && !LocalSecretVault.hasSecretForSchool(s.schoolCode)) {
+      if (!LocalSecretVault.hasSecret(s.credentialRef, job.jobId)) {
         return true;
       }
     }

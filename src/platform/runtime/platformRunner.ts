@@ -108,10 +108,18 @@ export class PlatformRunner {
       capabilityVersions[op.capabilityId] = cap.version;
     }
 
-    // 1. Policy Gate Check
+    // 1. Policy Gate Check & Invalidation Detection (Defense-in-depth)
+    const currentPlanHash = PolicyEngine.computePlanHash(job.executionPlan);
+    const currentTargetSetHash = PolicyEngine.computeTargetSetHash(job.targetSet);
+
+    if (job.policy.planHash && (job.policy.planHash !== currentPlanHash || job.policy.targetSetHash !== currentTargetSetHash)) {
+      job.policy = PolicyEngine.invalidatePolicy(job.policy, 'Plan or TargetSet changed after approval');
+      throw new Error('POLICY_STALE: Plan or TargetSet changed after approval. Re-approval and new Dry-run are required.');
+    }
+
     const audit = PolicyEngine.verifyExecutionAllowed(job.policy, validatedMode, {
-      planHash: job.policy.planHash || job.executionPlan?.planHash || (job.executionPlan ? PolicyEngine.computePlanHash(job.executionPlan) : undefined),
-      targetSetHash: job.policy.targetSetHash || (job.targetSet ? PolicyEngine.computeTargetSetHash(job.targetSet) : undefined),
+      planHash: job.policy.planHash || currentPlanHash,
+      targetSetHash: job.policy.targetSetHash || currentTargetSetHash,
       currentCapabilityVersions: capabilityVersions,
       evidences: job.evidences || []
     });
@@ -218,11 +226,8 @@ export class PlatformRunner {
       let targetPage: Page | null = options?.page || null;
 
       try {
-        // A. Resolve password from LocalSecretVault with job-scoping check
-        let password = LocalSecretVault.getSecret(school.credentialRef, job.jobId) || '';
-        if (!password) {
-          password = LocalSecretVault.getSecretForSchool(school.schoolCode) || '';
-        }
+        // A. Resolve password from LocalSecretVault with strict job-scoping check
+        const password = LocalSecretVault.getSecret(school.credentialRef, job.jobId) || '';
 
         // Check credential existence: fail closed if missing
         if (!password && options?.browser) {
@@ -466,25 +471,31 @@ export class PlatformRunner {
     summary.etaSeconds = 0;
 
     // Actual school codes are schools that were NOT SKIPPED (i.e. evaluated or executed at least one operation)
-    const actualSchoolCodes = results
-      .filter(r => r.status !== 'SKIPPED')
+    const nonSkippedResults = results.filter(r => r.status !== 'SKIPPED');
+    const actualSchoolCodes = nonSkippedResults
       .map(r => r.schoolCode)
       .sort();
 
-    // Generate strict RunEvidence
-    const allVerified = summary.failedCount === 0 && summary.blockedCount === 0 && results.every(r => r.verificationPassed);
+    // Generate strict RunEvidence: must have at least 1 non-skipped school with full verification pass
+    const isEvidenceSuccess = summary.failedCount === 0 &&
+      summary.blockedCount === 0 &&
+      actualSchoolCodes.length > 0 &&
+      nonSkippedResults.length > 0 &&
+      nonSkippedResults.every(r => r.verificationPassed);
+
+    const allVerified = isEvidenceSuccess;
     const runEvidence: RunEvidence = {
       evidenceId: `ev_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
       runId,
       mode: validatedMode,
       fingerprint: {
-        planHash: job.policy.planHash || PolicyEngine.computePlanHash(job.executionPlan),
-        targetSetHash: job.policy.targetSetHash || PolicyEngine.computeTargetSetHash(job.targetSet),
+        planHash: currentPlanHash,
+        targetSetHash: currentTargetSetHash,
         mode: validatedMode,
         actualSchoolCodes,
         capabilityVersions
       },
-      status: (summary.failedCount === 0 && summary.blockedCount === 0 && results.length > 0) ? 'SUCCESS' : 'FAILED',
+      status: isEvidenceSuccess ? 'SUCCESS' : 'FAILED',
       totalSchools: summary.totalSchools,
       successCount: summary.successCount,
       failedCount: summary.failedCount,

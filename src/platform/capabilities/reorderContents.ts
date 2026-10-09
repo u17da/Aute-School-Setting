@@ -183,6 +183,14 @@ export const ReorderContentsCapability: CapabilityDefinition = {
       throw new Error('Real Playwright page is required for execution');
     }
 
+    // Fail closed immediately if write execution lacks bound expectedOrgId
+    if (!context.isDryRun) {
+      const boundOrgId = context.expectedOrgId || context.authenticatedSchoolContext?.organizationId;
+      if (!boundOrgId) {
+        throw new Error(`ORG_ID_NOT_BOUND: Production write for ${context.schoolCode} requires an authenticated, validated expectedOrgId. DOM or URL inference is strictly forbidden.`);
+      }
+    }
+
     const obs = await this.observe(context, input);
     const state = obs.currentState;
 
@@ -212,26 +220,21 @@ export const ReorderContentsCapability: CapabilityDefinition = {
     // -------------------------------------------------------------
     const targetOrderIds: number[] = state.desiredOrderIds;
     const boundOrgId = context.expectedOrgId || context.authenticatedSchoolContext?.organizationId;
-    context.logger.info(`[REORDER_CONTENTS] Performing Production Write for ${context.schoolCode}. Bound orgId: ${boundOrgId || 'none'}, Target Order: ${JSON.stringify(targetOrderIds.slice(0, 5))}...`);
+    if (!boundOrgId) {
+      throw new Error(`ORG_ID_NOT_BOUND: Production write for ${context.schoolCode} requires an authenticated, validated expectedOrgId. DOM or URL inference is strictly forbidden.`);
+    }
 
-    // Write contents to API using bound expectedOrgId or verified URL
-    const writeResult = await page.evaluate(async (params: { targetIds: number[]; boundOrgId?: string }) => {
-      // 1. Resolve orgId strictly
-      let orgId: string | null = params.boundOrgId || null;
+    context.logger.info(`[REORDER_CONTENTS] Performing Production Write for ${context.schoolCode}. Bound orgId: ${boundOrgId}, Target Order: ${JSON.stringify(targetOrderIds.slice(0, 5))}...`);
 
-      // Check current URL pathname if not bound
-      if (!orgId) {
-        const urlMatch = window.location.pathname.match(/\/organizations\/(\d+)/);
-        if (urlMatch && urlMatch[1]) {
-          orgId = urlMatch[1];
-        }
-      }
-
+    // Write contents to API using bound expectedOrgId
+    const writeResult = await page.evaluate(async (params: { targetIds: number[]; boundOrgId: string }) => {
+      // 1. Resolve orgId strictly: only boundOrgId is accepted
+      const orgId: string = params.boundOrgId;
       if (!orgId) {
         return {
           success: false,
           status: 400,
-          error: 'ORG_ID_RESOLUTION_FAILED: Failed to resolve validated orgId for this school context. Refusing to fallback to random DOM links.'
+          error: 'ORG_ID_NOT_BOUND: Failed to resolve validated orgId for this school context. DOM/URL inference forbidden.'
         };
       }
 

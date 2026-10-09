@@ -208,8 +208,8 @@ Please update the plan reflecting the user modification and provide "planDiff".`
             expected: true
           }
         ],
-        riskClass: op.riskClass,
-        reversible: op.riskClass === 'REVERSIBLE_WRITE' || op.riskClass === 'READ_ONLY',
+        riskClass: cap.riskClass,
+        reversible: cap.riskClass === 'REVERSIBLE_WRITE' || cap.riskClass === 'READ_ONLY',
         estimatedDurationMs: 4000
       });
     }

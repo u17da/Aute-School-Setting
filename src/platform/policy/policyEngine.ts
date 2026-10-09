@@ -13,7 +13,9 @@ export class PolicyEngine {
   }
 
   static computePlanHash(plan: any): string {
-    return crypto.createHash('sha256').update(JSON.stringify(plan || {})).digest('hex');
+    if (!plan) return crypto.createHash('sha256').update('{}').digest('hex');
+    const { planHash, ...planWithoutHash } = plan;
+    return crypto.createHash('sha256').update(JSON.stringify(planWithoutHash)).digest('hex');
   }
 
   static computeTargetSetHash(targetSet: any): string {
@@ -23,13 +25,14 @@ export class PolicyEngine {
   /**
    * Create an initial approval policy according to the plan's risk level
    */
-  static createDefaultPolicy(riskClass: RiskClass): ApprovalPolicy {
+  static createDefaultPolicy(riskClass: RiskClass, initialCanaryScope?: number): ApprovalPolicy {
     const isSensitive = riskClass === 'SENSITIVE_WRITE' || riskClass === 'DESTRUCTIVE_WRITE' || riskClass === 'IRREVERSIBLE_WRITE';
 
     return {
       riskClass,
       autoProceedToCanary: false,
       autoProceedToFullOnCanarySuccess: !isSensitive, // High-risk requires explicit Gate 4 approval
+      policyApprovedCanaryScope: initialCanaryScope,
       gates: {
         GATE_1_PLAN: {
           gateId: 'GATE_1_PLAN',
@@ -119,22 +122,26 @@ export class PolicyEngine {
 
     // Helper to check capabilityVersions exact match on relevant capabilities
     const checkCapabilityMatch = (evidenceVersions?: Record<string, string>): boolean => {
-      if (!currentCapVersions || !evidenceVersions) return true;
-      for (const [capId, ver] of Object.entries(currentCapVersions)) {
-        if (evidenceVersions[capId] !== ver) {
-          return false;
-        }
+      if (!currentCapVersions) return true; // not provided in context check
+      if (!evidenceVersions) return false;
+      const currentKeys = Object.keys(currentCapVersions).sort();
+      const evidenceKeys = Object.keys(evidenceVersions).sort();
+      if (currentKeys.length !== evidenceKeys.length || !currentKeys.every((k, i) => k === evidenceKeys[i])) {
+        return false;
       }
-      return true;
+      return currentKeys.every(k => currentCapVersions[k] === evidenceVersions[k]);
     };
 
     // Check Dry-run Evidence (Execution Proof) for Canary and Full
     const matchingDryRunEvidence = evidences.find(e =>
       e.mode === 'LOGICAL_DRY_RUN' &&
       e.status === 'SUCCESS' &&
-      (!planHash || e.fingerprint.planHash === planHash) &&
-      (!targetSetHash || e.fingerprint.targetSetHash === targetSetHash) &&
-      checkCapabilityMatch(e.fingerprint.capabilityVersions)
+      e.successCount > 0 &&
+      Array.isArray(e.fingerprint?.actualSchoolCodes) &&
+      e.fingerprint.actualSchoolCodes.length > 0 &&
+      (!planHash || e.fingerprint?.planHash === planHash) &&
+      (!targetSetHash || e.fingerprint?.targetSetHash === targetSetHash) &&
+      checkCapabilityMatch(e.fingerprint?.capabilityVersions)
     );
 
     if (!matchingDryRunEvidence) {

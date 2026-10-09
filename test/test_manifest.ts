@@ -116,7 +116,7 @@ export const TEST_MANIFEST: Record<string, TestManifestEntry> = {
   'test/platform/platform_safety_invariants.test.ts': {
     filePath: 'test/platform/platform_safety_invariants.test.ts',
     category: 'A_DEFAULT_REGRESSION',
-    title: 'Platform 安全性不変条件 & アーキテクチャ検証テスト (29件)',
+    title: 'Platform 安全性不変条件 & アーキテクチャ検証テスト (39件)',
     description: 'JobExecutionMode厳密検証、TargetScope、物理遮断、RunEvidence、SecretVault、Capability監査、緊急停止等の不変条件テスト',
     runCondition: '毎回実行可能 (副作用なし・高速)'
   },

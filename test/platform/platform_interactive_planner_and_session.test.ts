@@ -62,11 +62,12 @@ async function runTests() {
   // Test 2: LocalSecretVault Credential Binding
   console.log('--- Test 2: LocalSecretVault Credential Ref Binding ---');
   LocalSecretVault.clear();
+  const testJobId = 'job_test_interactive_002';
   const rawCsv = 'C2001001,堀川小学校,adminPass123\nC2001002,滝川小学校,pass456';
-  const doc = DocumentIngestion.ingest({ filename: 'schools.csv', bufferOrText: rawCsv });
+  const doc = DocumentIngestion.ingest({ filename: 'schools.csv', bufferOrText: rawCsv }, testJobId);
   assert.strictEqual(doc.tables.length, 1);
-  const secret1 = LocalSecretVault.getSecret('cred_ref_C2001001');
-  const secret2 = LocalSecretVault.getSecret('cred_ref_C2001002');
+  const secret1 = LocalSecretVault.getSecret('cred_ref_C2001001', testJobId);
+  const secret2 = LocalSecretVault.getSecret('cred_ref_C2001002', testJobId);
   assert.strictEqual(secret1, 'adminPass123', 'Password for C2001001 must match');
   assert.strictEqual(secret2, 'pass456', 'Password for C2001002 must match');
   console.log('  [PASS] Test 2: Secret vault bound credentials for school codes correctly.');
