@@ -517,6 +517,9 @@ export class PlatformRunner {
         job.status = runEvidence.status === 'SUCCESS' ? 'CANARY_COMPLETED' : 'CANARY_FAILED';
       } else {
         job.status = runEvidence.status === 'SUCCESS' ? 'COMPLETED' : 'FAILED';
+        if (job.status === 'COMPLETED') {
+          LocalSecretVault.cleanupJob(job.jobId);
+        }
       }
     }
 

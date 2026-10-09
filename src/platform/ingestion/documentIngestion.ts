@@ -83,8 +83,11 @@ export class DocumentIngestion {
   /**
    * Ingest arbitrary supported files and normalize to DocumentContent with Credential Boundary
    */
-  static ingest(input: IngestFileInput, jobId?: string): DocumentContent {
-    const activeJobId = jobId || `ingest_job_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
+  static ingest(input: IngestFileInput, jobId: string): DocumentContent {
+    if (!jobId || typeof jobId !== 'string' || jobId.trim().length === 0) {
+      throw new Error('JOB_ID_REQUIRED: DocumentIngestion.ingest requires an explicit non-empty jobId');
+    }
+    const activeJobId = jobId;
     const filename = input.filename;
     const ext = filename.split('.').pop()?.toLowerCase() || '';
     const rawText = typeof input.bufferOrText === 'string'

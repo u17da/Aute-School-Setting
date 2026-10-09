@@ -96,7 +96,7 @@ function createMockJob(overrides: Partial<PlatformJob> = {}): PlatformJob {
 
 async function runTests() {
   console.log('================================================================');
-  console.log('   Platform Safety Invariants & Architecture Tests (39 Cases)   ');
+  console.log('   Platform Safety Invariants & Architecture Tests (43 Cases)   ');
   console.log('================================================================');
 
   let passed = 0;
@@ -265,7 +265,8 @@ async function runTests() {
   // Case 7: TargetSet credential boundary
   await test('TargetInterpreter degrades rawTextProvided to boolean and provides sanitized meta', () => {
     const parsed = TargetInterpreter.parseTargets({
-      rawText: 'SCH_001,テスト学校,admin_001,super_secret_password\nSCH_002,テスト学校2,admin_002,password123'
+      rawText: 'SCH_001,テスト学校,admin_001,super_secret_password\nSCH_002,テスト学校2,admin_002,password123',
+      jobId: 'job_case_7'
     });
 
     assert.strictEqual(typeof parsed.rawTextProvided, 'boolean');
@@ -752,7 +753,8 @@ async function runTests() {
   await test('TargetInterpreter extracts schoolType from table and text representations', () => {
     const csvContent = '学校コード,学校名,ユーザーID,校種\nSCH_101,第一小学校,admin1,小学校\nSCH_102,第二中学校,admin2,中学校\nSCH_103,第三高校,admin3,高校\nSCH_104,第四義務教育学校,admin4,小中一貫';
     const parsed = TargetInterpreter.parseTargets({
-      files: [{ filename: 'schools.csv', content: csvContent }]
+      files: [{ filename: 'schools.csv', content: csvContent }],
+      jobId: 'job_case_22'
     });
 
     assert.strictEqual(parsed.summary.total, 4);
@@ -1083,25 +1085,62 @@ async function runTests() {
     assert.strictEqual(canaryAudit.passed, false, 'Canary execution must be forbidden without successful non-skipped Dry-run evidence');
   });
 
-  // Case 33: policyApprovedCanaryScope is populated during plan creation
+  // Case 33: policyApprovedCanaryScope is populated during plan creation via PlatformRouter
   await test('Case 33: PlatformRouter plan/generate populates policyApprovedCanaryScope', async () => {
+    const router = new PlatformRouter();
     const targetSet = createMockTargetSet(5);
-    const plan = createMockPlan({
-      validationScopeProposal: {
-        unit: 'SCHOOL',
-        count: 2,
-        description: '先行検証2校',
-        policyApproved: true,
-        policyFeedback: 'OK'
-      }
+
+    let responseStatus = 0;
+    let responseBody: any = null;
+    const sendJson = (status: number, data: any) => {
+      responseStatus = status;
+      responseBody = data;
+    };
+
+    // Temporarily mock TaskPlanner.generatePlanAsync to return proposal with policyApproved
+    const originalGeneratePlanAsync = TaskPlanner.generatePlanAsync;
+    TaskPlanner.generatePlanAsync = async () => ({
+      plan: createMockPlan({
+        validationScopeProposal: {
+          unit: 'SCHOOL',
+          count: 2,
+          description: '先行検証2校',
+          policyApproved: true,
+          policyFeedback: 'OK'
+        }
+      }),
+      aiProvider: 'MockProvider',
+      aiModel: 'MockModel',
+      isRealApiCall: true,
+      tokenUsage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+      latencyMs: 10
     });
 
-    const initialCanaryScope = plan.validationScopeProposal?.policyApproved
-      ? plan.validationScopeProposal.count
-      : undefined;
+    try {
+      const handled = await router.handle(
+        '/api/platform/plan/generate',
+        'POST',
+        {} as any,
+        {
+          targetSet,
+          userInstruction: 'コンテンツ順序変更'
+        },
+        sendJson
+      );
 
-    const policy = PolicyEngine.createDefaultPolicy(plan.riskLevel, initialCanaryScope);
-    assert.strictEqual(policy.policyApprovedCanaryScope, 2, 'Must inherit approved count into policy');
+      assert.strictEqual(handled, true);
+      assert.strictEqual(responseStatus, 200);
+      assert.ok(responseBody.policy);
+      assert.strictEqual(
+        responseBody.policy.policyApprovedCanaryScope,
+        2,
+        'Router must set policyApprovedCanaryScope from plan validationScopeProposal'
+      );
+      assert.ok(responseBody.policy.planHash, 'Router must compute and store policy.planHash');
+      assert.ok(responseBody.policy.targetSetHash, 'Router must compute and store policy.targetSetHash');
+    } finally {
+      TaskPlanner.generatePlanAsync = originalGeneratePlanAsync;
+    }
   });
 
   // Case 34: REORDER_CONTENTS fails closed if expectedOrgId is not bound
@@ -1130,46 +1169,66 @@ async function runTests() {
     );
   });
 
-  // Case 35: Dry-run network boundary blocks PUT/POST/PATCH/DELETE on real browser context mock
-  await test('Case 35: setupNetworkBlocker aborts write methods and passes GET', async () => {
-    let abortedMethods: string[] = [];
-    let continuedMethods: string[] = [];
+  // Case 35: Dry-run network boundary: login allowed before verify, blocker installed after verify, mutation blocked, GET allowed
+  await test('Case 35: setupNetworkBlocker aborts write methods and passes GET after login & identity verification', async () => {
+    // 1. Simulate authentication phase: LoginPage submits credentials (POST allowed)
+    let loginPostAllowed = false;
+    const authRouteHandler = (route: any, request: any) => {
+      if (request.method() === 'POST' && request.url().includes('/login')) {
+        loginPostAllowed = true;
+        route.continue();
+      }
+    };
+    authRouteHandler(
+      { continue: () => {} },
+      { method: () => 'POST', url: () => 'https://ed-cl.com/login' }
+    );
+    assert.strictEqual(loginPostAllowed, true, 'Pre-verification login POST must proceed');
 
-    // Mock browser context route
+    // 2. Strict Identity Verification completed -> Install setupNetworkBlocker on context
+    let routePatternInstalled = '';
+    let installedHandler: any = null;
     const mockContext: any = {
-      route: async (pattern: string, handler: (route: any, request: any) => void) => {
-        // Test POST mutation
-        await handler(
-          {
-            abort: (reason: string) => { abortedMethods.push('POST'); },
-            continue: () => { continuedMethods.push('POST'); }
-          },
-          { method: () => 'POST' }
-        );
-
-        // Test PUT mutation
-        await handler(
-          {
-            abort: (reason: string) => { abortedMethods.push('PUT'); },
-            continue: () => { continuedMethods.push('PUT'); }
-          },
-          { method: () => 'PUT' }
-        );
-
-        // Test GET navigation
-        await handler(
-          {
-            abort: (reason: string) => { abortedMethods.push('GET'); },
-            continue: () => { continuedMethods.push('GET'); }
-          },
-          { method: () => 'GET' }
-        );
+      route: async (pattern: string, handler: any) => {
+        routePatternInstalled = pattern;
+        installedHandler = handler;
       }
     };
 
     await setupNetworkBlocker(mockContext);
-    assert.deepStrictEqual(abortedMethods, ['POST', 'PUT'], 'Must abort write methods');
-    assert.deepStrictEqual(continuedMethods, ['GET'], 'Must continue GET methods');
+    assert.strictEqual(routePatternInstalled, '**/*', 'Network blocker must route all URLs');
+    assert.ok(installedHandler, 'Network blocker handler must be installed');
+
+    // 3. Test after blocker installation: POST and PUT are blocked, GET is passed
+    const abortedMethods: string[] = [];
+    const continuedMethods: string[] = [];
+
+    await installedHandler!(
+      {
+        abort: (reason: string) => { abortedMethods.push('POST'); },
+        continue: () => { continuedMethods.push('POST'); }
+      },
+      { method: () => 'POST', url: () => 'https://ed-cl.com/organizations/100/content_position' }
+    );
+
+    await installedHandler!(
+      {
+        abort: (reason: string) => { abortedMethods.push('PUT'); },
+        continue: () => { continuedMethods.push('PUT'); }
+      },
+      { method: () => 'PUT', url: () => 'https://ed-cl.com/organizations/100/content_position' }
+    );
+
+    await installedHandler!(
+      {
+        abort: (reason: string) => { abortedMethods.push('GET'); },
+        continue: () => { continuedMethods.push('GET'); }
+      },
+      { method: () => 'GET', url: () => 'https://ed-cl.com/contents' }
+    );
+
+    assert.deepStrictEqual(abortedMethods, ['POST', 'PUT'], 'Must abort write mutation methods in Dry-run');
+    assert.deepStrictEqual(continuedMethods, ['GET'], 'Must allow read GET navigation in Dry-run');
   });
 
   // Case 36: GuardedPage.clickNav inspects DOM attributes and rejects submit buttons & mutation buttons
@@ -1211,32 +1270,75 @@ async function runTests() {
     );
   });
 
-  // Case 37: LlmClient message creation payload is strongly typed and includes effort: high
-  await test('Case 37: LlmClient payload configures output_config effort high without top-level effort', () => {
-    const payload: any = {
-      model: 'claude-haiku-5-5',
-      max_tokens: 4096,
-      output_config: { effort: 'high' }
-    };
+  // Case 37: LlmClient.buildMessagePayload is strongly typed and includes effort: high
+  await test('Case 37: LlmClient.buildMessagePayload configures output_config effort high without top-level effort', () => {
+    const payload = LlmClient.buildMessagePayload({
+      systemPrompt: 'System instructions',
+      userPrompt: 'User prompt',
+      jsonSchema: { type: 'object' },
+      effort: 'high'
+    });
 
-    assert.strictEqual(payload.output_config.effort, 'high');
-    assert.strictEqual(payload.effort, undefined, 'Top-level effort must not exist');
+    assert.strictEqual(payload.model, 'claude-haiku-5-5');
+    assert.strictEqual(payload.output_config?.effort, 'high');
+    assert.strictEqual((payload as any).effort, undefined, 'Top-level effort must not exist');
+    assert.strictEqual(payload.tool_choice?.type, 'tool');
+    assert.strictEqual((payload.tool_choice as any).name, 'submit_plan');
   });
 
-  // Case 38: TaskPlanner enforces Registry SSOT riskClass and reversible
-  await test('Case 38: TaskPlanner uses Registry SSOT for riskClass and reversible properties', () => {
+  // Case 38: TaskPlanner enforces Registry SSOT riskClass and rejects LLM hallucinations
+  await test('Case 38: TaskPlanner rejects LLM hallucinated riskClass when differing from Registry SSOT', async () => {
     const reg = CapabilityRegistry.getInstance();
     const cap = reg.get('REORDER_CONTENTS')!;
     assert.strictEqual(cap.riskClass, 'REVERSIBLE_WRITE');
 
-    // Simulate OperationIR built from cap
-    const op = {
-      riskClass: cap.riskClass,
-      reversible: cap.riskClass === 'REVERSIBLE_WRITE' || cap.riskClass === 'READ_ONLY'
-    };
+    // Simulate LLM returning REORDER_CONTENTS with tampered riskClass: 'READ_ONLY'
+    const originalCallClaudeStructured = LlmClient.callClaudeStructured;
+    LlmClient.callClaudeStructured = async () => ({
+      data: {
+        operations: [
+          {
+            capabilityId: 'REORDER_CONTENTS',
+            riskClass: 'READ_ONLY', // Hallucinated / tampered by LLM
+            input: { targetOrder: ['Google'] }
+          }
+        ],
+        assumptions: [],
+        questions: [],
+        humanSummary: {
+          interpretedIntent: '順序変更',
+          targetScope: '対象校',
+          actionSummary: '変更',
+          settingValueSummary: '値',
+          skipBehavior: 'スキップ',
+          capabilityUsed: 'REORDER_CONTENTS',
+          riskLevel: 'READ_ONLY'
+        }
+      } as any,
+      usage: { inputTokens: 50, outputTokens: 50, totalTokens: 100, latencyMs: 5 },
+      provider: 'MockAnthropic',
+      model: 'claude-haiku-5-5',
+      isRealApiCall: true
+    });
 
-    assert.strictEqual(op.riskClass, 'REVERSIBLE_WRITE');
-    assert.strictEqual(op.reversible, true);
+    const originalApiKey = process.env.ANTHROPIC_API_KEY;
+    process.env.ANTHROPIC_API_KEY = 'test_api_key_for_mock_llm';
+
+    try {
+      await assert.rejects(
+        async () => {
+          await TaskPlanner.generatePlanAsync({
+            targetSet: createMockTargetSet(1),
+            userInstruction: '順序変更'
+          });
+        },
+        /VALIDATION_FAILED: Operation riskClass mismatch for 'REORDER_CONTENTS': AI proposed 'READ_ONLY' but Registry SSOT defines 'REVERSIBLE_WRITE'/,
+        'TaskPlanner must reject plan when AI proposes riskClass differing from Registry SSOT'
+      );
+    } finally {
+      LlmClient.callClaudeStructured = originalCallClaudeStructured;
+      process.env.ANTHROPIC_API_KEY = originalApiKey;
+    }
   });
 
   // Case 39: PolicyEngine checkCapabilityMatch requires exact keys and exact values match
@@ -1285,6 +1387,346 @@ async function runTests() {
       evidences: [dryRunEvidence]
     });
     assert.strictEqual(auditExact.passed, true, 'Must pass on exact capability match');
+  });
+
+  // Case 40: Target parse -> validate-login -> plan/generate retains credential ownership across routes
+  await test('Case 40: Full lifecycle retains credential ownership from parse to runtime', async () => {
+    const router = new PlatformRouter();
+    LocalSecretVault.clear();
+
+    let parseStatus = 0;
+    let parseBody: any = null;
+    await router.handle(
+      '/api/platform/targets/parse',
+      'POST',
+      {} as any,
+      {
+        rawText: 'SCH_001,テスト学校,admin_001,super_secret_test_pw'
+      },
+      (st, data) => { parseStatus = st; parseBody = data; }
+    );
+
+    assert.strictEqual(parseStatus, 200);
+    assert.ok(parseBody.jobId, 'parseTargets must issue provisional jobId');
+    assert.ok(parseBody.targetSet.jobId === parseBody.jobId);
+    const assignedJobId = parseBody.jobId;
+
+    const credRef = parseBody.targetSet.schools[0].credentialRef;
+    assert.ok(credRef.startsWith('cred_ref_'));
+
+    // Verify secret is registered under assignedJobId in LocalSecretVault
+    assert.strictEqual(LocalSecretVault.hasSecret(credRef, assignedJobId), true);
+    assert.strictEqual(LocalSecretVault.getSecret(credRef, assignedJobId), 'super_secret_test_pw');
+    assert.strictEqual(LocalSecretVault.getSecret(credRef, 'another_job_id'), undefined, 'Isolation between jobs');
+
+    // Simulate /api/platform/plan/generate inheriting the same jobId
+    let planStatus = 0;
+    let planBody: any = null;
+    const originalGeneratePlanAsync = TaskPlanner.generatePlanAsync;
+    TaskPlanner.generatePlanAsync = async () => ({
+      plan: createMockPlan(),
+      aiProvider: 'MockProvider',
+      aiModel: 'MockModel',
+      isRealApiCall: true,
+      tokenUsage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+      latencyMs: 10
+    });
+
+    try {
+      await router.handle(
+        '/api/platform/plan/generate',
+        'POST',
+        {} as any,
+        {
+          jobId: assignedJobId,
+          targetSet: parseBody.targetSet,
+          userInstruction: '順序変更'
+        },
+        (st, data) => { planStatus = st; planBody = data; }
+      );
+
+      assert.strictEqual(planStatus, 200);
+      assert.strictEqual(planBody.jobId, assignedJobId, 'Plan generate must retain initial provisional jobId');
+
+      // Verify that after plan generation, JobStore has job and secret is still accessible with this jobId
+      const storedJob = JobStore.getInstance().getJob(assignedJobId);
+      assert.ok(storedJob);
+      assert.strictEqual(storedJob?.jobId, assignedJobId);
+      assert.strictEqual(LocalSecretVault.getSecret(credRef, storedJob!.jobId), 'super_secret_test_pw');
+    } finally {
+      TaskPlanner.generatePlanAsync = originalGeneratePlanAsync;
+    }
+  });
+
+  // Case 41: Tampering plan or targetSet before Gate 1 approval triggers POLICY_STALE rejection
+  await test('Case 41: Plan or TargetSet tampering before Gate 1 approval triggers POLICY_STALE rejection', async () => {
+    const router = new PlatformRouter();
+    const targetSet = createMockTargetSet(2);
+    const plan = createMockPlan();
+
+    // 1. Generate plan through router
+    let planRes: any = null;
+    const originalGeneratePlanAsync = TaskPlanner.generatePlanAsync;
+    TaskPlanner.generatePlanAsync = async () => ({
+      plan,
+      aiProvider: 'MockProvider',
+      aiModel: 'MockModel',
+      isRealApiCall: true,
+      tokenUsage: { inputTokens: 50, outputTokens: 50, totalTokens: 100 },
+      latencyMs: 5
+    });
+
+    try {
+      await router.handle(
+        '/api/platform/plan/generate',
+        'POST',
+        {} as any,
+        {
+          targetSet,
+          userInstruction: 'テスト指示'
+        },
+        (st, data) => { planRes = data; }
+      );
+
+      const jobId = planRes.jobId;
+      const job = JobStore.getInstance().getJob(jobId)!;
+      assert.ok(job);
+      assert.ok(job.policy.planHash);
+      assert.ok(job.executionPlan);
+
+      // 2. Tamper the plan in JobStore
+      job.executionPlan!.operations.push({
+        operationId: 'op_tampered',
+        capabilityId: 'REORDER_CONTENTS',
+        operationType: 'REORDER_CONTENTS',
+        inputMapping: {},
+        preconditions: [],
+        verification: [],
+        riskClass: 'REVERSIBLE_WRITE',
+        reversible: true
+      });
+      JobStore.getInstance().saveJob(job);
+
+      // 3. Attempt to approve Gate 1 via router
+      let approveStatus = 0;
+      let approveBody: any = null;
+      await router.handle(
+        '/api/platform/policy/approve',
+        'POST',
+        {} as any,
+        {
+          jobId,
+          gateId: 'GATE_1_PLAN',
+          approvedBy: 'admin_reviewer',
+          autoProceedToFull: false
+        },
+        (st, data) => { approveStatus = st; approveBody = data; }
+      );
+
+      assert.strictEqual(approveStatus, 400);
+      assert.strictEqual(approveBody.error, 'POLICY_STALE', 'Must reject approval with POLICY_STALE on tampered plan');
+
+      // 4. Attempt to run job must also be blocked
+      const runner = new PlatformRunner();
+      await assert.rejects(
+        async () => {
+          await runner.runJob(job, 'LOGICAL_DRY_RUN');
+        },
+        /POLICY_STALE/,
+        'PlatformRunner must also fail-closed on POLICY_STALE'
+      );
+    } finally {
+      TaskPlanner.generatePlanAsync = originalGeneratePlanAsync;
+    }
+  });
+
+  // Case 42: Credential cleanup upon FULL_PRODUCTION completion leaves results viewable but secrets purged
+  await test('Case 42: Credential cleanup purges secrets on FULL_PRODUCTION completion while results remain viewable', async () => {
+    const runner = new PlatformRunner();
+    const jobId = 'job_cleanup_test_001';
+    const targetSet = createMockTargetSet(1);
+    const plan = createMockPlan();
+
+    LocalSecretVault.clear();
+    const credRef = targetSet.schools[0].credentialRef;
+    LocalSecretVault.storeSecretWithRef(credRef, 'secret_cleanup_val', jobId);
+    assert.strictEqual(LocalSecretVault.getSecret(credRef, jobId), 'secret_cleanup_val');
+
+    const computedPlanHash = PolicyEngine.computePlanHash(plan);
+    const computedTargetSetHash = PolicyEngine.computeTargetSetHash(targetSet);
+    plan.planHash = computedPlanHash;
+
+    const policy = PolicyEngine.createDefaultPolicy(plan.riskLevel);
+    policy.planHash = computedPlanHash;
+    policy.targetSetHash = computedTargetSetHash;
+    policy.policyApprovedCanaryScope = 1;
+    PolicyEngine.approveGate(policy, 'GATE_1_PLAN', 'tester');
+    PolicyEngine.approveGate(policy, 'GATE_2_DRY_RUN', 'tester');
+    PolicyEngine.approveGate(policy, 'GATE_3_CANARY', 'tester');
+    PolicyEngine.approveGate(policy, 'GATE_4_FULL_PRODUCTION', 'tester');
+
+    const reg = CapabilityRegistry.getInstance();
+    const originalCap = reg.get('REORDER_CONTENTS')!;
+    reg.register({
+      ...originalCap,
+      observe: async () => ({ eligible: true, currentState: { currentOrderIds: [1, 2], desiredOrderIds: [2, 1] } }),
+      execute: async () => ({
+        success: true,
+        appliedChanges: { moved: true },
+        beforeState: {},
+        afterState: {},
+        verified: true
+      }),
+      verify: async () => true
+    });
+
+    const job = createMockJob({
+      jobId,
+      title: 'Cleanup Job Test',
+      targetSet,
+      executionPlan: plan,
+      policy,
+      evidences: [
+        {
+          evidenceId: 'ev_dry_c42',
+          runId: 'r_dry',
+          mode: 'LOGICAL_DRY_RUN',
+          status: 'SUCCESS',
+          totalSchools: 1,
+          successCount: 1,
+          failedCount: 0,
+          blockedCount: 0,
+          allVerified: true,
+          completedAt: new Date().toISOString(),
+          fingerprint: {
+            planHash: computedPlanHash,
+            targetSetHash: computedTargetSetHash,
+            mode: 'LOGICAL_DRY_RUN',
+            actualSchoolCodes: ['SCH_001'],
+            capabilityVersions: { REORDER_CONTENTS: originalCap.version }
+          }
+        },
+        {
+          evidenceId: 'ev_canary_c42',
+          runId: 'r_canary',
+          mode: 'CANARY_VALIDATION',
+          status: 'SUCCESS',
+          totalSchools: 1,
+          successCount: 1,
+          failedCount: 0,
+          blockedCount: 0,
+          allVerified: true,
+          completedAt: new Date().toISOString(),
+          fingerprint: {
+            planHash: computedPlanHash,
+            targetSetHash: computedTargetSetHash,
+            mode: 'CANARY_VALIDATION',
+            actualSchoolCodes: ['SCH_001'],
+            capabilityVersions: { REORDER_CONTENTS: originalCap.version }
+          }
+        }
+      ]
+    });
+
+    try {
+      const res = await runner.runJob(job, 'FULL_PRODUCTION');
+      assert.strictEqual(res.summary.processedCount, 1);
+      assert.strictEqual(job.status, 'COMPLETED');
+
+      // Secrets in LocalSecretVault must be completely cleaned up
+      assert.strictEqual(LocalSecretVault.getSecret(credRef, jobId), undefined, 'Secrets must be purged upon completion');
+      assert.strictEqual(LocalSecretVault.hasSecret(credRef, jobId), false);
+
+      // Job summary and results in JobStore remain viewable
+      const storedJob = JobStore.getInstance().getJob(jobId);
+      assert.ok(storedJob);
+      assert.strictEqual(storedJob?.status, 'COMPLETED');
+      assert.ok(storedJob?.runs);
+      assert.ok(Object.keys(storedJob!.runs).length > 0, 'Runs summary and results must be preserved');
+    } finally {
+      reg.register(originalCap);
+    }
+  });
+
+  // Case 43: REORDER_CONTENTS writes strictly to expectedOrgId = 100 even if DOM contains /organizations/200
+  await test('Case 43: REORDER_CONTENTS writes strictly to bound expectedOrgId=100 and ignores conflicting DOM org 200', async () => {
+    const fetchedUrls: string[] = [];
+
+    let writeExecuted = false;
+    // Mock page where DOM contains conflicting org 200 but context is bound to 100
+    const mockPage = {
+      evaluate: async (fn: any, args?: any) => {
+        // Mock the contents list call
+        if (!args) {
+          if (writeExecuted) {
+            return [
+              { contentable_id: 2, name: 'MEXCBT' },
+              { contentable_id: 1, name: 'Google' }
+            ];
+          }
+          return [
+            { contentable_id: 1, name: 'Google' },
+            { contentable_id: 2, name: 'MEXCBT' }
+          ];
+        }
+        // Mock the write evaluation
+        // Simulate window fetch within evaluate
+        const simulatedFetch = async (url: string, options: any) => {
+          fetchedUrls.push(url);
+          writeExecuted = true;
+          return { ok: true, status: 200, json: async () => ({ success: true }) };
+        };
+
+        // Execute function in simulated browser environment
+        const originalFetch = (global as any).fetch;
+        const originalDoc = (global as any).document;
+        try {
+          (global as any).fetch = simulatedFetch;
+          (global as any).document = {
+            querySelector: (sel: string) => ({
+              getAttribute: () => 'mock_csrf_token',
+              href: 'https://ed-cl.com/organizations/200/dashboard' // Conflicting DOM reference!
+            })
+          };
+          return await fn(args);
+        } finally {
+          (global as any).fetch = originalFetch;
+          (global as any).document = originalDoc;
+        }
+      },
+      reload: async () => {}
+    };
+
+    const context: CapabilityExecutionContext = {
+      schoolCode: 'SCH_001',
+      schoolName: 'テスト学校',
+      credentialRef: 'cred_ref_SCH_001',
+      logger: { info: () => {}, warn: () => {}, error: () => {} },
+      page: {
+        rawPage: mockPage
+      } as any,
+      isDryRun: false,
+      expectedOrgId: '100', // STRICT BOUND ORG ID
+      authenticatedSchoolContext: {
+        schoolCode: 'SCH_001',
+        schoolName: 'テスト学校',
+        organizationId: '100',
+        authenticatedAt: new Date().toISOString()
+      }
+    };
+
+    const result = await ReorderContentsCapability.execute(context, { targetOrderIds: [2, 1] });
+    assert.strictEqual(result.success, true);
+    assert.strictEqual(fetchedUrls.length, 1);
+    assert.strictEqual(
+      fetchedUrls[0],
+      '/organizations/100/content_position',
+      'Request must strictly target bound org 100'
+    );
+    assert.ok(
+      !fetchedUrls.some(u => u.includes('200')),
+      'Request must NEVER target conflicting DOM org 200'
+    );
   });
 
   console.log('================================================================');

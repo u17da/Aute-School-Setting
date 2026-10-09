@@ -20,6 +20,7 @@ export interface TargetSchool {
 
 export interface TargetSet {
   targetSetId: string;
+  jobId?: string;
   name: string;
   createdAt: string;
   sourceFiles: string[];

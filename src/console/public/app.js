@@ -2127,6 +2127,9 @@ async function executeParseTargets() {
     const data = await res.json();
     if (data.targetSet) {
       platformTargetSet = data.targetSet;
+      if (data.jobId) {
+        platformCurrentJobId = data.jobId;
+      }
       renderTargetSummary(data.targetSet);
       if (status) status.textContent = '読み取りが完了しました。続けてログイン確認を行ってください。';
     } else {
@@ -2335,6 +2338,7 @@ async function executeGeneratePlan() {
         'X-CSRF-Nonce': csrfToken
       },
       body: JSON.stringify({
+        jobId: platformCurrentJobId || undefined,
         targetSet: platformTargetSet,
         userInstruction
       })

@@ -18,33 +18,20 @@ export interface LlmResponse<T> {
 
 export class LlmClient {
   /**
-   * Claude Haiku 5.5 による厳格な Structured Outputs 呼び出し
-   * - model: claude-haiku-5-5 (or process.env.ANTHROPIC_MODEL)
-   * - effort: high
-   * - output_config: json_schema による厳格拘束
-   * - ANTHROPIC_API_KEY なしの場合は例外をスロー（Fail-Closed: PLAN_AI_UNAVAILABLE）
+   * Pure request builder function for Anthropic API payload
    */
-  static async callClaudeStructured<T>(params: {
+  static buildMessagePayload(params: {
     systemPrompt: string;
     userPrompt: string;
     jsonSchema: Record<string, any>;
-    schema: z.ZodSchema<T>;
+    model?: string;
     effort?: 'low' | 'medium' | 'high';
-  }): Promise<LlmResponse<T>> {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      throw new Error('PLAN_AI_UNAVAILABLE: ANTHROPIC_API_KEY is not configured in environment.');
-    }
-
-    const model = process.env.ANTHROPIC_MODEL || 'claude-haiku-5-5';
+  }): Anthropic.MessageCreateParamsNonStreaming {
+    const model = params.model || process.env.ANTHROPIC_MODEL || 'claude-haiku-5-5';
     const effort = params.effort || 'high';
-    const client = new Anthropic({ apiKey });
-
-    const startTime = Date.now();
-
-    // Anthropic Structured Outputs via Tool Use (Guaranteed schema enforcement)
     const toolName = 'submit_plan';
-    const requestPayload: Anthropic.MessageCreateParamsNonStreaming = {
+
+    return {
       model,
       max_tokens: 4096,
       system: params.systemPrompt,
@@ -69,6 +56,39 @@ export class LlmClient {
         effort
       }
     };
+  }
+
+  /**
+   * Claude Haiku 5.5 による厳格な Structured Outputs 呼び出し
+   * - model: claude-haiku-5-5 (or process.env.ANTHROPIC_MODEL)
+   * - effort: high
+   * - output_config: json_schema による厳格拘束
+   * - ANTHROPIC_API_KEY なしの場合は例外をスロー（Fail-Closed: PLAN_AI_UNAVAILABLE）
+   */
+  static async callClaudeStructured<T>(params: {
+    systemPrompt: string;
+    userPrompt: string;
+    jsonSchema: Record<string, any>;
+    schema: z.ZodSchema<T>;
+    effort?: 'low' | 'medium' | 'high';
+  }): Promise<LlmResponse<T>> {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      throw new Error('PLAN_AI_UNAVAILABLE: ANTHROPIC_API_KEY is not configured in environment.');
+    }
+
+    const model = process.env.ANTHROPIC_MODEL || 'claude-haiku-5-5';
+    const client = new Anthropic({ apiKey });
+
+    const startTime = Date.now();
+
+    const requestPayload = this.buildMessagePayload({
+      systemPrompt: params.systemPrompt,
+      userPrompt: params.userPrompt,
+      jsonSchema: params.jsonSchema,
+      model,
+      effort: params.effort
+    });
 
     const response = await client.messages.create(requestPayload);
 

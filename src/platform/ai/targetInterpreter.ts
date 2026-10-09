@@ -6,7 +6,7 @@ import { DocumentIngestion, LocalSecretVault } from '../ingestion/documentIngest
 export interface ParseTargetInput {
   rawText?: string;
   files?: Array<{ filename: string; content: string }>;
-  jobId?: string;
+  jobId: string;
 }
 
 export const TargetSchoolSchema = z.object({
@@ -38,6 +38,9 @@ export class TargetInterpreter {
    * Pipeline: File -> Deterministic DocumentIngestion -> LLM/Rule Interpretation -> Zod Validation
    */
   static parseTargets(input: ParseTargetInput): TargetSet {
+    if (!input.jobId || typeof input.jobId !== 'string' || input.jobId.trim().length === 0) {
+      throw new Error('JOB_ID_REQUIRED: TargetInterpreter.parseTargets requires an explicit non-empty jobId');
+    }
     const schoolsMap = new Map<string, TargetSchool>();
     const sourceFiles: string[] = [];
     const activeJobId = input.jobId;
@@ -97,6 +100,7 @@ export class TargetInterpreter {
     const rawTextStr = input.rawText?.trim();
     return {
       targetSetId,
+      jobId: activeJobId,
       name: `TargetSet_${new Date().toISOString().slice(0, 10)}`,
       createdAt: new Date().toISOString(),
       sourceFiles,

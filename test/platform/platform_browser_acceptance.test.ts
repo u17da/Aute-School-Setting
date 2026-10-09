@@ -29,17 +29,19 @@ async function runAcceptanceSuite() {
     { name: 'Image (Visual/Diagram)', file: 'screenshot.png', content: 'IMAGE_BINARY_MOCK_DATA' }
   ];
 
+  const testJobId = 'job_test_browser_acceptance';
   for (const fmt of formats) {
     const doc = DocumentIngestion.ingest({
       filename: fmt.file,
       bufferOrText: fmt.content
-    });
+    }, testJobId);
     assert.ok(doc.documentId, `${fmt.name} ingestion generated documentId`);
     assert.strictEqual(doc.sanitizedForAi, true, `${fmt.name} marked sanitizedForAi`);
 
     // Feed to TargetInterpreter
     const targetSet = TargetInterpreter.parseTargets({
-      files: [{ filename: fmt.file, content: fmt.content }]
+      files: [{ filename: fmt.file, content: fmt.content }],
+      jobId: testJobId
     });
     assert.ok(targetSet.schools.length >= 0, `${fmt.name} parsed into TargetSet`);
     console.log(`  [PASS] ${fmt.name} format ingestion verified.`);
@@ -53,7 +55,7 @@ async function runAcceptanceSuite() {
   const sanitizedDoc = DocumentIngestion.ingest({
     filename: 'confidential_schools.csv',
     bufferOrText: sensitiveInput
-  });
+  }, testJobId);
 
   // Verify Plaintext Password is completely stripped from text and tables
   const docJson = JSON.stringify(sanitizedDoc);
@@ -61,7 +63,8 @@ async function runAcceptanceSuite() {
   assert.ok(docJson.includes('SECRET:secret_handle_'), 'Must be mapped to secret handle');
 
   const targetSetWithSecret = TargetInterpreter.parseTargets({
-    files: [{ filename: 'confidential_schools.csv', content: sensitiveInput }]
+    files: [{ filename: 'confidential_schools.csv', content: sensitiveInput }],
+    jobId: testJobId
   });
   const targetSetJson = JSON.stringify(targetSetWithSecret);
   assert.ok(!targetSetJson.includes('SuperSecretPassword12345'), 'Plaintext password must NOT exist in TargetSet');

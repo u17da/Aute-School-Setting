@@ -22,7 +22,8 @@ C2001005,菅北小学校,admin_sugakita,Pass_Suga_555
 `.trim();
 
   const targetSet = TargetInterpreter.parseTargets({
-    files: [{ filename: 'target_schools.csv', content: excelMockCsv }]
+    files: [{ filename: 'target_schools.csv', content: excelMockCsv }],
+    jobId: 'job_test_e2e'
   });
 
   assert.strictEqual(targetSet.schools.length, 5, '5 schools parsed');

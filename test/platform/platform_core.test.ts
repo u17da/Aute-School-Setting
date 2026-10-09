@@ -12,10 +12,11 @@ async function runCoreTests() {
   // Test 1: Document Ingestion & Credential Boundary
   console.log('--- Test 1: Document Ingestion & Credential Boundary ---');
   const rawCsvWithPasswords = `schoolCode,schoolName,password\nC2001,堀川小,SuperSecretPw123\nC2002,滝川小,AnotherPass456`;
+  const testJobId = 'job_test_core';
   const doc = DocumentIngestion.ingest({
     filename: 'schools_with_pw.csv',
     bufferOrText: rawCsvWithPasswords
-  });
+  }, testJobId);
   assert.strictEqual(doc.tables.length, 1, 'Should extract 1 table');
   assert.strictEqual(doc.sanitizedForAi, true, 'Must be sanitized for AI');
   // Check that plaintext password is NOT in sanitized tables or text
@@ -27,7 +28,8 @@ async function runCoreTests() {
   // Test 2: Target Interpreter Normalization & Validation
   console.log('--- Test 2: Target Interpreter Normalization & Validation ---');
   const targetSet = TargetInterpreter.parseTargets({
-    rawText: `C1001,中央小学校,admin1\nC1002,北野中学校,admin2\nC1003,,admin3\nC1001,中央別校,conflict`
+    rawText: `C1001,中央小学校,admin1\nC1002,北野中学校,admin2\nC1003,,admin3\nC1001,中央別校,conflict`,
+    jobId: testJobId
   });
   assert.strictEqual(targetSet.schools.length, 3, 'Should normalize unique school codes');
   assert.strictEqual(targetSet.summary.total, 3);

@@ -1,6 +1,7 @@
 import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import { chromium, Browser, Page } from 'playwright';
 import { TargetInterpreter } from '../ai/targetInterpreter';
 import { TaskPlanner } from '../ai/taskPlanner';
@@ -149,19 +150,53 @@ export class PlatformRouter {
       return true;
     }
 
+    // 3b. DELETE /api/platform/jobs/:id
+    if (method === 'DELETE' && pathname.startsWith('/api/platform/jobs/')) {
+      const parts = pathname.split('/');
+      const jobId = parts[4];
+      const job = jobStore.getJob(jobId);
+      if (!job) {
+        sendJson(404, { error: 'JOB_NOT_FOUND' });
+        return true;
+      }
+      jobStore.deleteJob(jobId);
+      LocalSecretVault.cleanupJob(jobId);
+      sendJson(200, { success: true, message: `Job ${jobId} and its associated secrets have been deleted.` });
+      return true;
+    }
+
     // 4. POST /api/platform/targets/parse
     if (method === 'POST' && pathname === '/api/platform/targets/parse') {
-      const { rawText, files } = body;
+      const { rawText, files, jobId: inputJobId } = body || {};
+      const provisionalJobId = (typeof inputJobId === 'string' && inputJobId.trim().length > 0)
+        ? inputJobId.trim()
+        : `job_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+
       broadcastSse?.('platformEvent', {
         stage: 'TARGET_PARSING',
         message: '対象リストの読み取り・整理を開始しました...'
       });
-      const targetSet = TargetInterpreter.parseTargets({ rawText, files });
+      const targetSet = TargetInterpreter.parseTargets({ rawText, files, jobId: provisionalJobId });
+
+      // Save initial DRAFT / TARGETS_CONFIGURED Job in JobStore so provisional jobId is registered
+      const draftJob: PlatformJob = {
+        jobId: provisionalJobId,
+        title: targetSet.name,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        status: 'TARGETS_CONFIGURED',
+        targetSet,
+        policy: PolicyEngine.createDefaultPolicy('READ_ONLY'),
+        sourceFiles: targetSet.sourceFiles || [],
+        runs: {}
+      };
+      jobStore.saveJob(draftJob);
+
       broadcastSse?.('platformEvent', {
         stage: 'TARGET_PARSED',
         message: `対象リストの読み取り完了: 計 ${targetSet.summary.total} 校（正常: ${targetSet.summary.ready} 校）`
       });
-      sendJson(200, { targetSet });
+      sendJson(200, { jobId: provisionalJobId, targetSet });
       return true;
     }
 
@@ -351,23 +386,29 @@ export class PlatformRouter {
         ? executionPlan.validationScopeProposal.count
         : undefined;
       const policy = PolicyEngine.createDefaultPolicy(executionPlan.riskLevel, initialCanaryScope);
+      policy.planHash = PolicyEngine.computePlanHash(executionPlan);
+      policy.targetSetHash = PolicyEngine.computeTargetSetHash(targetSet);
 
-      // 新しいJob IDで保存
-      const jobId = `job_${Date.now()}`;
+      // Credential Owner 一貫性: Target Parse 時に採番された jobId を最優先で引き継ぐ
+      const jobId = (typeof body.jobId === 'string' && body.jobId.trim().length > 0)
+        ? body.jobId.trim()
+        : (targetSet.jobId || `job_${Date.now()}`);
+
+      const existingJob = jobStore.getJob(jobId);
       const job: PlatformJob = {
         jobId,
         title: (executionPlan.userInstruction || '無題の計画').slice(0, 30) + '...',
-        createdAt: new Date().toISOString(),
+        createdAt: existingJob?.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         status: 'PLAN_GENERATED',
         targetSet,
         userInstruction: executionPlan.userInstruction,
-        sourceFiles,
+        sourceFiles: sourceFiles || existingJob?.sourceFiles || targetSet.sourceFiles || [],
         executionPlan,
         policy,
         timeEstimate,
         costEstimate,
-        runs: {}
+        runs: existingJob?.runs || {}
       };
       jobStore.saveJob(job);
 
@@ -406,6 +447,21 @@ export class PlatformRouter {
       if (!job) {
         sendJson(404, { error: 'JOB_NOT_FOUND' });
         return true;
+      }
+
+      // Gate 1 (Plan approval) 防壁: Plan / TargetSet の改ざん・不整合を検証
+      if (gateId === 'GATE_1_PLAN') {
+        const curPlanHash = PolicyEngine.computePlanHash(job.executionPlan);
+        const curTargetSetHash = PolicyEngine.computeTargetSetHash(job.targetSet);
+        if (job.policy.planHash !== curPlanHash || job.policy.targetSetHash !== curTargetSetHash) {
+          job.policy = PolicyEngine.invalidatePolicy(job.policy, 'Plan or TargetSet changed before approval');
+          jobStore.saveJob(job);
+          sendJson(400, {
+            error: 'POLICY_STALE',
+            message: 'Plan または TargetSet が計画立案時から変更されています。Gate 1 承認は拒絶されました。再計画と Dry-run が必要です。'
+          });
+          return true;
+        }
       }
 
       PolicyEngine.approveGate(job.policy, gateId as GateId, approvedBy, notes);

@@ -94,8 +94,9 @@ async function runLiveCanaryE2E() {
   // Credential Boundary: Store password immediately in Vault
   // -------------------------------------------------------------
   assert.ok(rawPassword, 'Password must be provided via environment/vault');
-  const secretHandle = LocalSecretVault.storeSecret(rawPassword);
-  LocalSecretVault.storeSecretWithRef(`cred_ref_${targetSchoolCode}`, rawPassword);
+  const canaryJobId = 'job_live_canary_e2e';
+  const secretHandle = LocalSecretVault.storeSecret(rawPassword, canaryJobId);
+  LocalSecretVault.storeSecretWithRef(`cred_ref_${targetSchoolCode}`, rawPassword, canaryJobId);
   console.log(`[CredentialBoundary] Plaintext password converted to Vault Handle: ${secretHandle}`);
 
   const reportData: CanaryE2EResult = {
@@ -162,7 +163,8 @@ async function runLiveCanaryE2E() {
       files: [{
         filename: 'canary_target.csv',
         content: `schoolCode,schoolName,userId,password\n${targetSchoolCode},${targetSchoolName},${targetUserId},[SECRET:${secretHandle}]`
-      }]
+      }],
+      jobId: canaryJobId
     });
 
     // Scope check: Exactly 1 school and only PRRHC
@@ -178,7 +180,7 @@ async function runLiveCanaryE2E() {
     const loginPage = new LoginPage(page);
     await loginPage.navigateAndSubmitSchoolCode(baseUrl, targetSchoolCode, 'A');
     
-    const retrievedSecret = LocalSecretVault.getSecret(secretHandle);
+    const retrievedSecret = LocalSecretVault.getSecret(secretHandle, canaryJobId);
     if (!retrievedSecret) throw new Error('Failed to retrieve secret from LocalSecretVault');
 
     console.log(`  [Browser] Submitting credentials for ${targetUserId}...`);

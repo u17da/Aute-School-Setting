@@ -71,6 +71,20 @@ export class JobStore {
     }
   }
 
+  deleteJob(jobId: string): boolean {
+    const existed = this.jobs.delete(jobId);
+    try {
+      const filePath = path.join(this.storageDir, `${jobId}.json`);
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    } catch (e) {
+      console.error(`[JobStore] Failed to remove job ${jobId} from disk:`, e);
+    }
+    LocalSecretVault.cleanupJob(jobId);
+    return existed;
+  }
+
   private sanitizeJobForStorage(job: PlatformJob): PlatformJob {
     // Deep clone and ensure no plaintext secrets are persisted
     const cloned: PlatformJob = JSON.parse(JSON.stringify(job));
