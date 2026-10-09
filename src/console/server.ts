@@ -1062,6 +1062,7 @@ export class ConsoleServer {
           summary: reports.summary,
           detail: reports.summary,
           checkpoint: reports.checkpoint,
+          preflight: reports.preflight,
           normalized: reports.normalized
         });
         return;

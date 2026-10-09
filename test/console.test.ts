@@ -20,6 +20,7 @@ async function runTest(testName: string, fn: () => Promise<void>) {
     passedTests++;
   } catch (err: any) {
     console.error(`[FAIL] ${testName}:`, err.message || err);
+    if (err.stack) console.error(err.stack);
     failedTests++;
   }
 }
@@ -144,6 +145,11 @@ fs.writeFileSync(csvPath, dummyCsv, 'utf-8');
 fs.writeFileSync(credsPath, JSON.stringify(dummyCredentials, null, 2), 'utf-8');
 
 async function main() {
+  const ledgerPath = path.resolve(process.cwd(), 'reports/current-production-execution.json');
+  if (fs.existsSync(ledgerPath)) {
+    try { fs.unlinkSync(ledgerPath); } catch {}
+  }
+
   let mockProc = createMockChildProcess();
   const mockSpawn = () => mockProc;
 
