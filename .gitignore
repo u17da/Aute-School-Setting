@@ -39,6 +39,7 @@ reports/
 archive/
 scratch/
 tmp_idp_investigation/
+jobs/
 
 # Specific live school configurations
 config/school.*.json

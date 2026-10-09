@@ -42,6 +42,7 @@ document.addEventListener('DOMContentLoaded', () => {
   loadLatestResults();
   setupDragAndDrop();
   loadProfileDefinitionsAndPresets();
+  checkApiKeyStatus();
 });
 
 // ==========================================
@@ -874,7 +875,9 @@ async function onCheckDiffClicked() {
     if (success) {
       editorDirty = false;
       previewVerified = true;
-      checkEditorWarnings(isParentOff && (allChannelVal !== 'OFF' || parentChannelVal !== 'OFF'));
+      const hasTimelineConflict = isTimelineOff && (allChannelVal !== 'OFF' || parentChannelVal !== 'OFF');
+      const hasDmConflict = isDmOff && parentDmVal !== 'OFF';
+      checkEditorWarnings(hasTimelineConflict, hasDmConflict);
 
       // 差分確認エリアへスムーズスクロール
       const diffSection = document.getElementById('previewSummaryBox') || document.getElementById('previewComparisonCard');
@@ -1945,6 +1948,30 @@ function subscribeSse() {
     } catch {}
     appendLog(text);
   });
+
+  // AI-Governed Platform SSE Events
+  eventSource.addEventListener('platformEvent', (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      handlePlatformEvent(data);
+    } catch (err) {
+      console.error('Failed to parse platformEvent', err);
+    }
+  });
+
+  eventSource.addEventListener('platformProgress', (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      if (data.summary) {
+        updateProgressDashboard(data.summary);
+      }
+      if (data.event) {
+        handlePlatformEvent(data.event);
+      }
+    } catch (err) {
+      console.error('Failed to parse platformProgress', err);
+    }
+  });
 }
 
 function clearLogs() {
@@ -1960,4 +1987,888 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+/* =============================================================================
+ * AI-Governed Browser Platform Controller (自然な日本語UX・対話型AI計画・実Backend進捗同期)
+ * ============================================================================= */
+let platformCurrentJobId = null;
+let platformTargetSet = null;
+let platformPlan = null;
+let platformPolicy = null;
+let platformActiveRunResults = [];
+
+function switchAppMode(mode) {
+  const platContainer = document.getElementById('platformContainer');
+  const legContainer = document.getElementById('legacyContainer');
+  const btnPlat = document.getElementById('modePlatformBtn');
+  const btnLeg = document.getElementById('modeLegacyBtn');
+
+  if (mode === 'platform') {
+    if (platContainer) platContainer.style.display = 'block';
+    if (legContainer) legContainer.style.display = 'none';
+    btnPlat?.classList.add('active');
+    btnLeg?.classList.remove('active');
+  } else {
+    if (platContainer) platContainer.style.display = 'none';
+    if (legContainer) legContainer.style.display = 'block';
+    btnLeg?.classList.add('active');
+    btnPlat?.classList.remove('active');
+  }
+}
+
+function switchWizardStep(stepNum) {
+  [1, 2, 3].forEach((s) => {
+    const btn = document.getElementById(`wizStep${s}Btn`);
+    const screen = document.getElementById(`wizScreenStep${s}`);
+    if (s === stepNum) {
+      btn?.classList.add('active');
+      if (screen) {
+        screen.style.display = 'block';
+        screen.classList.add('active');
+      }
+    } else {
+      btn?.classList.remove('active');
+      if (screen) {
+        screen.style.display = 'none';
+        screen.classList.remove('active');
+      }
+    }
+  });
+}
+
+// -----------------------------------------------------------------------------
+// リアルタイム進捗イベントハンドラー (実Backend State同期)
+// -----------------------------------------------------------------------------
+function handlePlatformEvent(event) {
+  if (!event) return;
+  const stage = event.stage || 'PROCESSING';
+  const msg = event.message || '';
+  const now = new Date().toLocaleTimeString();
+
+  // グローバルバナー更新
+  const banner = document.getElementById('platformGlobalEventBanner');
+  const badge = document.getElementById('platformGlobalStageBadge');
+  const text = document.getElementById('platformGlobalMessageText');
+  const time = document.getElementById('platformGlobalTimeText');
+  const spinner = document.getElementById('platformGlobalSpinner');
+
+  if (banner && text) {
+    banner.style.display = 'block';
+    if (badge) badge.textContent = stage;
+    text.textContent = msg;
+    if (time) time.textContent = now;
+
+    if (stage.includes('SUCCESS') || stage.includes('READY') || stage === 'COMPLETED') {
+      banner.style.borderLeftColor = '#10b981';
+      banner.style.background = '#ecfdf5';
+      banner.style.color = '#065f46';
+      if (badge) badge.style.background = '#10b981';
+      if (spinner) spinner.style.display = 'none';
+    } else if (stage.includes('FAILED') || stage.includes('ERROR') || stage.includes('REJECTED')) {
+      banner.style.borderLeftColor = '#ef4444';
+      banner.style.background = '#fef2f2';
+      banner.style.color = '#991b1b';
+      if (badge) badge.style.background = '#ef4444';
+      if (spinner) spinner.style.display = 'none';
+    } else {
+      banner.style.borderLeftColor = '#0284c7';
+      banner.style.background = '#f0f9ff';
+      banner.style.color = '#0369a1';
+      if (badge) badge.style.background = '#0284c7';
+      if (spinner) spinner.style.display = 'inline-block';
+    }
+  }
+
+  // ステップごとの補助テキスト更新
+  if (stage === 'TARGET_PARSING' || stage === 'TARGET_PARSED') {
+    const el = document.getElementById('parseStatusText');
+    if (el) el.textContent = msg;
+  }
+  if (stage.startsWith('LOGIN_') || stage === 'IDENTITY_VERIFY') {
+    const el = document.getElementById('loginValidationStatusText');
+    if (el) el.textContent = msg;
+  }
+  if (stage === 'AI_PLANNING' || stage === 'PLAN_READY') {
+    const el1 = document.getElementById('planGeneratingStatusText');
+    const el2 = document.getElementById('refineStatusText');
+    if (el1) el1.textContent = msg;
+    if (el2) el2.textContent = msg;
+  }
+  if (stage.startsWith('DRY_RUN_')) {
+    const el = document.getElementById('dryRunStatusLabel');
+    if (el) el.textContent = msg;
+  }
+  if (stage.startsWith('CANARY_') || stage.startsWith('FULL_') || stage === 'COMPLETED') {
+    const el = document.getElementById('runActionStatusText');
+    if (el) el.textContent = msg;
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Step 1: 対象学校の入力・読み取り・ログイン確認 (上→下フロー)
+// -----------------------------------------------------------------------------
+async function executeParseTargets() {
+  const rawText = document.getElementById('targetRawTextInput')?.value || '';
+  const btn = document.getElementById('btnParseTargets');
+  const status = document.getElementById('parseStatusText');
+  if (btn) btn.disabled = true;
+  if (status) status.textContent = '入力内容を読み取り・整理しています...';
+
+  try {
+    const res = await fetch('/api/platform/targets/parse', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Nonce': csrfToken
+      },
+      body: JSON.stringify({ rawText })
+    });
+    const data = await res.json();
+    if (data.targetSet) {
+      platformTargetSet = data.targetSet;
+      if (data.jobId) {
+        platformCurrentJobId = data.jobId;
+      }
+      renderTargetSummary(data.targetSet);
+      if (status) status.textContent = '読み取りが完了しました。続けてログイン確認を行ってください。';
+    } else {
+      alert('学校リストの読み取りに失敗しました: ' + (data.message || data.error));
+    }
+  } catch (err) {
+    alert('通信エラーが発生しました: ' + err.message);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function renderTargetSummary(targetSet) {
+  const card = document.getElementById('targetSummaryCard');
+  if (card) card.style.display = 'block';
+
+  document.getElementById('statTargetTotal').textContent = targetSet.summary.total;
+  document.getElementById('statTargetReady').textContent = targetSet.summary.ready;
+  document.getElementById('statTargetMissing').textContent = targetSet.summary.missing;
+  document.getElementById('statTargetAmbiguous').textContent = targetSet.summary.ambiguous;
+
+  const tbody = document.getElementById('targetSchoolsTableBody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  targetSet.schools.forEach((s) => {
+    const tr = document.createElement('tr');
+    tr.style.borderBottom = '1px solid #e2e8f0';
+
+    let badgeClass = 'badge-success';
+    let statusLabel = '準備完了';
+    if (s.validationStatus === 'MISSING') {
+      badgeClass = 'badge-warning';
+      statusLabel = '情報不足';
+    } else if (s.validationStatus === 'AMBIGUOUS') {
+      badgeClass = 'badge-danger';
+      statusLabel = '重複・競合';
+    }
+
+    let note = '全必須項目正常';
+    if (s.missingFields && s.missingFields.length > 0) {
+      note = `不足項目: ${s.missingFields.join(', ')}`;
+    }
+    if (s.ambiguityReason) {
+      note = s.ambiguityReason;
+    }
+
+    tr.innerHTML = `
+      <td style="padding: 8px;"><code>${escapeHtml(s.schoolCode)}</code></td>
+      <td style="padding: 8px; font-weight: bold;">${escapeHtml(s.schoolName)}</td>
+      <td style="padding: 8px; font-family: monospace; color: #64748b;">${escapeHtml(s.credentialRef || '未設定')}</td>
+      <td style="padding: 8px;"><span class="badge ${badgeClass}">${escapeHtml(statusLabel)}</span></td>
+      <td style="padding: 8px; font-size: 0.85rem; color: #64748b;">${escapeHtml(note)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+async function executeValidateLogin() {
+  if (!platformTargetSet) return;
+  const btn = document.getElementById('btnValidateLogin');
+  const status = document.getElementById('loginValidationStatusText');
+  if (btn) btn.disabled = true;
+  if (status) status.textContent = '実ブラウザでログイン確認を開始しています...';
+
+  try {
+    const res = await fetch('/api/platform/targets/validate-login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Nonce': csrfToken
+      },
+      body: JSON.stringify({ targetSet: platformTargetSet })
+    });
+    const data = await res.json();
+    const box = document.getElementById('loginValidationResultsBox');
+    const text = document.getElementById('loginValidationResultsText');
+    if (box && text) {
+      box.style.display = 'block';
+      text.innerHTML = `対象 <strong>${data.total}</strong> 校中、<strong>${data.valid}</strong> 校でログインおよび学校所属・権限確認（Strict Identity Verify）に成功しました。`;
+    }
+    if (status) status.textContent = 'ログイン確認完了';
+
+    // テーブルの補足列を更新
+    if (data.results && Array.isArray(data.results)) {
+      const tbody = document.getElementById('targetSchoolsTableBody');
+      if (tbody) {
+        data.results.forEach((r, idx) => {
+          const row = tbody.children[idx];
+          if (row) {
+            const noteCell = row.children[4];
+            if (noteCell) {
+              noteCell.innerHTML = r.status === 'VALID'
+                ? `<span style="color: #10b981; font-weight: bold;">✓ ログイン確認済</span> (${escapeHtml(r.message)})`
+                : `<span style="color: #ef4444; font-weight: bold;">✗ ログイン失敗</span> (${escapeHtml(r.message)})`;
+            }
+          }
+        });
+      }
+    }
+  } catch (err) {
+    alert('ログイン確認中に通信エラーが発生しました: ' + err.message);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Claude API キー管理 (Claude Haiku 5.5)
+// -----------------------------------------------------------------------------
+async function checkApiKeyStatus() {
+  try {
+    const res = await fetch('/api/platform/config/api-key-status');
+    if (!res.ok) return;
+    const data = await res.json();
+    const badge = document.getElementById('apiKeyStatusBadge');
+    const input = document.getElementById('inputClaudeApiKey');
+    if (!badge) return;
+
+    if (data.configured) {
+      badge.textContent = `✅ 設定済み (${data.model || 'Claude Haiku 5.5'})`;
+      badge.style.background = '#10b981';
+      badge.style.color = '#fff';
+      if (input && data.maskedKey) {
+        input.placeholder = `設定済み: ${data.maskedKey}`;
+      }
+    } else {
+      badge.textContent = '⚠️ 未設定 (要入力)';
+      badge.style.background = '#f59e0b';
+      badge.style.color = '#fff';
+    }
+  } catch (err) {
+    console.warn('API key status check failed:', err.message);
+  }
+}
+
+async function saveClaudeApiKey() {
+  const input = document.getElementById('inputClaudeApiKey');
+  const msg = document.getElementById('apiKeySaveMsg');
+  const btn = document.getElementById('btnSaveApiKey');
+  const key = input?.value?.trim() || '';
+
+  if (!key) {
+    alert('Claude APIキー (sk-ant-...) を入力してください。');
+    return;
+  }
+
+  if (btn) btn.disabled = true;
+  if (msg) msg.textContent = 'APIキーを検証・保存しています...';
+
+  try {
+    const res = await fetch('/api/platform/config/api-key', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Nonce': csrfToken
+      },
+      body: JSON.stringify({ apiKey: key })
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      if (msg) {
+        msg.innerHTML = `<span style="color: #10b981; font-weight: bold;">✓ ${escapeHtml(data.message)}</span>`;
+      }
+      if (input) input.value = '';
+      await checkApiKeyStatus();
+      // エラーアラートを消去
+      const alertBox = document.getElementById('planErrorAlertBox');
+      if (alertBox) alertBox.style.display = 'none';
+    } else {
+      if (msg) {
+        msg.innerHTML = `<span style="color: #ef4444; font-weight: bold;">✗ 保存失敗: ${escapeHtml(data.message || data.error)}</span>`;
+      }
+    }
+  } catch (err) {
+    if (msg) msg.textContent = '通信エラー: ' + err.message;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Step 2: 作業手順の計画 (対話型AI計画 & 差分表示)
+// -----------------------------------------------------------------------------
+async function executeGeneratePlan() {
+  if (!platformTargetSet) {
+    alert('先にStep 1で対象学校の読み取りを行ってください。');
+    return;
+  }
+  const userInstruction = document.getElementById('taskInstructionInput')?.value || '';
+  const btn = document.getElementById('btnGeneratePlan');
+  const status = document.getElementById('planGeneratingStatusText');
+  const alertBox = document.getElementById('planErrorAlertBox');
+  const alertMsg = document.getElementById('planErrorAlertMessage');
+  const container = document.getElementById('planPreviewContainer');
+
+  if (alertBox) alertBox.style.display = 'none';
+  if (btn) btn.disabled = true;
+  if (status) status.textContent = 'Claude Haiku 5.5 が指示を分析し、作業計画を作成しています...';
+
+  try {
+    const res = await fetch('/api/platform/plan/generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Nonce': csrfToken
+      },
+      body: JSON.stringify({
+        jobId: platformCurrentJobId || undefined,
+        targetSet: platformTargetSet,
+        userInstruction
+      })
+    });
+    const data = await res.json();
+
+    if (!res.ok || data.error || data.executionPlan?.status === 'PLAN_AI_UNAVAILABLE') {
+      const errMsg = data.message || data.error || '計画の立案に失敗しました。';
+      if (status) status.textContent = '⚠️ 計画立案が中断されました';
+      if (alertBox && alertMsg) {
+        alertBox.style.display = 'block';
+        alertMsg.innerHTML = `${escapeHtml(errMsg)}`;
+      }
+      if (container) container.style.display = 'none';
+      return;
+    }
+
+    if (data.executionPlan) {
+      platformCurrentJobId = data.jobId;
+      platformPlan = data.executionPlan;
+      platformPolicy = data.policy;
+
+      // 差分カードは非表示 (新規作成のため)
+      const diffCard = document.getElementById('planDiffCard');
+      if (diffCard) diffCard.style.display = 'none';
+
+      renderExecutionPlan(data.executionPlan, data.timeEstimate, data.costEstimate);
+      if (status) status.textContent = '作業計画が完成しました。内容をご確認ください。';
+    }
+  } catch (err) {
+    if (status) status.textContent = '通信エラーが発生しました';
+    if (alertBox && alertMsg) {
+      alertBox.style.display = 'block';
+      alertMsg.textContent = '通信エラー: ' + err.message;
+    }
+    if (container) container.style.display = 'none';
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function executeRefinePlan() {
+  if (!platformTargetSet || !platformCurrentJobId) {
+    alert('先に作業計画を作成してください。');
+    return;
+  }
+  const refinementInstruction = document.getElementById('planRefinementInput')?.value || '';
+  if (!refinementInstruction.trim()) {
+    alert('追加や変更したい指示を入力してください。');
+    return;
+  }
+
+  const btn = document.getElementById('btnRefinePlan');
+  const status = document.getElementById('refineStatusText');
+  const alertBox = document.getElementById('planErrorAlertBox');
+  const alertMsg = document.getElementById('planErrorAlertMessage');
+  if (alertBox) alertBox.style.display = 'none';
+
+  if (btn) btn.disabled = true;
+  if (status) status.textContent = 'Claude Haiku 5.5 が修正指示を反映して再計画しています...';
+
+  try {
+    const res = await fetch('/api/platform/plan/generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Nonce': csrfToken
+      },
+      body: JSON.stringify({
+        targetSet: platformTargetSet,
+        previousJobId: platformCurrentJobId,
+        refinementInstruction
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      alert('計画の再作成に失敗しました: ' + (data.message || data.error));
+      return;
+    }
+
+    if (data.executionPlan) {
+      platformCurrentJobId = data.jobId;
+      platformPlan = data.executionPlan;
+      platformPolicy = data.policy;
+
+      // 古い承認・シミュレーションの無効化 (Invalidation)
+      resetApprovalsForNewPlan();
+
+      renderExecutionPlan(data.executionPlan, data.timeEstimate, data.costEstimate);
+
+      // 新旧差分 (PlanDiff) の描画
+      if (data.executionPlan.planDiff) {
+        renderPlanDiff(data.executionPlan.planDiff);
+      }
+
+      if (status) status.textContent = '修正指示が反映されました。差分と新しい計画をご確認ください。';
+      // 入力欄をクリア
+      const input = document.getElementById('planRefinementInput');
+      if (input) input.value = '';
+    }
+  } catch (err) {
+    alert('再計画の通信エラー: ' + err.message);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function resetApprovalsForNewPlan() {
+  const chkGate1 = document.getElementById('chkGate1Plan');
+  const chkGate2 = document.getElementById('chkGate2DryRun');
+  const btnDry = document.getElementById('btnRunDryRun');
+  const btnStep3 = document.getElementById('btnGoToStep3');
+
+  if (chkGate1) {
+    chkGate1.checked = false;
+    chkGate1.disabled = false;
+  }
+  if (chkGate2) {
+    chkGate2.checked = false;
+    chkGate2.disabled = true;
+  }
+  if (btnDry) btnDry.disabled = true;
+  if (btnStep3) btnStep3.disabled = true;
+
+  const dryStatus = document.getElementById('dryRunStatusLabel');
+  if (dryStatus) dryStatus.textContent = '作業計画が更新されたため、再シミュレーションと再承認が必要です';
+}
+
+function renderPlanDiff(diff) {
+  const card = document.getElementById('planDiffCard');
+  if (!card || !diff) return;
+
+  card.style.display = 'block';
+  document.getElementById('planDiffSummaryText').textContent = diff.summaryText || diff.summaryOfChanges || '計画が更新されました。';
+
+  const list = document.getElementById('planDiffDetailsList');
+  if (!list) return;
+  list.innerHTML = '';
+
+  const addedList = diff.added || diff.addedOperations || [];
+  addedList.forEach(op => {
+    const li = document.createElement('li');
+    li.innerHTML = `<strong>追加された操作:</strong> ${escapeHtml(op)}`;
+    list.appendChild(li);
+  });
+
+  const removedList = diff.removed || diff.removedOperations || [];
+  removedList.forEach(op => {
+    const li = document.createElement('li');
+    li.innerHTML = `<strong>削除された操作:</strong> <del>${escapeHtml(op)}</del>`;
+    list.appendChild(li);
+  });
+
+  const modifiedList = diff.modifiedParameters || [];
+  modifiedList.forEach(p => {
+    const li = document.createElement('li');
+    li.innerHTML = `<strong>設定値の変更:</strong> ${escapeHtml(p)}`;
+    list.appendChild(li);
+  });
+
+  const scope = diff.scopeChanges || (diff.unchanged && diff.unchanged.length > 0 ? `変更なし: ${diff.unchanged.join(', ')}` : null);
+  if (scope) {
+    const li = document.createElement('li');
+    li.innerHTML = `<strong>対象範囲・維持項目:</strong> ${escapeHtml(scope)}`;
+    list.appendChild(li);
+  }
+}
+
+function renderExecutionPlan(plan, timeEst, costEst) {
+  const container = document.getElementById('planPreviewContainer');
+  if (container) container.style.display = 'block';
+
+  document.getElementById('planIdLabel').textContent = plan.planId;
+  document.getElementById('planAffectedSchoolsLabel').textContent = plan.estimatedAffectedSchools;
+
+  // Haiku 作業まとめカード
+  const sum = plan.humanSummary;
+  const humanCard = document.getElementById('planHumanSummaryCard');
+  if (humanCard && sum) {
+    humanCard.style.display = 'block';
+    document.getElementById('summaryOriginalText').textContent = plan.userInstruction || '-';
+    document.getElementById('summaryInterpretedIntent').textContent = sum.interpretedIntent || '-';
+    document.getElementById('summaryTargetScope').textContent = sum.targetScope || '指定された学校';
+    document.getElementById('summaryAction').textContent = sum.actionSummary || '-';
+    document.getElementById('summarySettingValue').textContent = sum.settingValueSummary || '-';
+    document.getElementById('summarySkipBehavior').textContent = sum.skipBehavior || '設定済みなら安全にスキップ';
+    document.getElementById('summaryCapability').textContent = sum.capabilityUsed || '-';
+    document.getElementById('summaryRisk').textContent = sum.riskLevel || plan.riskLevel;
+  }
+
+  const riskBadge = document.getElementById('planRiskBadge');
+  if (riskBadge) {
+    let riskLabel = '安全な読み取りのみ';
+    if (plan.riskLevel === 'REVERSIBLE_WRITE') riskLabel = '安全な変更 (可逆)';
+    if (plan.riskLevel === 'SENSITIVE_WRITE') riskLabel = '重要な設定変更';
+    if (plan.riskLevel === 'DESTRUCTIVE_WRITE') riskLabel = '注意が必要な変更';
+
+    riskBadge.textContent = riskLabel;
+    riskBadge.className = 'risk-badge ' + (
+      plan.riskLevel === 'READ_ONLY' ? 'risk-read-only' :
+      plan.riskLevel === 'REVERSIBLE_WRITE' ? 'risk-reversible-write' :
+      plan.riskLevel === 'SENSITIVE_WRITE' ? 'risk-sensitive-write' : 'risk-destructive-write'
+    );
+  }
+
+  // 具体的な実行ステップリスト
+  const opList = document.getElementById('planOperationsList');
+  if (opList) {
+    opList.innerHTML = '';
+    plan.operations.forEach((op, idx) => {
+      const card = document.createElement('div');
+      card.className = 'operation-card';
+      let opRiskName = op.riskClass === 'READ_ONLY' ? '読み取り' : '安全な変更';
+      card.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <strong>ステップ ${idx + 1}: ${escapeHtml(op.operationType)}</strong>
+          <span class="risk-badge ${op.riskClass === 'READ_ONLY' ? 'risk-read-only' : 'risk-reversible-write'}">${opRiskName}</span>
+        </div>
+        <div class="mt-2" style="font-size: 0.85rem; color: #475569; line-height: 1.5;">
+          <div>設定内容: <code>${JSON.stringify(op.inputMapping)}</code></div>
+          <div>事前確認: ${op.preconditions.map(p => escapeHtml(p.description)).join(', ') || 'なし'}</div>
+          <div>反映後確認: ${op.verification.map(v => escapeHtml(v.description)).join(', ') || '設定完了を確認'}</div>
+        </div>
+      `;
+      opList.appendChild(card);
+    });
+  }
+
+  // 前提事項
+  const asmList = document.getElementById('planAssumptionsList');
+  if (asmList) {
+    asmList.innerHTML = '';
+    (plan.assumptions || []).forEach((a) => {
+      const li = document.createElement('li');
+      li.textContent = a.description;
+      asmList.appendChild(li);
+    });
+  }
+
+  // 予測所要時間 & AIコスト試算
+  if (timeEst) {
+    document.getElementById('estDurationDisplay').textContent = timeEst.displayFormatted;
+    document.getElementById('estP95Display').textContent = `${timeEst.p95DurationSec}秒`;
+  }
+  if (costEst) {
+    document.getElementById('estAiCostDisplay').textContent = `約 ¥${costEst.estimatedCostJpy}`;
+    document.getElementById('estTokensDisplay').textContent = `${(costEst.estimatedInputTokens + costEst.estimatedOutputTokens).toLocaleString()} トークン`;
+  }
+
+  // 動的先行検証スコープ提案 (Step 3 への反映)
+  if (plan.validationScopeProposal) {
+    const prop = plan.validationScopeProposal;
+    const count = prop.count !== undefined ? prop.count : (prop.proposedCount || 1);
+    const unit = prop.unit === 'SCHOOL' ? '学校' : (prop.unit === 'ACCOUNT' ? 'アカウント' : (prop.targetUnit || prop.unit || '対象'));
+    const reason = prop.description || prop.selectionReasoning || '本番反映の前に表示崩れや入力エラーがないかを安全に確かめるため';
+
+    const countBox = document.getElementById('proposalScopeCounts');
+    const unitBox = document.getElementById('proposalScopeUnit');
+    const reasonBox = document.getElementById('proposalScopeReason');
+    if (countBox) countBox.textContent = `${count} ${unit} (全体 ${plan.estimatedAffectedSchools || 0} ${unit}中)`;
+    if (unitBox) unitBox.textContent = unit;
+    if (reasonBox) reasonBox.textContent = reason;
+
+    const lblGate3 = document.getElementById('labelGate3Canary');
+    if (lblGate3) {
+      lblGate3.textContent = `【確認 3】先行検証の実行を承認する（${count} ${unit}で安全確認を行います）`;
+    }
+  }
+}
+
+async function toggleGateApproval(gateId) {
+  if (!platformCurrentJobId) return;
+  const chk = document.getElementById(
+    gateId === 'GATE_1_PLAN' ? 'chkGate1Plan' :
+    gateId === 'GATE_2_DRY_RUN' ? 'chkGate2DryRun' :
+    gateId === 'GATE_3_CANARY' ? 'chkGate3Canary' : 'chkGate4Full'
+  );
+
+  if (chk && chk.checked) {
+    try {
+      const res = await fetch('/api/platform/policy/approve', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Nonce': csrfToken
+        },
+        body: JSON.stringify({
+          jobId: platformCurrentJobId,
+          gateId
+        })
+      });
+      const data = await res.json();
+      platformPolicy = data.policy;
+
+      if (gateId === 'GATE_1_PLAN') {
+        const btnDry = document.getElementById('btnRunDryRun');
+        if (btnDry) btnDry.disabled = false;
+        document.getElementById('dryRunStatusLabel').textContent = '【確認 1】承認済み。事前シミュレーションを実行できます';
+      }
+      if (gateId === 'GATE_2_DRY_RUN') {
+        const btnStep3 = document.getElementById('btnGoToStep3');
+        if (btnStep3) btnStep3.disabled = false;
+      }
+      if (gateId === 'GATE_3_CANARY') {
+        const btnCanary = document.getElementById('btnRunCanary');
+        if (btnCanary) btnCanary.disabled = false;
+      }
+      if (gateId === 'GATE_4_FULL_PRODUCTION') {
+        const btnFull = document.getElementById('btnRunFull');
+        if (btnFull) btnFull.disabled = false;
+      }
+    } catch (err) {
+      alert('承認の更新に失敗しました: ' + err.message);
+    }
+  }
+}
+
+async function executeDryRun() {
+  if (!platformCurrentJobId) return;
+  const btn = document.getElementById('btnRunDryRun');
+  const status = document.getElementById('dryRunStatusLabel');
+  if (btn) btn.disabled = true;
+  if (status) status.textContent = '事前シミュレーションを実行中（読み取りのみ・設定変更なし）...';
+
+  try {
+    const res = await fetch('/api/platform/jobs/run', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Nonce': csrfToken
+      },
+      body: JSON.stringify({
+        jobId: platformCurrentJobId,
+        mode: 'LOGICAL_DRY_RUN'
+      })
+    });
+    const data = await res.json();
+    if (data.summary) {
+      if (status) {
+        status.innerHTML = `<span style="color: #10b981; font-weight: bold;">✓ シミュレーション完了:</span> 全 ${data.summary.totalSchools} 校中 ${data.summary.successCount} 校で確認成功。本番書き込み実行: 0件（安全確認済）`;
+      }
+      const chkGate2 = document.getElementById('chkGate2DryRun');
+      if (chkGate2) chkGate2.disabled = false;
+    } else if (data.error) {
+      alert('シミュレーション停止: ' + data.message);
+    }
+  } catch (err) {
+    alert('シミュレーション実行エラー: ' + err.message);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Step 3: 自動実行ダッシュボード
+// -----------------------------------------------------------------------------
+async function executeJobRun(mode) {
+  if (!platformCurrentJobId) return;
+  const stopBtn = document.getElementById('btnEmergencyStop');
+  const status = document.getElementById('runActionStatusText');
+  if (stopBtn) stopBtn.style.display = 'inline-block';
+  if (status) status.textContent = mode === 'CANARY_VALIDATION' ? '先行検証を実行中...' : '全体適用を実行中...';
+
+  try {
+    const res = await fetch('/api/platform/jobs/run', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Nonce': csrfToken
+      },
+      body: JSON.stringify({
+        jobId: platformCurrentJobId,
+        mode
+      })
+    });
+    const data = await res.json();
+    if (data.summary) {
+      platformActiveRunResults = data.results || [];
+      updateProgressDashboard(data.summary);
+      renderResultsTable(data.results || []);
+      if (data.analysis) {
+        renderAnalystReport(data.analysis);
+      }
+      if (status) status.textContent = '実行が安全に完了しました。結果をご確認ください。';
+    } else if (data.error) {
+      alert('安全装置により停止しました: ' + (data.message || data.error));
+      if (status) status.textContent = '停止: ' + data.message;
+    }
+  } catch (err) {
+    alert('実行中にエラーが発生しました: ' + err.message);
+  } finally {
+    if (stopBtn) stopBtn.style.display = 'none';
+  }
+}
+
+function updateProgressDashboard(summary) {
+  if (!summary) return;
+  const total = summary.totalSchools || 0;
+  const processed = summary.processedCount || 0;
+  const pct = total > 0 ? Math.round((processed / total) * 100) : 0;
+
+  document.getElementById('progSchoolsCount').textContent = `${processed} / ${total}`;
+  const bar = document.getElementById('progBarInner');
+  if (bar) bar.style.width = `${pct}%`;
+
+  document.getElementById('progSuccessCount').textContent = summary.successCount || 0;
+  document.getElementById('progSkippedCount').textContent = (summary.alreadyConfiguredCount || 0) + (summary.skippedCount || 0);
+  document.getElementById('progBlockedCount').textContent = summary.blockedCount || 0;
+  document.getElementById('progFailedCount').textContent = summary.failedCount || 0;
+
+  document.getElementById('progCurrentSchool').textContent = summary.currentSchool || '完了';
+  document.getElementById('progCurrentOp').textContent = summary.currentOperation || 'なし';
+  document.getElementById('progElapsed').textContent = `${summary.elapsedSeconds || 0}秒`;
+  document.getElementById('progEtaLabel').textContent = summary.etaSeconds ? `${summary.etaSeconds}秒` : '完了';
+  document.getElementById('progAiCost').textContent = `¥${summary.accumulatedAiCostJpy || 0}`;
+
+  const cbText = summary.circuitBreakerState === 'CLOSED' ? '正常 (待機中)' : '作動中 (安全停止)';
+  document.getElementById('progCircuitBreaker').textContent = cbText;
+
+  const healthBadge = document.getElementById('platformRuntimeHealthBadge');
+  if (healthBadge) {
+    healthBadge.textContent = summary.runtimeHealth === 'HEALTHY' ? '稼働状態: 正常' : '稼働状態: 異常検知';
+    healthBadge.style.background = summary.runtimeHealth === 'HEALTHY' ? '#10b981' : '#ef4444';
+  }
+}
+
+function renderResultsTable(results) {
+  const tbody = document.getElementById('resultsSchoolsTableBody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  results.forEach((r) => {
+    const tr = document.createElement('tr');
+    tr.style.borderBottom = '1px solid #e2e8f0';
+
+    let badgeClass = 'badge-success';
+    let label = '成功';
+    if (r.status === 'BLOCKED') {
+      badgeClass = 'badge-warning';
+      label = '安全一時停止';
+    } else if (r.status === 'FAILED') {
+      badgeClass = 'badge-danger';
+      label = '失敗';
+    } else if (r.status === 'ALREADY_CONFIGURED') {
+      badgeClass = 'badge-idle';
+      label = '設定済 (スキップ)';
+    }
+
+    tr.innerHTML = `
+      <td style="padding: 8px;"><code>${escapeHtml(r.schoolCode)}</code></td>
+      <td style="padding: 8px; font-weight: bold;">${escapeHtml(r.schoolName)}</td>
+      <td style="padding: 8px;"><span class="badge ${badgeClass}">${escapeHtml(label)}</span></td>
+      <td style="padding: 8px;">${(r.planned || []).map(p => `<code>${escapeHtml(p)}</code>`).join(' ')}</td>
+      <td style="padding: 8px; font-size: 0.85rem; color: #475569;">
+        ${r.error ? '<span class="text-danger">' + escapeHtml(r.error) + '</span>' : '設定正常反映'}
+      </td>
+      <td style="padding: 8px;">${r.verificationPassed ? '✅ 確認済' : '❌ 未確認'}</td>
+      <td style="padding: 8px;">${Math.round((r.durationMs || 0) / 100) / 10}秒</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderAnalystReport(analysis) {
+  const box = document.getElementById('analystReportCard');
+  if (box) box.style.display = 'block';
+
+  document.getElementById('analystHeadline').textContent = analysis.headlineSummary;
+
+  const fList = document.getElementById('analystFindingsList');
+  if (fList) {
+    fList.innerHTML = '';
+    analysis.keyFindings.forEach((f) => {
+      const li = document.createElement('li');
+      li.textContent = f;
+      fList.appendChild(li);
+    });
+  }
+
+  const rList = document.getElementById('analystRecsList');
+  if (rList) {
+    rList.innerHTML = '';
+    analysis.recommendations.forEach((r) => {
+      const li = document.createElement('li');
+      li.textContent = r;
+      rList.appendChild(li);
+    });
+  }
+}
+
+async function executeEmergencyStop() {
+  try {
+    await fetch('/api/platform/jobs/stop', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Nonce': csrfToken
+      }
+    });
+    alert('緊急停止信号を送信しました。ブラウザ操作は安全に中断されます。');
+  } catch (err) {
+    alert('停止要求の送信に失敗しました: ' + err.message);
+  }
+}
+
+function exportResults(format) {
+  if (platformActiveRunResults.length === 0) {
+    alert('保存可能な実行結果がありません。');
+    return;
+  }
+
+  if (format === 'json') {
+    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(platformActiveRunResults, null, 2));
+    const dl = document.createElement('a');
+    dl.setAttribute('href', dataStr);
+    dl.setAttribute('download', `実行結果_${Date.now()}.json`);
+    dl.click();
+  } else if (format === 'csv') {
+    let csv = '学校コード,学校名,ステータス,画面確認,所要時間ミリ秒\n';
+    platformActiveRunResults.forEach((r) => {
+      csv += `"${r.schoolCode}","${r.schoolName}","${r.status}","${r.verificationPassed}","${r.durationMs}"\n`;
+    });
+    const dataStr = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+    const dl = document.createElement('a');
+    dl.setAttribute('href', dataStr);
+    dl.setAttribute('download', `実行結果_${Date.now()}.csv`);
+    dl.click();
+  }
+}
+
+function toggleAutoProceedFull() {
+  // Policy update if needed
 }
