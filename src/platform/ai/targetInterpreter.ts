@@ -12,12 +12,26 @@ export const TargetSchoolSchema = z.object({
   schoolCode: z.string().min(1),
   schoolName: z.string().min(1),
   userId: z.string().optional(),
+  schoolType: z.enum(['ELEMENTARY', 'JUNIOR_HIGH', 'HIGH', 'COMBINED']).optional(),
   credentialRef: z.string().min(1),
   enabled: z.boolean(),
   validationStatus: z.enum(['READY', 'MISSING', 'AMBIGUOUS'])
 });
 
 export class TargetInterpreter {
+  /**
+   * Helper to normalize explicit school type tokens
+   */
+  static normalizeSchoolType(val?: string): 'ELEMENTARY' | 'JUNIOR_HIGH' | 'HIGH' | 'COMBINED' | undefined {
+    if (!val) return undefined;
+    const v = val.trim().toUpperCase();
+    if (v === 'ELEMENTARY' || v === '小学校' || v === '小') return 'ELEMENTARY';
+    if (v === 'JUNIOR_HIGH' || v === '中学校' || v === '中') return 'JUNIOR_HIGH';
+    if (v === 'HIGH' || v === '高校' || v === '高等学校' || v === '高') return 'HIGH';
+    if (v === 'COMBINED' || v === '小中一貫' || v === '中高一貫' || v === '一貫校') return 'COMBINED';
+    return undefined;
+  }
+
   /**
    * Parse arbitrary text or file inputs into a Normalized TargetSet
    * Pipeline: File -> Deterministic DocumentIngestion -> LLM/Rule Interpretation -> Zod Validation
@@ -108,10 +122,12 @@ export class TargetInterpreter {
     const codeIdx = table.headers.findIndex(h => /学校コード|code|school_code|schoolcode/i.test(h));
     const nameIdx = table.headers.findIndex(h => /学校名|school_name|schoolname|name/i.test(h));
     const userIdx = table.headers.findIndex(h => /ユーザーid|userid|user_id|admin_id|login_id/i.test(h));
+    const typeIdx = table.headers.findIndex(h => /種別|学校種別|school_type|schooltype|校種/i.test(h));
 
     const finalCodeIdx = codeIdx !== -1 ? codeIdx : 0;
     const finalNameIdx = nameIdx !== -1 ? nameIdx : (table.headers.length > 1 ? 1 : -1);
     const finalUserIdx = userIdx !== -1 ? userIdx : (table.headers.length > 2 ? 2 : -1);
+    const finalTypeIdx = typeIdx !== -1 ? typeIdx : (table.headers.length > 3 ? 3 : -1);
 
     for (const row of table.rows) {
       if (row.length === 0) continue;
@@ -120,6 +136,8 @@ export class TargetInterpreter {
 
       const name = finalNameIdx !== -1 && row[finalNameIdx] !== undefined ? row[finalNameIdx].trim() : '';
       const user = finalUserIdx !== -1 && row[finalUserIdx] ? row[finalUserIdx].trim() : undefined;
+      const typeRaw = finalTypeIdx !== -1 && row[finalTypeIdx] ? row[finalTypeIdx].trim() : undefined;
+      const schoolType = this.normalizeSchoolType(typeRaw);
 
       const credentialRef = `cred_ref_${code}`;
 
@@ -134,6 +152,7 @@ export class TargetInterpreter {
           schoolCode: code,
           schoolName: name,
           userId: user,
+          schoolType,
           credentialRef,
           enabled: true,
           sourceReference: sourceRef,
@@ -176,6 +195,8 @@ export class TargetInterpreter {
 
       const schoolName = tokens.length > 1 && tokens[1] !== undefined ? tokens[1].trim() : '';
       const userId = tokens.length > 2 && tokens[2] !== undefined ? tokens[2].trim() : undefined;
+      const typeRaw = tokens.length > 3 && tokens[3] !== undefined ? tokens[3].trim() : undefined;
+      const schoolType = this.normalizeSchoolType(typeRaw);
       
       // Credential Safety: Never store plaintext passwords. Generate a credentialRef handle.
       const credentialRef = `cred_ref_${codeCandidate}`;
@@ -192,6 +213,7 @@ export class TargetInterpreter {
           schoolCode: codeCandidate,
           schoolName,
           userId,
+          schoolType,
           credentialRef,
           enabled: true,
           sourceReference: sourceRef,

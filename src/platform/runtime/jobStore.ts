@@ -4,6 +4,7 @@ import { PlatformJob } from '../types/job';
 import { getDataRootDir } from '../../runtime/paths';
 
 import { validateOperationIR } from '../types/plan';
+import { LocalSecretVault } from '../ingestion/documentIngestion';
 
 export class JobStore {
   private static instance: JobStore | null = null;
@@ -30,7 +31,26 @@ export class JobStore {
   }
 
   getJob(jobId: string): PlatformJob | undefined {
-    return this.jobs.get(jobId);
+    const job = this.jobs.get(jobId);
+    if (job && this.isJobMissingCredentials(job)) {
+      if (job.status !== 'COMPLETED' && job.status !== 'FAILED' && job.status !== 'STOPPED' && job.status !== 'HALTED_BY_CIRCUIT_BREAKER') {
+        job.status = 'CREDENTIAL_REQUIRED';
+      }
+    }
+    return job;
+  }
+
+  private isJobMissingCredentials(job: PlatformJob): boolean {
+    if (!job.targetSet || !job.targetSet.schools || job.targetSet.schools.length === 0) return false;
+    // Check if any ready school has missing secrets in LocalSecretVault
+    const readySchools = job.targetSet.schools.filter(s => s.validationStatus === 'READY' && s.enabled);
+    if (readySchools.length === 0) return false;
+    for (const s of readySchools) {
+      if (!LocalSecretVault.hasSecret(s.credentialRef, job.jobId) && !LocalSecretVault.hasSecretForSchool(s.schoolCode)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   listJobs(): PlatformJob[] {
@@ -79,6 +99,11 @@ export class JobStore {
           const job: PlatformJob = JSON.parse(content);
           if (job.executionPlan?.operations) {
             job.executionPlan.operations.forEach(op => validateOperationIR(op));
+          }
+          if (this.isJobMissingCredentials(job)) {
+            if (job.status !== 'COMPLETED' && job.status !== 'FAILED' && job.status !== 'STOPPED' && job.status !== 'HALTED_BY_CIRCUIT_BREAKER') {
+              job.status = 'CREDENTIAL_REQUIRED';
+            }
           }
           this.jobs.set(job.jobId, job);
         } catch {

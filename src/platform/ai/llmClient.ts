@@ -65,7 +65,9 @@ export class LlmClient {
         type: 'tool',
         name: toolName
       },
-      effort
+      output_config: {
+        effort
+      }
     };
 
     const response = await client.messages.create(requestPayload);

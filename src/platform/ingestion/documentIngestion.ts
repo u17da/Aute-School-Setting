@@ -9,6 +9,7 @@ export interface IngestFileInput {
 
 export class LocalSecretVault {
   private static secrets: Map<string, string> = new Map();
+  private static secretToJob: Map<string, string> = new Map();
   private static jobSecrets: Map<string, Set<string>> = new Map();
   private static schoolSecrets: Map<string, string> = new Map();
   private static jobSchoolSecrets: Map<string, Set<string>> = new Map();
@@ -17,6 +18,7 @@ export class LocalSecretVault {
     const handle = `secret_handle_${crypto.randomUUID()}`;
     this.secrets.set(handle, plainSecret);
     if (jobId) {
+      this.secretToJob.set(handle, jobId);
       if (!this.jobSecrets.has(jobId)) {
         this.jobSecrets.set(jobId, new Set());
       }
@@ -28,6 +30,7 @@ export class LocalSecretVault {
   static storeSecretWithRef(ref: string, plainSecret: string, jobId?: string): void {
     this.secrets.set(ref, plainSecret);
     if (jobId) {
+      this.secretToJob.set(ref, jobId);
       if (!this.jobSecrets.has(jobId)) {
         this.jobSecrets.set(jobId, new Set());
       }
@@ -46,7 +49,12 @@ export class LocalSecretVault {
     }
   }
 
-  static getSecret(handle: string): string | undefined {
+  static getSecret(handle: string, jobId?: string): string | undefined {
+    // If handle is bound to a specific job and a different jobId is queried, deny access (job-scoping)
+    const ownerJobId = this.secretToJob.get(handle);
+    if (ownerJobId && jobId && ownerJobId !== jobId) {
+      return undefined;
+    }
     return this.secrets.get(handle);
   }
 
@@ -54,7 +62,11 @@ export class LocalSecretVault {
     return this.schoolSecrets.get(schoolCode) || this.secrets.get(`cred_ref_${schoolCode}`);
   }
 
-  static hasSecret(handle: string): boolean {
+  static hasSecret(handle: string, jobId?: string): boolean {
+    const ownerJobId = this.secretToJob.get(handle);
+    if (ownerJobId && jobId && ownerJobId !== jobId) {
+      return false;
+    }
     return this.secrets.has(handle);
   }
 
@@ -67,6 +79,7 @@ export class LocalSecretVault {
     if (handles) {
       for (const h of handles) {
         this.secrets.delete(h);
+        this.secretToJob.delete(h);
       }
       this.jobSecrets.delete(jobId);
     }
@@ -81,6 +94,7 @@ export class LocalSecretVault {
 
   static clear(): void {
     this.secrets.clear();
+    this.secretToJob.clear();
     this.jobSecrets.clear();
     this.schoolSecrets.clear();
     this.jobSchoolSecrets.clear();

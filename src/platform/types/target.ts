@@ -8,6 +8,7 @@ export interface TargetSchool {
   schoolCode: string;
   schoolName: string;
   userId?: string;
+  schoolType?: 'ELEMENTARY' | 'JUNIOR_HIGH' | 'HIGH' | 'COMBINED';
   credentialRef: string; // Secret handle / reference. Never store plaintext password here.
   enabled: boolean;
   metadata?: Record<string, any>;

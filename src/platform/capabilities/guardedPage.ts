@@ -66,6 +66,20 @@ export class GuardedPage implements GuardedPageInterface {
     await el.click();
   }
 
+  /**
+   * Safe read-only navigation click (e.g. clicking a navigation menu, pagination, or tab)
+   * Explicitly blocks form submission, save buttons, or destructive elements even in dry run
+   */
+  async clickNav(selector: string, timeoutMs = 15000): Promise<void> {
+    if (/(save|submit|delete|remove|update|create|post|put|patch|保存|送信|削除|更新|登録)/i.test(selector)) {
+      throw new Error(`MUTATION_ELEMENT_BLOCKED_IN_CLICK_NAV: Element matching "${selector}" appears to perform mutation and is rejected in clickNav.`);
+    }
+    if (this.isMock || !this.page) return;
+    const el = this.page.locator(selector).first();
+    await el.waitFor({ state: 'visible', timeout: timeoutMs });
+    await el.click();
+  }
+
   async fill(selector: string, value: string, timeoutMs = 15000): Promise<void> {
     this.checkWriteAllowed(`fill(${selector})`);
     if (this.isMock || !this.page) return;

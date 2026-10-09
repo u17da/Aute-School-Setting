@@ -186,8 +186,11 @@ Please update the plan reflecting the user modification and provide "planDiff".`
       if (!cap.productionValidated) {
         throw new Error(`VALIDATION_FAILED: Capability '${op.capabilityId}' is not production validated.`);
       }
+      if (op.riskClass && op.riskClass !== cap.riskClass) {
+        throw new Error(`VALIDATION_FAILED: Operation riskClass mismatch for '${op.capabilityId}': AI proposed '${op.riskClass}' but Registry SSOT defines '${cap.riskClass}'.`);
+      }
 
-      // Build internal OperationIR
+      // Build internal OperationIR with Registry SSOT riskClass
       operations.push({
         operationId: `op_${i + 1}_${op.capabilityId}`,
         operationType: op.capabilityId,

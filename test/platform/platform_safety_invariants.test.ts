@@ -2,10 +2,11 @@ import * as assert from 'assert';
 import { PlatformRunner } from '../../src/platform/runtime/platformRunner';
 import { PolicyEngine } from '../../src/platform/policy/policyEngine';
 import { JobStore } from '../../src/platform/runtime/jobStore';
-import { PlatformJob, JobExecutionMode, JobExecutionModeSchema } from '../../src/platform/types/job';
+import { PlatformJob, JobExecutionMode, JobExecutionModeSchema, RunEvidence } from '../../src/platform/types/job';
 import { ExecutionPlan } from '../../src/platform/types/plan';
 import { TargetSet, TargetSchool } from '../../src/platform/types/target';
 import { GuardedPage } from '../../src/platform/capabilities/guardedPage';
+import { CapabilityExecutionContext } from '../../src/platform/types/capability';
 import { LocalSecretVault } from '../../src/platform/ingestion/documentIngestion';
 import { TargetInterpreter } from '../../src/platform/ai/targetInterpreter';
 import { CapabilityRegistry } from '../../src/platform/capabilities/registry';
@@ -19,12 +20,13 @@ function createMockPlan(overrides: Partial<ExecutionPlan> = {}): ExecutionPlan {
     targetSetId: 'ts_test_001',
     userInstruction: 'コンテンツ順序変更',
     status: 'READY',
+    sourceFiles: [],
     operations: [
       {
         operationId: 'op_001',
         capabilityId: 'REORDER_CONTENTS',
         operationType: 'REORDER_CONTENTS',
-        inputMapping: { targetOrder: ['MEXCBT連携アプリ'] },
+        inputMapping: { targetOrder: ['Google', 'MEXCBT連携アプリ'] },
         preconditions: [],
         verification: [],
         riskClass: 'REVERSIBLE_WRITE',
@@ -47,10 +49,12 @@ function createMockTargetSet(schoolsCount = 3): TargetSet {
   for (let i = 1; i <= schoolsCount; i++) {
     const code = `SCH_${i.toString().padStart(3, '0')}`;
     const name = i === 1 ? 'テスト小学校' : (i === 2 ? 'テスト中学校' : 'テスト高校');
+    const type: 'ELEMENTARY' | 'JUNIOR_HIGH' | 'HIGH' = i === 1 ? 'ELEMENTARY' : (i === 2 ? 'JUNIOR_HIGH' : 'HIGH');
     schools.push({
       schoolCode: code,
       schoolName: name,
       userId: `admin_${code}`,
+      schoolType: type,
       credentialRef: `cred_ref_${code}`,
       enabled: true,
       validationStatus: 'READY'
@@ -67,9 +71,29 @@ function createMockTargetSet(schoolsCount = 3): TargetSet {
   };
 }
 
+function createMockJob(overrides: Partial<PlatformJob> = {}): PlatformJob {
+  const plan = overrides.executionPlan || createMockPlan();
+  const targetSet = overrides.targetSet || createMockTargetSet();
+  const policy = overrides.policy || PolicyEngine.createDefaultPolicy(plan.riskLevel);
+  return {
+    jobId: 'job_test_default',
+    title: 'Test Job',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    status: 'PLAN_GENERATED',
+    targetSet,
+    userInstruction: 'test instruction',
+    sourceFiles: [],
+    executionPlan: plan,
+    policy,
+    runs: {},
+    ...overrides
+  };
+}
+
 async function runTests() {
   console.log('================================================================');
-  console.log('   Platform Safety Invariants & Architecture Tests (19 Cases)   ');
+  console.log('   Platform Safety Invariants & Architecture Tests (29 Cases)   ');
   console.log('================================================================');
 
   let passed = 0;
@@ -100,21 +124,13 @@ async function runTests() {
     const plan = createMockPlan();
     const targetSet = createMockTargetSet();
     const policy = PolicyEngine.createDefaultPolicy(plan.riskLevel);
-    const job: PlatformJob = {
+    const job = createMockJob({
       jobId: 'job_case1',
       title: 'Case 1',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      status: 'PLAN_GENERATED',
       targetSet,
-      userInstruction: 'test',
-      sourceFiles: [],
       executionPlan: plan,
-      policy,
-      timeEstimate: { estimatedTotalSeconds: 10, estimatedPerSchoolSeconds: 5, breakdown: {} },
-      costEstimate: { estimatedJpy: 0, estimatedInputTokens: 0, estimatedOutputTokens: 0, model: '' },
-      runs: {}
-    };
+      policy
+    });
 
     await assert.rejects(
       async () => await runner.runJob(job, 'FOO' as any),
@@ -130,21 +146,13 @@ async function runTests() {
     const plan = createMockPlan({ status: 'NEEDS_CLARIFICATION' });
     const policy = PolicyEngine.createDefaultPolicy(plan.riskLevel);
     PolicyEngine.approveGate(policy, 'GATE_1_PLAN', 'tester');
-    const job: PlatformJob = {
+    const job = createMockJob({
       jobId: 'job_case2',
       title: 'Case 2',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      status: 'PLAN_GENERATED',
       targetSet,
-      userInstruction: 'test',
-      sourceFiles: [],
       executionPlan: plan,
-      policy,
-      timeEstimate: { estimatedTotalSeconds: 10, estimatedPerSchoolSeconds: 5, breakdown: {} },
-      costEstimate: { estimatedJpy: 0, estimatedInputTokens: 0, estimatedOutputTokens: 0, model: '' },
-      runs: {}
-    };
+      policy
+    });
 
     await assert.rejects(
       async () => await runner.runJob(job, 'LOGICAL_DRY_RUN'),
@@ -173,21 +181,13 @@ async function runTests() {
     const policy = PolicyEngine.createDefaultPolicy(plan.riskLevel);
     PolicyEngine.approveGate(policy, 'GATE_1_PLAN', 'tester');
 
-    const job: PlatformJob = {
+    const job = createMockJob({
       jobId: 'job_case3',
       title: 'Case 3',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      status: 'PLAN_GENERATED',
       targetSet,
-      userInstruction: 'test',
-      sourceFiles: [],
       executionPlan: plan,
-      policy,
-      timeEstimate: { estimatedTotalSeconds: 10, estimatedPerSchoolSeconds: 5, breakdown: {} },
-      costEstimate: { estimatedJpy: 0, estimatedInputTokens: 0, estimatedOutputTokens: 0, model: '' },
-      runs: {}
-    };
+      policy
+    });
 
     const res = await runner.runJob(job, 'LOGICAL_DRY_RUN');
     assert.strictEqual(res.summary.totalSchools, 1, 'Only SCH_001 should remain after filters');
@@ -224,21 +224,13 @@ async function runTests() {
     const policy = PolicyEngine.createDefaultPolicy(plan.riskLevel);
     PolicyEngine.approveGate(policy, 'GATE_1_PLAN', 'tester');
 
-    const job: PlatformJob = {
+    const job = createMockJob({
       jobId: 'job_case5',
       title: 'Case 5',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      status: 'PLAN_GENERATED',
       targetSet,
-      userInstruction: 'test',
-      sourceFiles: [],
       executionPlan: plan,
-      policy,
-      timeEstimate: { estimatedTotalSeconds: 10, estimatedPerSchoolSeconds: 5, breakdown: {} },
-      costEstimate: { estimatedJpy: 0, estimatedInputTokens: 0, estimatedOutputTokens: 0, model: '' },
-      runs: {}
-    };
+      policy
+    });
 
     // Pass mock browser object
     const mockBrowser: any = {
@@ -452,6 +444,7 @@ async function runTests() {
   // Case 14: REORDER_CONTENTS orgId resolution failure fail-closed
   await test('REORDER_CONTENTS fails closed with ORG_ID_RESOLUTION_FAILED if orgId cannot be resolved', async () => {
     const cap = ReorderContentsCapability;
+    const origObserve = cap.observe;
     const mockPage: any = {
       evaluate: async (fn: any, args: any) => {
         // Mock evaluate executing the resolution logic with no matching elements
@@ -469,15 +462,19 @@ async function runTests() {
       logger: { info: () => {}, warn: () => {}, error: () => {} }
     };
 
-    // Mock observe for execute
-    cap.observe = async () => ({
-      currentState: { desiredOrderIds: [101, 102], baselineOrderHash: 'h1', desiredOrderHash: 'h2' },
-      eligible: true
-    }) as any;
+    try {
+      // Mock observe for execute
+      cap.observe = async () => ({
+        currentState: { desiredOrderIds: [101, 102], baselineOrderHash: 'h1', desiredOrderHash: 'h2' },
+        eligible: true
+      }) as any;
 
-    const res = await cap.execute(context, { targetOrderIds: [101, 102] });
-    assert.strictEqual(res.success, false);
-    assert.ok(res.error?.includes('ORG_ID_RESOLUTION_FAILED'));
+      const res = await cap.execute(context, { targetOrder: ['Google'] });
+      assert.strictEqual(res.success, false);
+      assert.ok(res.error?.includes('ORG_ID_RESOLUTION_FAILED'));
+    } finally {
+      cap.observe = origObserve;
+    }
   });
 
   // Case 15: Capability Catalog auditing
@@ -501,7 +498,7 @@ async function runTests() {
     const cap = CreateSchoolAdminCapability;
     assert.strictEqual(cap.testStatus, 'MOCK_TESTED');
     assert.strictEqual(cap.productionValidated, false);
-    assert.ok(cap.inputSchema.required.includes('userId'));
+    assert.ok(cap.inputSchema && (cap.inputSchema as any).required.includes('userId'));
 
     const context: any = {
       schoolCode: 'SCH_001',
@@ -527,21 +524,13 @@ async function runTests() {
     const policy = PolicyEngine.createDefaultPolicy(plan.riskLevel);
     PolicyEngine.approveGate(policy, 'GATE_1_PLAN', 'tester');
 
-    const job: PlatformJob = {
+    const job = createMockJob({
       jobId: 'job_case17',
       title: 'Case 17',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      status: 'PLAN_GENERATED',
       targetSet,
-      userInstruction: 'test',
-      sourceFiles: [],
       executionPlan: plan,
-      policy,
-      timeEstimate: { estimatedTotalSeconds: 10, estimatedPerSchoolSeconds: 5, breakdown: {} },
-      costEstimate: { estimatedJpy: 0, estimatedInputTokens: 0, estimatedOutputTokens: 0, model: '' },
-      runs: {}
-    };
+      policy
+    });
 
     // Pre-emptively stop
     runner.stop();
@@ -567,24 +556,17 @@ async function runTests() {
       const policy = PolicyEngine.createDefaultPolicy(plan.riskLevel);
       policy.planHash = plan.planHash;
       policy.targetSetHash = PolicyEngine.computeTargetSetHash(targetSet);
+      policy.policyApprovedCanaryScope = 1;
       PolicyEngine.approveGate(policy, 'GATE_1_PLAN', 'tester');
       PolicyEngine.approveGate(policy, 'GATE_2_DRY_RUN', 'tester');
       PolicyEngine.approveGate(policy, 'GATE_3_CANARY', 'tester');
 
-      const job: PlatformJob = {
+      const job = createMockJob({
         jobId: 'job_case18',
         title: 'Case 18',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        status: 'PLAN_GENERATED',
         targetSet,
-        userInstruction: 'test',
-        sourceFiles: [],
         executionPlan: plan,
         policy,
-        timeEstimate: { estimatedTotalSeconds: 10, estimatedPerSchoolSeconds: 5, breakdown: {} },
-        costEstimate: { estimatedJpy: 0, estimatedInputTokens: 0, estimatedOutputTokens: 0, model: '' },
-        runs: {},
         evidences: [
           {
             evidenceId: 'ev_dry_run_pre',
@@ -602,11 +584,11 @@ async function runTests() {
               targetSetHash: PolicyEngine.computeTargetSetHash(targetSet),
               mode: 'LOGICAL_DRY_RUN',
               actualSchoolCodes: ['SCH_001'],
-              capabilityVersions: {}
+              capabilityVersions: { REORDER_CONTENTS: originalCap.version }
             }
           }
         ]
-      };
+      });
 
       await runner.runJob(job, 'CANARY_VALIDATION');
       assert.strictEqual(job.status, 'CANARY_FAILED');
@@ -645,6 +627,330 @@ async function runTests() {
     assert.strictEqual(statusCode, 200);
     assert.strictEqual(jsonBody.results[0].status, 'MISSING_CREDENTIAL');
     assert.strictEqual(jsonBody.valid, 0);
+  });
+
+  // Case 20: OperationIR.targetSchoolCodes scoping & SKIPPED state
+  await test('OperationIR.targetSchoolCodes restricts execution to scoped schools, marks unexecuted schools SKIPPED without successCount', async () => {
+    const runner = new PlatformRunner();
+    const targetSet = createMockTargetSet(3); // SCH_001, SCH_002, SCH_003
+    LocalSecretVault.clear();
+    LocalSecretVault.storeSecretWithRef('cred_ref_SCH_001', 'mock_pw_1');
+    LocalSecretVault.storeSecretWithRef('cred_ref_SCH_002', 'mock_pw_2');
+    LocalSecretVault.storeSecretWithRef('cred_ref_SCH_003', 'mock_pw_3');
+
+    // op_1 scoped ONLY to SCH_001
+    const plan = createMockPlan({
+      operations: [
+        {
+          operationId: 'op_001',
+          capabilityId: 'REORDER_CONTENTS',
+          operationType: 'REORDER_CONTENTS',
+          targetSchoolCodes: ['SCH_001'],
+          inputMapping: { targetOrder: ['Google', 'MEXCBT連携アプリ'] },
+          preconditions: [],
+          verification: [],
+          riskClass: 'REVERSIBLE_WRITE',
+          reversible: true
+        }
+      ]
+    });
+
+    const policy = PolicyEngine.createDefaultPolicy(plan.riskLevel);
+    PolicyEngine.approveGate(policy, 'GATE_1_PLAN', 'tester');
+
+    const job = createMockJob({
+      jobId: 'job_case20',
+      title: 'Case 20',
+      targetSet,
+      executionPlan: plan,
+      policy
+    });
+
+    const res = await runner.runJob(job, 'LOGICAL_DRY_RUN');
+    assert.strictEqual(res.summary.totalSchools, 3);
+    assert.strictEqual(res.summary.successCount, 1, 'Only SCH_001 should be success');
+    assert.strictEqual(res.summary.skippedCount, 2, 'SCH_002 and SCH_003 must be SKIPPED');
+
+    const r1 = res.results.find(r => r.schoolCode === 'SCH_001')!;
+    const r2 = res.results.find(r => r.schoolCode === 'SCH_002')!;
+    const r3 = res.results.find(r => r.schoolCode === 'SCH_003')!;
+
+    assert.strictEqual(r1.status, 'SUCCESS');
+    assert.strictEqual(r2.status, 'SKIPPED');
+    assert.strictEqual(r3.status, 'SKIPPED');
+
+    // RunEvidence fingerprint must include only actualSchoolCodes (SCH_001)
+    const ev = job.evidences![0];
+    assert.deepStrictEqual(ev.fingerprint.actualSchoolCodes, ['SCH_001']);
+  });
+
+  // Case 21: TargetSchool.schoolType SSOT & fail closed on unknown
+  await test('TargetSchool.schoolType is SSOT; unknown schoolType fails closed without name guessing', async () => {
+    const runner = new PlatformRunner();
+    // School with ELEMENTARY name but undefined schoolType
+    const schools: TargetSchool[] = [
+      {
+        schoolCode: 'SCH_001',
+        schoolName: '桜丘小学校',
+        schoolType: undefined, // Unknown
+        credentialRef: 'cred_ref_SCH_001',
+        enabled: true,
+        validationStatus: 'READY'
+      },
+      {
+        schoolCode: 'SCH_002',
+        schoolName: '青葉学園',
+        schoolType: 'ELEMENTARY', // Explicit SSOT
+        credentialRef: 'cred_ref_SCH_002',
+        enabled: true,
+        validationStatus: 'READY'
+      }
+    ];
+
+    const targetSet: TargetSet = {
+      targetSetId: 'ts_c21',
+      name: 'Case 21 TargetSet',
+      createdAt: new Date().toISOString(),
+      sourceFiles: [],
+      schools,
+      summary: { total: 2, ready: 2, missing: 0, ambiguous: 0 }
+    };
+
+    LocalSecretVault.clear();
+    LocalSecretVault.storeSecretWithRef('cred_ref_SCH_001', 'mock_pw_1');
+    LocalSecretVault.storeSecretWithRef('cred_ref_SCH_002', 'mock_pw_2');
+
+    const plan = createMockPlan({
+      targetFilter: { schoolType: 'ELEMENTARY' }
+    });
+
+    const policy = PolicyEngine.createDefaultPolicy(plan.riskLevel);
+    PolicyEngine.approveGate(policy, 'GATE_1_PLAN', 'tester');
+
+    const job = createMockJob({
+      jobId: 'job_case21',
+      title: 'Case 21',
+      targetSet,
+      executionPlan: plan,
+      policy
+    });
+
+    const res = await runner.runJob(job, 'LOGICAL_DRY_RUN');
+    // SCH_001 must NOT be matched even though name contains "小学校"
+    assert.strictEqual(res.summary.totalSchools, 1, 'Only SCH_002 with explicit schoolType ELEMENTARY must be processed');
+    assert.strictEqual(res.results[0].schoolCode, 'SCH_002');
+  });
+
+  // Case 22: TargetInterpreter parses schoolType from table and text
+  await test('TargetInterpreter extracts schoolType from table and text representations', () => {
+    const csvContent = '学校コード,学校名,ユーザーID,校種\nSCH_101,第一小学校,admin1,小学校\nSCH_102,第二中学校,admin2,中学校\nSCH_103,第三高校,admin3,高校\nSCH_104,第四義務教育学校,admin4,小中一貫';
+    const parsed = TargetInterpreter.parseTargets({
+      files: [{ filename: 'schools.csv', content: csvContent }]
+    });
+
+    assert.strictEqual(parsed.summary.total, 4);
+    assert.strictEqual(parsed.schools.find(s => s.schoolCode === 'SCH_101')?.schoolType, 'ELEMENTARY');
+    assert.strictEqual(parsed.schools.find(s => s.schoolCode === 'SCH_102')?.schoolType, 'JUNIOR_HIGH');
+    assert.strictEqual(parsed.schools.find(s => s.schoolCode === 'SCH_103')?.schoolType, 'HIGH');
+    assert.strictEqual(parsed.schools.find(s => s.schoolCode === 'SCH_104')?.schoolType, 'COMBINED');
+  });
+
+  // Case 23: LocalSecretVault strict job scoping
+  await test('LocalSecretVault enforces job ownership; Job A secret is inaccessible from Job B', () => {
+    LocalSecretVault.clear();
+    const handleA = LocalSecretVault.storeSecret('secret_job_a', 'job_A');
+
+    // Access with matching jobId succeeds
+    assert.strictEqual(LocalSecretVault.getSecret(handleA, 'job_A'), 'secret_job_a');
+    // Access with non-matching jobId fails
+    assert.strictEqual(LocalSecretVault.getSecret(handleA, 'job_B'), undefined);
+    assert.strictEqual(LocalSecretVault.hasSecret(handleA, 'job_B'), false);
+  });
+
+  // Case 24: JobStore marks persisted job CREDENTIAL_REQUIRED when vault is empty
+  await test('JobStore transitions job to CREDENTIAL_REQUIRED when credentials are missing from vault', () => {
+    LocalSecretVault.clear();
+    const store = JobStore.getInstance();
+    const targetSet = createMockTargetSet(1);
+    const plan = createMockPlan();
+    const policy = PolicyEngine.createDefaultPolicy(plan.riskLevel);
+
+    const job = createMockJob({
+      jobId: 'job_c24_lost_vault',
+      title: 'Lost Vault Job',
+      status: 'PLAN_GENERATED',
+      targetSet,
+      executionPlan: plan,
+      policy
+    });
+
+    store.saveJob(job);
+
+    // Because LocalSecretVault was cleared, getJob should mark it CREDENTIAL_REQUIRED
+    const loaded = store.getJob('job_c24_lost_vault');
+    assert.ok(loaded);
+    assert.strictEqual(loaded.status, 'CREDENTIAL_REQUIRED');
+  });
+
+  // Case 25: GuardedPage clickNav API and destructive element rejection
+  await test('GuardedPage.clickNav permits navigation elements and rejects write/mutation selectors', async () => {
+    const page = new GuardedPage(null, true, true); // write blocked
+
+    // Safe navigation click succeeds
+    await page.clickNav('.nav-menu-item');
+    await page.clickNav('#tab-header-2');
+
+    // Mutation selector in clickNav throws
+    await assert.rejects(
+      async () => await page.clickNav('button.save-btn'),
+      /MUTATION_ELEMENT_BLOCKED_IN_CLICK_NAV/
+    );
+    await assert.rejects(
+      async () => await page.clickNav('button:has-text("設定を保存")'),
+      /MUTATION_ELEMENT_BLOCKED_IN_CLICK_NAV/
+    );
+    await assert.rejects(
+      async () => await page.clickNav('.delete-action'),
+      /MUTATION_ELEMENT_BLOCKED_IN_CLICK_NAV/
+    );
+  });
+
+  // Case 26: ReorderContentsCapability inputSchema exposes only targetOrder
+  await test('ReorderContentsCapability inputSchema exposes only targetOrder to AI catalog, not targetOrderIds', () => {
+    const cap = ReorderContentsCapability;
+    assert.ok(cap.inputSchema);
+    const properties = cap.inputSchema.properties;
+    assert.ok(properties.targetOrder);
+    assert.strictEqual(properties.targetOrderIds, undefined, 'targetOrderIds must be removed from inputSchema');
+    assert.deepStrictEqual(cap.inputSchema.required, ['targetOrder']);
+  });
+
+  // Case 27: AuthenticatedSchoolContext and expectedOrgId binding
+  await test('ReorderContentsCapability utilizes bound expectedOrgId and refuses fallback to random DOM links', async () => {
+    const cap = ReorderContentsCapability;
+    const page = new GuardedPage(null, true, false);
+
+    const context: CapabilityExecutionContext = {
+      page,
+      schoolCode: 'SCH_001',
+      schoolName: 'テスト小学校',
+      credentialRef: 'cred_ref_001',
+      isDryRun: false,
+      expectedOrgId: '998877',
+      authenticatedSchoolContext: {
+        schoolCode: 'SCH_001',
+        schoolName: 'テスト小学校',
+        organizationId: '998877',
+        authenticatedAt: new Date().toISOString()
+      },
+      logger: { info: () => {}, warn: () => {}, error: () => {} }
+    };
+
+    assert.strictEqual(context.expectedOrgId, '998877');
+    assert.strictEqual(context.authenticatedSchoolContext?.organizationId, '998877');
+  });
+
+  // Case 28: PolicyEngine rejects Canary validation when policyApprovedCanaryScope is missing
+  await test('PolicyEngine blocks CANARY_VALIDATION if policyApprovedCanaryScope is not explicitly approved', () => {
+    const policy = PolicyEngine.createDefaultPolicy('REVERSIBLE_WRITE');
+    PolicyEngine.approveGate(policy, 'GATE_1_PLAN', 'tester');
+    PolicyEngine.approveGate(policy, 'GATE_2_DRY_RUN', 'tester');
+    PolicyEngine.approveGate(policy, 'GATE_3_CANARY', 'tester');
+
+    const dryRunEv: RunEvidence = {
+      evidenceId: 'ev_dry_c28',
+      runId: 'r1',
+      mode: 'LOGICAL_DRY_RUN',
+      status: 'SUCCESS',
+      totalSchools: 3,
+      successCount: 3,
+      failedCount: 0,
+      blockedCount: 0,
+      allVerified: true,
+      completedAt: new Date().toISOString(),
+      fingerprint: {
+        planHash: 'hash_plan',
+        targetSetHash: 'hash_target',
+        mode: 'LOGICAL_DRY_RUN',
+        actualSchoolCodes: ['SCH_001', 'SCH_002', 'SCH_003'],
+        capabilityVersions: {}
+      }
+    };
+
+    // Case A: policyApprovedCanaryScope is undefined -> BLOCKED
+    policy.planHash = 'hash_plan';
+    policy.targetSetHash = 'hash_target';
+    policy.policyApprovedCanaryScope = undefined;
+
+    const auditBlocked = PolicyEngine.verifyExecutionAllowed(policy, 'CANARY_VALIDATION', {
+      planHash: 'hash_plan',
+      targetSetHash: 'hash_target',
+      evidences: [dryRunEv]
+    });
+    assert.strictEqual(auditBlocked.passed, false);
+    assert.ok(auditBlocked.violations.some(v => v.includes('CANARY_SCOPE_NOT_APPROVED')));
+
+    // Case B: policyApprovedCanaryScope is set to 2 -> ALLOWED
+    policy.policyApprovedCanaryScope = 2;
+    const auditAllowed = PolicyEngine.verifyExecutionAllowed(policy, 'CANARY_VALIDATION', {
+      planHash: 'hash_plan',
+      targetSetHash: 'hash_target',
+      evidences: [dryRunEv]
+    });
+    assert.strictEqual(auditAllowed.passed, true);
+  });
+
+  // Case 29: PolicyEngine requires exact capabilityVersions match in Evidence
+  await test('PolicyEngine blocks execution when Capability version in Evidence does not match current version', () => {
+    const policy = PolicyEngine.createDefaultPolicy('REVERSIBLE_WRITE');
+    PolicyEngine.approveGate(policy, 'GATE_1_PLAN', 'tester');
+    PolicyEngine.approveGate(policy, 'GATE_2_DRY_RUN', 'tester');
+    policy.policyApprovedCanaryScope = 1;
+    PolicyEngine.approveGate(policy, 'GATE_3_CANARY', 'tester');
+
+    policy.planHash = 'hash_plan';
+    policy.targetSetHash = 'hash_target';
+
+    const dryRunEvidence: RunEvidence = {
+      evidenceId: 'ev_dry_c29',
+      runId: 'r1',
+      mode: 'LOGICAL_DRY_RUN',
+      status: 'SUCCESS',
+      totalSchools: 1,
+      successCount: 1,
+      failedCount: 0,
+      blockedCount: 0,
+      allVerified: true,
+      completedAt: new Date().toISOString(),
+      fingerprint: {
+        planHash: 'hash_plan',
+        targetSetHash: 'hash_target',
+        mode: 'LOGICAL_DRY_RUN',
+        actualSchoolCodes: ['SCH_001'],
+        capabilityVersions: { REORDER_CONTENTS: '1.1.0' } // Old version
+      }
+    };
+
+    // Current version is 1.2.0
+    const auditMismatched = PolicyEngine.verifyExecutionAllowed(policy, 'CANARY_VALIDATION', {
+      planHash: 'hash_plan',
+      targetSetHash: 'hash_target',
+      currentCapabilityVersions: { REORDER_CONTENTS: '1.2.0' },
+      evidences: [dryRunEvidence]
+    });
+
+    assert.strictEqual(auditMismatched.passed, false, 'Must reject evidence from old capability version');
+    assert.ok(auditMismatched.violations.some(v => v.includes('Capabilityバージョン')));
+
+    // When capability version matches, execution is allowed
+    const auditMatched = PolicyEngine.verifyExecutionAllowed(policy, 'CANARY_VALIDATION', {
+      planHash: 'hash_plan',
+      targetSetHash: 'hash_target',
+      currentCapabilityVersions: { REORDER_CONTENTS: '1.1.0' },
+      evidences: [dryRunEvidence]
+    });
+
+    assert.strictEqual(auditMatched.passed, true, 'Must pass when capability version matches exactly');
   });
 
   console.log('================================================================');

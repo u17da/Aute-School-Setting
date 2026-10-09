@@ -83,16 +83,6 @@ export class PlatformRunner {
     }
     const validatedMode = modeParse.data;
 
-    // 1. Policy Gate Check
-    const audit = PolicyEngine.verifyExecutionAllowed(job.policy, validatedMode, {
-      planHash: job.policy.planHash || job.executionPlan?.planHash || (job.executionPlan ? PolicyEngine.computePlanHash(job.executionPlan) : undefined),
-      targetSetHash: job.policy.targetSetHash || (job.targetSet ? PolicyEngine.computeTargetSetHash(job.targetSet) : undefined),
-      evidences: job.evidences || []
-    });
-    if (!audit.passed) {
-      throw new Error(`Execution Blocked by Policy Engine: ${audit.violations.join('; ')}`);
-    }
-
     if (!job.targetSet || !job.executionPlan) {
       throw new Error('TargetSet or ExecutionPlan is missing.');
     }
@@ -118,6 +108,17 @@ export class PlatformRunner {
       capabilityVersions[op.capabilityId] = cap.version;
     }
 
+    // 1. Policy Gate Check
+    const audit = PolicyEngine.verifyExecutionAllowed(job.policy, validatedMode, {
+      planHash: job.policy.planHash || job.executionPlan?.planHash || (job.executionPlan ? PolicyEngine.computePlanHash(job.executionPlan) : undefined),
+      targetSetHash: job.policy.targetSetHash || (job.targetSet ? PolicyEngine.computeTargetSetHash(job.targetSet) : undefined),
+      currentCapabilityVersions: capabilityVersions,
+      evidences: job.evidences || []
+    });
+    if (!audit.passed) {
+      throw new Error(`Execution Blocked by Policy Engine: ${audit.violations.join('; ')}`);
+    }
+
     // 2. Compute strict target scope
     // Formula: (READY & enabled) ∩ targetFilter ∩ targetSchoolCodes - excludeSchoolCodes
     let targetSchools = job.targetSet.schools.filter(s => s.validationStatus === 'READY' && s.enabled);
@@ -134,16 +135,16 @@ export class PlatformRunner {
       targetSchools = targetSchools.filter(s => !excludedCodes.has(s.schoolCode));
     }
 
-    // Apply school type filter from plan
-    if (job.executionPlan.targetFilter?.schoolType) {
-      const type = job.executionPlan.targetFilter.schoolType;
-      if (type === 'ELEMENTARY') {
-        targetSchools = targetSchools.filter(s => !s.schoolName.includes('中学校') && !s.schoolName.includes('高校'));
-      } else if (type === 'JUNIOR_HIGH') {
-        targetSchools = targetSchools.filter(s => s.schoolName.includes('中学校') && !s.schoolName.includes('高校'));
-      } else if (type === 'HIGH') {
-        targetSchools = targetSchools.filter(s => s.schoolName.includes('高校'));
-      }
+    // Apply school type filter from plan (TargetSchool.schoolType SSOT)
+    if (job.executionPlan.targetFilter?.schoolType && job.executionPlan.targetFilter.schoolType !== 'ALL') {
+      const requiredType = job.executionPlan.targetFilter.schoolType;
+      targetSchools = targetSchools.filter(s => {
+        if (!s.schoolType) {
+          // Fail closed: Unknown schoolType must not be guessed from name
+          return false;
+        }
+        return s.schoolType === requiredType;
+      });
     }
 
     // Apply Canary restriction: Policy approved scope ONLY
@@ -217,8 +218,8 @@ export class PlatformRunner {
       let targetPage: Page | null = options?.page || null;
 
       try {
-        // A. Resolve password from LocalSecretVault
-        let password = LocalSecretVault.getSecret(school.credentialRef) || '';
+        // A. Resolve password from LocalSecretVault with job-scoping check
+        let password = LocalSecretVault.getSecret(school.credentialRef, job.jobId) || '';
         if (!password) {
           password = LocalSecretVault.getSecretForSchool(school.schoolCode) || '';
         }
@@ -229,14 +230,9 @@ export class PlatformRunner {
         }
 
         // B. Create Isolated BrowserContext per School
+        let authenticatedOrgId: string | undefined = undefined;
         if (options?.browser) {
           schoolContext = await options.browser.newContext({ viewport: { width: 1280, height: 900 } });
-
-          // In Dry-Run mode, block all mutation network requests
-          if (isDryRun) {
-            await setupNetworkBlocker(schoolContext);
-          }
-
           targetPage = await schoolContext.newPage();
 
           if (password) {
@@ -278,6 +274,22 @@ export class PlatformRunner {
             await homePage.verifySchool(school.schoolCode, school.schoolName);
             console.log(`[PlatformRunner][AUTH] school identity verified: ${school.schoolName} (${school.schoolCode})`);
             console.log(`[PlatformRunner][AUTH] LOGIN_AND_VERIFY completed successfully for ${school.schoolCode}`);
+
+            // Extract verified orgId from URL pathname or DOM if available
+            try {
+              const url = targetPage.url();
+              const orgMatch = url.match(/\/organizations\/(\d+)/);
+              if (orgMatch && orgMatch[1]) {
+                authenticatedOrgId = orgMatch[1];
+              }
+            } catch {
+              // ignore
+            }
+          }
+
+          // In Dry-Run mode, activate mutation network blocker AFTER login & identity verification completes
+          if (isDryRun) {
+            await setupNetworkBlocker(schoolContext);
           }
         }
 
@@ -293,6 +305,13 @@ export class PlatformRunner {
           credentialRef: school.credentialRef,
           isDryRun,
           jobId: job.jobId,
+          expectedOrgId: authenticatedOrgId,
+          authenticatedSchoolContext: {
+            schoolCode: school.schoolCode,
+            schoolName: school.schoolName,
+            organizationId: authenticatedOrgId,
+            authenticatedAt: new Date().toISOString()
+          },
           logger: {
             info: (msg) => console.log(`[PlatformRunner][INFO] ${msg}`),
             warn: (msg) => console.warn(`[PlatformRunner][WARN] ${msg}`),
@@ -300,12 +319,23 @@ export class PlatformRunner {
           }
         };
 
-        // C. Execute operations in the plan
+        // C. Execute operations in the plan with per-operation targetSchoolCodes scoping
+        let executedOperationsCount = 0;
+        let skippedByOpScopeCount = 0;
+
         for (const op of job.executionPlan.operations) {
           // Check emergency stop before operation
           if (this.isHalted) {
             job.status = 'STOPPED';
             break;
+          }
+
+          // Check operation-level targetSchoolCodes scope
+          if (op.targetSchoolCodes && !op.targetSchoolCodes.includes(school.schoolCode)) {
+            // Operation is scoped to other schools; skip for this school
+            appliedDiff[op.operationType] = { skipped: true, reason: 'OPERATION_SCOPE_EXCLUDED' };
+            skippedByOpScopeCount++;
+            continue;
           }
 
           summary.currentOperation = op.capabilityId;
@@ -330,7 +360,9 @@ export class PlatformRunner {
           // 1. Observe
           const observation = await cap.observe(context, op.inputMapping);
           if (!observation.eligible) {
-            schoolStatus = 'ALREADY_CONFIGURED';
+            if (schoolStatus === 'SUCCESS') {
+              schoolStatus = 'ALREADY_CONFIGURED';
+            }
             appliedDiff[op.operationType] = { skipped: true, reason: observation.skipReason };
             continue;
           }
@@ -349,6 +381,7 @@ export class PlatformRunner {
             break;
           }
 
+          executedOperationsCount++;
           appliedDiff[op.operationType] = execRes.appliedChanges;
 
           // 3. Verify
@@ -358,6 +391,11 @@ export class PlatformRunner {
             schoolError = `設定後の確認検証に失敗しました (${op.operationType})`;
             break;
           }
+        }
+
+        // If all operations were excluded by operation scope for this school, status is SKIPPED
+        if (skippedByOpScopeCount === job.executionPlan.operations.length && executedOperationsCount === 0) {
+          schoolStatus = 'SKIPPED';
         }
       } catch (err: any) {
         schoolStatus = 'FAILED';
@@ -384,6 +422,9 @@ export class PlatformRunner {
       } else if (schoolStatus === 'ALREADY_CONFIGURED') {
         summary.alreadyConfiguredCount++;
         consecutiveErrors = 0;
+      } else if (schoolStatus === 'SKIPPED') {
+        summary.skippedCount++;
+        consecutiveErrors = 0;
       } else if (schoolStatus === 'BLOCKED') {
         summary.blockedCount++;
         consecutiveErrors++;
@@ -398,7 +439,7 @@ export class PlatformRunner {
         status: schoolStatus,
         planned: job.executionPlan.operations.map(o => o.operationType),
         after: appliedDiff,
-        verificationPassed: schoolStatus === 'SUCCESS' || schoolStatus === 'ALREADY_CONFIGURED',
+        verificationPassed: schoolStatus === 'SUCCESS' || schoolStatus === 'ALREADY_CONFIGURED' || schoolStatus === 'SKIPPED',
         error: schoolError,
         retries: 0,
         durationMs: Date.now() - schoolStart,
@@ -424,6 +465,12 @@ export class PlatformRunner {
     summary.currentOperation = undefined;
     summary.etaSeconds = 0;
 
+    // Actual school codes are schools that were NOT SKIPPED (i.e. evaluated or executed at least one operation)
+    const actualSchoolCodes = results
+      .filter(r => r.status !== 'SKIPPED')
+      .map(r => r.schoolCode)
+      .sort();
+
     // Generate strict RunEvidence
     const allVerified = summary.failedCount === 0 && summary.blockedCount === 0 && results.every(r => r.verificationPassed);
     const runEvidence: RunEvidence = {
@@ -434,7 +481,7 @@ export class PlatformRunner {
         planHash: job.policy.planHash || PolicyEngine.computePlanHash(job.executionPlan),
         targetSetHash: job.policy.targetSetHash || PolicyEngine.computeTargetSetHash(job.targetSet),
         mode: validatedMode,
-        actualSchoolCodes: results.map(r => r.schoolCode).sort(),
+        actualSchoolCodes,
         capabilityVersions
       },
       status: (summary.failedCount === 0 && summary.blockedCount === 0 && results.length > 0) ? 'SUCCESS' : 'FAILED',

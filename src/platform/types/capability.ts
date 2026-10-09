@@ -5,6 +5,7 @@ export interface GuardedPageInterface {
   navigate(url: string, timeoutMs?: number): Promise<void>;
   waitForSelector(selector: string, timeoutMs?: number): Promise<boolean>;
   click(selector: string, timeoutMs?: number): Promise<void>;
+  clickNav(selector: string, timeoutMs?: number): Promise<void>;
   fill(selector: string, value: string, timeoutMs?: number): Promise<void>;
   selectOption(selector: string, value: string, timeoutMs?: number): Promise<void>;
   getText(selector: string, timeoutMs?: number): Promise<string>;
@@ -15,11 +16,20 @@ export interface GuardedPageInterface {
   takeScreenshot(tag?: string): Promise<string | undefined>;
 }
 
+export interface AuthenticatedSchoolContext {
+  schoolCode: string;
+  schoolName: string;
+  organizationId?: string;
+  authenticatedAt: string;
+}
+
 export interface CapabilityExecutionContext {
   page: GuardedPageInterface;
   jobId?: string;
   schoolCode: string;
   schoolName: string;
+  expectedOrgId?: string;
+  authenticatedSchoolContext?: AuthenticatedSchoolContext;
   credentialRef: string;
   isDryRun: boolean;
   logger: {

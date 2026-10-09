@@ -24,28 +24,15 @@ export const ReorderContentsCapability: CapabilityDefinition = {
         type: 'array',
         items: { type: 'string' },
         description: '表示順序に配置したいコンテンツ名の一覧（完全一致、先頭が高優先度）'
-      },
-      targetOrderIds: {
-        type: 'array',
-        items: { type: 'number' },
-        description: '（内部・復元専用）コンテンツIDの完全順序リスト'
       }
     },
-    anyOf: [
-      { required: ['targetOrder'] },
-      { required: ['targetOrderIds'] }
-    ]
+    required: ['targetOrder']
   },
   parameterSemantics: [
     {
       name: 'targetOrder',
       type: 'array',
       description: 'コンテンツ名の優先配置順序リスト。先頭に指定したコンテンツが最上位に配置されます。'
-    },
-    {
-      name: 'targetOrderIds',
-      type: 'array',
-      description: '（内部・ロールバック用）コンテンツIDの配列。'
     }
   ],
   preconditions: [
@@ -192,7 +179,7 @@ export const ReorderContentsCapability: CapabilityDefinition = {
 
   async execute(context: CapabilityExecutionContext, input?: any): Promise<CapabilityExecutionResult> {
     const page = (context.page as any).rawPage || (context.page as any).page;
-    if (!page) {
+    if (!page && !context.isDryRun) {
       throw new Error('Real Playwright page is required for execution');
     }
 
@@ -221,51 +208,22 @@ export const ReorderContentsCapability: CapabilityDefinition = {
     }
 
     // -------------------------------------------------------------
-    // Production Write (Canary / Apply) with Dynamic orgId resolution
+    // Production Write (Canary / Apply) with Strict Bound orgId resolution
     // -------------------------------------------------------------
     const targetOrderIds: number[] = state.desiredOrderIds;
-    context.logger.info(`[REORDER_CONTENTS] Performing Production Write for ${context.schoolCode}. Target Order: ${JSON.stringify(targetOrderIds.slice(0, 5))}...`);
+    const boundOrgId = context.expectedOrgId || context.authenticatedSchoolContext?.organizationId;
+    context.logger.info(`[REORDER_CONTENTS] Performing Production Write for ${context.schoolCode}. Bound orgId: ${boundOrgId || 'none'}, Target Order: ${JSON.stringify(targetOrderIds.slice(0, 5))}...`);
 
-    // Dynamically extract orgId and CSRF token from page DOM / API without hardcoding
-    const writeResult = await page.evaluate(async (targetIds: number[]) => {
-      // 1. Resolve orgId dynamically
-      let orgId: string | null = null;
+    // Write contents to API using bound expectedOrgId or verified URL
+    const writeResult = await page.evaluate(async (params: { targetIds: number[]; boundOrgId?: string }) => {
+      // 1. Resolve orgId strictly
+      let orgId: string | null = params.boundOrgId || null;
 
-      // Check current URL pathname
-      const urlMatch = window.location.pathname.match(/\/organizations\/(\d+)/);
-      if (urlMatch && urlMatch[1]) {
-        orgId = urlMatch[1];
-      }
-
-      // Check links in DOM
+      // Check current URL pathname if not bound
       if (!orgId) {
-        const orgLinks = Array.from(document.querySelectorAll('a[href*="/organizations/"]'));
-        for (const link of orgLinks) {
-          const m = link.getAttribute('href')?.match(/\/organizations\/(\d+)/);
-          if (m && m[1]) {
-            orgId = m[1];
-            break;
-          }
-        }
-      }
-
-      // Check form actions in DOM
-      if (!orgId) {
-        const forms = Array.from(document.querySelectorAll('form[action*="/organizations/"]'));
-        for (const form of forms) {
-          const m = form.getAttribute('action')?.match(/\/organizations\/(\d+)/);
-          if (m && m[1]) {
-            orgId = m[1];
-            break;
-          }
-        }
-      }
-
-      // Check meta or scripts if any
-      if (!orgId) {
-        const metaOrg = document.querySelector('meta[name="organization-id"]')?.getAttribute('content');
-        if (metaOrg && /^\d+$/.test(metaOrg)) {
-          orgId = metaOrg;
+        const urlMatch = window.location.pathname.match(/\/organizations\/(\d+)/);
+        if (urlMatch && urlMatch[1]) {
+          orgId = urlMatch[1];
         }
       }
 
@@ -273,13 +231,13 @@ export const ReorderContentsCapability: CapabilityDefinition = {
         return {
           success: false,
           status: 400,
-          error: 'ORG_ID_RESOLUTION_FAILED: Failed to dynamically resolve orgId from page context. Refusing to fallback.'
+          error: 'ORG_ID_RESOLUTION_FAILED: Failed to resolve validated orgId for this school context. Refusing to fallback to random DOM links.'
         };
       }
 
       const metaCsrf = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
       const payload = {
-        content_positions: targetIds.map(id => ({ contentable_id: id, contentable_type: 'Content' }))
+        content_positions: params.targetIds.map(id => ({ contentable_id: id, contentable_type: 'Content' }))
       };
 
       const res = await fetch(`/organizations/${orgId}/content_position`, {
@@ -299,7 +257,7 @@ export const ReorderContentsCapability: CapabilityDefinition = {
       }
 
       return { success: true, status: res.status, orgId };
-    }, targetOrderIds);
+    }, { targetIds: targetOrderIds, boundOrgId });
 
     if (!writeResult.success) {
       context.logger.error(`[REORDER_CONTENTS] Save failed: HTTP ${writeResult.status} ${writeResult.error}`);

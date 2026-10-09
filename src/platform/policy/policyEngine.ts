@@ -87,8 +87,9 @@ export class PolicyEngine {
     context?: {
       planHash?: string;
       targetSetHash?: string;
+      currentCapabilityVersions?: Record<string, string>;
       evidences?: RunEvidence[];
-    }
+    } | RunEvidence[]
   ): SafetyAuditResult {
     const violations: string[] = [];
     const warnings: string[] = [];
@@ -114,20 +115,36 @@ export class PolicyEngine {
     const evidences: RunEvidence[] = Array.isArray(context) ? context : (context?.evidences || []);
     const planHash = Array.isArray(context) ? policy.planHash : (context?.planHash || policy.planHash);
     const targetSetHash = Array.isArray(context) ? policy.targetSetHash : (context?.targetSetHash || policy.targetSetHash);
+    const currentCapVersions = !Array.isArray(context) ? context?.currentCapabilityVersions : undefined;
+
+    // Helper to check capabilityVersions exact match on relevant capabilities
+    const checkCapabilityMatch = (evidenceVersions?: Record<string, string>): boolean => {
+      if (!currentCapVersions || !evidenceVersions) return true;
+      for (const [capId, ver] of Object.entries(currentCapVersions)) {
+        if (evidenceVersions[capId] !== ver) {
+          return false;
+        }
+      }
+      return true;
+    };
 
     // Check Dry-run Evidence (Execution Proof) for Canary and Full
     const matchingDryRunEvidence = evidences.find(e =>
       e.mode === 'LOGICAL_DRY_RUN' &&
       e.status === 'SUCCESS' &&
       (!planHash || e.fingerprint.planHash === planHash) &&
-      (!targetSetHash || e.fingerprint.targetSetHash === targetSetHash)
+      (!targetSetHash || e.fingerprint.targetSetHash === targetSetHash) &&
+      checkCapabilityMatch(e.fingerprint.capabilityVersions)
     );
 
     if (!matchingDryRunEvidence) {
-      violations.push('現在のPlan/TargetSetに対するDry-run正常完了の実行証跡(Evidence)が存在しません。');
+      violations.push('現在のPlan/TargetSet/Capabilityバージョンに対するDry-run正常完了の実行証跡(Evidence)が存在しません。');
     }
 
     if (mode === 'CANARY_VALIDATION') {
+      if (policy.policyApprovedCanaryScope === undefined || policy.policyApprovedCanaryScope <= 0) {
+        violations.push('CANARY_SCOPE_NOT_APPROVED: PolicyApprovedCanaryScope が設定されていません。先行検証スコープの明示的承認が必要です。');
+      }
       if (policy.gates.GATE_3_CANARY.required && !policy.gates.GATE_3_CANARY.approved) {
         if (!policy.autoProceedToCanary) {
           violations.push('Gate 3 (Canary Production 承認) が完了していません。');
@@ -150,11 +167,12 @@ export class PolicyEngine {
         e.allVerified === true &&
         e.successCount > 0 &&
         (!planHash || e.fingerprint.planHash === planHash) &&
-        (!targetSetHash || e.fingerprint.targetSetHash === targetSetHash)
+        (!targetSetHash || e.fingerprint.targetSetHash === targetSetHash) &&
+        checkCapabilityMatch(e.fingerprint.capabilityVersions)
       );
 
       if (!matchingCanaryEvidence) {
-        violations.push('Full Production 前に必要な Canary検証の正常完了証跡(全校成功・検証一致・失敗0)が存在しません。');
+        violations.push('Full Production 前に必要な Canary検証の正常完了証跡(全校成功・検証一致・失敗0・同一Capabilityバージョン)が存在しません。');
       }
 
       if (policy.gates.GATE_3_CANARY.required && !policy.gates.GATE_3_CANARY.approved) {
