@@ -28,8 +28,8 @@ export const CreateGradeAndClassCapability: CapabilityDefinition = {
   preconditions: ['学校管理画面のクラス設定にアクセス可能であること'],
   constraints: ['既存クラス名が存在する場合は重複登録せずスキップすること'],
   riskClass: 'REVERSIBLE_WRITE',
-  testStatus: 'PRODUCTION_VALIDATED',
-  productionValidated: true,
+  testStatus: 'MOCK_TESTED',
+  productionValidated: false,
   createdBy: 'SYSTEM',
   updatedAt: new Date().toISOString(),
 

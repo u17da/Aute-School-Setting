@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
+    "typecheck:scripts": "tsc --noEmit --project tsconfig.scripts.json",
     "start": "ts-node -T src/index.ts",
     "generate-schema": "ts-node -T src/config/generateSchema.ts",
     "test": "ts-node -T test/run_all_tests.ts --category=A",

@@ -9,26 +9,82 @@ export interface IngestFileInput {
 
 export class LocalSecretVault {
   private static secrets: Map<string, string> = new Map();
+  private static jobSecrets: Map<string, Set<string>> = new Map();
+  private static schoolSecrets: Map<string, string> = new Map();
+  private static jobSchoolSecrets: Map<string, Set<string>> = new Map();
 
-  static storeSecret(plainSecret: string): string {
-    const hash = crypto.createHash('sha256').update(plainSecret).digest('hex').slice(0, 12);
-    const handle = `secret_handle_${hash}`;
+  static storeSecret(plainSecret: string, jobId?: string): string {
+    const handle = `secret_handle_${crypto.randomUUID()}`;
     this.secrets.set(handle, plainSecret);
+    if (jobId) {
+      if (!this.jobSecrets.has(jobId)) {
+        this.jobSecrets.set(jobId, new Set());
+      }
+      this.jobSecrets.get(jobId)!.add(handle);
+    }
     return handle;
   }
 
-  static storeSecretWithRef(ref: string, plainSecret: string): void {
+  static storeSecretWithRef(ref: string, plainSecret: string, jobId?: string): void {
     this.secrets.set(ref, plainSecret);
+    if (jobId) {
+      if (!this.jobSecrets.has(jobId)) {
+        this.jobSecrets.set(jobId, new Set());
+      }
+      this.jobSecrets.get(jobId)!.add(ref);
+    }
+    // Also index by schoolCode if ref is cred_ref_{schoolCode}
+    if (ref.startsWith('cred_ref_')) {
+      const schoolCode = ref.replace('cred_ref_', '');
+      this.schoolSecrets.set(schoolCode, plainSecret);
+      if (jobId) {
+        if (!this.jobSchoolSecrets.has(jobId)) {
+          this.jobSchoolSecrets.set(jobId, new Set());
+        }
+        this.jobSchoolSecrets.get(jobId)!.add(schoolCode);
+      }
+    }
   }
 
   static getSecret(handle: string): string | undefined {
     return this.secrets.get(handle);
   }
 
-  static clear(): void {
-    this.secrets.clear();
+  static getSecretForSchool(schoolCode: string): string | undefined {
+    return this.schoolSecrets.get(schoolCode) || this.secrets.get(`cred_ref_${schoolCode}`);
   }
 
+  static hasSecret(handle: string): boolean {
+    return this.secrets.has(handle);
+  }
+
+  static hasSecretForSchool(schoolCode: string): boolean {
+    return this.schoolSecrets.has(schoolCode) || this.secrets.has(`cred_ref_${schoolCode}`);
+  }
+
+  static cleanupJob(jobId: string): void {
+    const handles = this.jobSecrets.get(jobId);
+    if (handles) {
+      for (const h of handles) {
+        this.secrets.delete(h);
+      }
+      this.jobSecrets.delete(jobId);
+    }
+    const schoolCodes = this.jobSchoolSecrets.get(jobId);
+    if (schoolCodes) {
+      for (const sc of schoolCodes) {
+        this.schoolSecrets.delete(sc);
+      }
+      this.jobSchoolSecrets.delete(jobId);
+    }
+  }
+
+  static clear(): void {
+    this.secrets.clear();
+    this.jobSecrets.clear();
+    this.schoolSecrets.clear();
+    this.jobSchoolSecrets.clear();
+  }
 }
 
 export class DocumentIngestion {

@@ -1,6 +1,7 @@
 import { RiskClass, ActionPrimitive } from './plan';
 
 export interface GuardedPageInterface {
+  readonly isWriteBlocked: boolean;
   navigate(url: string, timeoutMs?: number): Promise<void>;
   waitForSelector(selector: string, timeoutMs?: number): Promise<boolean>;
   click(selector: string, timeoutMs?: number): Promise<void>;
@@ -16,6 +17,7 @@ export interface GuardedPageInterface {
 
 export interface CapabilityExecutionContext {
   page: GuardedPageInterface;
+  jobId?: string;
   schoolCode: string;
   schoolName: string;
   credentialRef: string;

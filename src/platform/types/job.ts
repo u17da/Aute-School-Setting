@@ -3,7 +3,15 @@ import { ExecutionPlan } from './plan';
 import { ApprovalPolicy } from './policy';
 import { CostEstimate, TimeEstimate } from './estimator';
 
-export type JobExecutionMode = 'LOGICAL_DRY_RUN' | 'CANARY_VALIDATION' | 'FULL_PRODUCTION';
+import { z } from 'zod';
+
+export const JobExecutionModeSchema = z.enum([
+  'LOGICAL_DRY_RUN',
+  'CANARY_VALIDATION',
+  'FULL_PRODUCTION'
+]);
+
+export type JobExecutionMode = z.infer<typeof JobExecutionModeSchema>;
 
 export type JobStatus =
   | 'DRAFT'
@@ -11,11 +19,35 @@ export type JobStatus =
   | 'PLAN_GENERATED'
   | 'DRY_RUN_COMPLETED'
   | 'CANARY_COMPLETED'
+  | 'CANARY_FAILED'
+  | 'CREDENTIAL_REQUIRED'
   | 'RUNNING'
   | 'COMPLETED'
   | 'HALTED_BY_CIRCUIT_BREAKER'
   | 'STOPPED'
   | 'FAILED';
+
+export interface RunEvidenceFingerprint {
+  planHash: string;
+  targetSetHash: string;
+  mode: JobExecutionMode;
+  actualSchoolCodes: string[];
+  capabilityVersions: Record<string, string>;
+}
+
+export interface RunEvidence {
+  evidenceId: string;
+  runId: string;
+  mode: JobExecutionMode;
+  fingerprint: RunEvidenceFingerprint;
+  status: 'SUCCESS' | 'FAILED';
+  totalSchools: number;
+  successCount: number;
+  failedCount: number;
+  blockedCount: number;
+  allVerified: boolean;
+  completedAt: string;
+}
 
 export interface SchoolRunResult {
   schoolCode: string;
@@ -71,4 +103,5 @@ export interface PlatformJob {
     results: SchoolRunResult[];
   }>;
   activeRunId?: string;
+  evidences?: RunEvidence[];
 }

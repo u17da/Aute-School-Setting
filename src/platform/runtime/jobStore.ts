@@ -54,11 +54,16 @@ export class JobStore {
   private sanitizeJobForStorage(job: PlatformJob): PlatformJob {
     // Deep clone and ensure no plaintext secrets are persisted
     const cloned: PlatformJob = JSON.parse(JSON.stringify(job));
-    if (cloned.targetSet?.schools) {
-      for (const s of cloned.targetSet.schools) {
-        // Strip any residual sensitive metadata
-        if (s.metadata?.password) delete s.metadata.password;
-        if (s.metadata?.credential) delete s.metadata.credential;
+    if (cloned.targetSet) {
+      if (typeof cloned.targetSet.rawTextProvided !== 'boolean' && cloned.targetSet.rawTextProvided !== undefined) {
+        cloned.targetSet.rawTextProvided = Boolean(cloned.targetSet.rawTextProvided);
+      }
+      if (cloned.targetSet.schools) {
+        for (const s of cloned.targetSet.schools) {
+          // Strip any residual sensitive metadata
+          if (s.metadata?.password) delete s.metadata.password;
+          if (s.metadata?.credential) delete s.metadata.credential;
+        }
       }
     }
     return cloned;

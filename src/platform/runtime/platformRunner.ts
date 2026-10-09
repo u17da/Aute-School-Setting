@@ -1,9 +1,9 @@
 import * as crypto from 'crypto';
 import { Browser, Page, BrowserContext } from 'playwright';
-import { PlatformJob, JobExecutionMode, SchoolRunResult, JobRunSummary } from '../types/job';
+import { PlatformJob, JobExecutionMode, JobExecutionModeSchema, SchoolRunResult, JobRunSummary, RunEvidence } from '../types/job';
 import { PolicyEngine } from '../policy/policyEngine';
 import { CapabilityRegistry } from '../capabilities/registry';
-import { GuardedPage } from '../capabilities/guardedPage';
+import { GuardedPage, setupNetworkBlocker } from '../capabilities/guardedPage';
 import { CapabilityExecutionContext } from '../types/capability';
 import { LocalSecretVault } from '../ingestion/documentIngestion';
 import { LoginPage } from '../../pages/LoginPage';
@@ -43,7 +43,7 @@ export class PlatformRunner {
 
   /**
    * Execute a Job with specified execution mode (LOGICAL_DRY_RUN, CANARY_VALIDATION, FULL_PRODUCTION)
-   * 完全隔離BrowserContext + 実機ログイン前処理 + リアルタイム進捗イベント発行
+   * 完全隔離BrowserContext + 実機ログイン前処理 + 物理遮断 + リアルタイム進捗イベント発行 + RunEvidence生成
    */
   async runJob(
     job: PlatformJob,
@@ -51,10 +51,44 @@ export class PlatformRunner {
     onProgress?: ProgressCallback,
     options?: { browser?: Browser; page?: Page }
   ): Promise<{ summary: JobRunSummary; results: SchoolRunResult[] }> {
+    if (this.isHalted) {
+      job.status = 'STOPPED';
+      const runId = `run_${Date.now()}`;
+      const summary: JobRunSummary = {
+        runId,
+        mode,
+        startTime: new Date().toISOString(),
+        endTime: new Date().toISOString(),
+        elapsedSeconds: 0,
+        totalSchools: 0,
+        processedCount: 0,
+        successCount: 0,
+        alreadyConfiguredCount: 0,
+        blockedCount: 0,
+        failedCount: 0,
+        skippedCount: 0,
+        accumulatedAiCostJpy: 0,
+        circuitBreakerState: 'CLOSED',
+        runtimeHealth: 'HALTED',
+        etaSeconds: 0
+      };
+      return { summary, results: [] };
+    }
     this.isHalted = false;
 
+    // 0. Runtime Schema Validation of JobExecutionMode (Defense-in-depth)
+    const modeParse = JobExecutionModeSchema.safeParse(mode);
+    if (!modeParse.success) {
+      throw new Error(`INVALID_EXECUTION_MODE: Unknown or invalid execution mode "${mode}". Allowed modes: LOGICAL_DRY_RUN, CANARY_VALIDATION, FULL_PRODUCTION.`);
+    }
+    const validatedMode = modeParse.data;
+
     // 1. Policy Gate Check
-    const audit = PolicyEngine.verifyExecutionAllowed(job.policy, mode);
+    const audit = PolicyEngine.verifyExecutionAllowed(job.policy, validatedMode, {
+      planHash: job.policy.planHash || job.executionPlan?.planHash || (job.executionPlan ? PolicyEngine.computePlanHash(job.executionPlan) : undefined),
+      targetSetHash: job.policy.targetSetHash || (job.targetSet ? PolicyEngine.computeTargetSetHash(job.targetSet) : undefined),
+      evidences: job.evidences || []
+    });
     if (!audit.passed) {
       throw new Error(`Execution Blocked by Policy Engine: ${audit.violations.join('; ')}`);
     }
@@ -63,35 +97,72 @@ export class PlatformRunner {
       throw new Error('TargetSet or ExecutionPlan is missing.');
     }
 
+    // 1.2. Invariant: Execution Plan must be READY
+    if (job.executionPlan.status !== 'READY') {
+      throw new Error(`EXECUTION_BLOCKED: Execution plan is not in READY state (current status: "${job.executionPlan.status}"). Clarification or resolution required.`);
+    }
+
     // 1.5. Runtime Schema Validation of Execution Plan & Operations (Fail-Closed Invariant)
+    const registry = CapabilityRegistry.getInstance();
+    const capabilityVersions: Record<string, string> = {};
+
     for (const op of job.executionPlan.operations) {
       validateOperationIR(op);
       if (!op.capabilityId || typeof op.capabilityId !== 'string' || op.capabilityId.trim().length === 0) {
         throw new Error(`INVALID_PLAN: Operation "${op.operationId}" is missing required capabilityId.`);
       }
+      const cap = registry.get(op.capabilityId);
+      if (!cap) {
+        throw new Error(`UNREGISTERED_CAPABILITY: Operation "${op.operationId}" uses unregistered capability "${op.capabilityId}".`);
+      }
+      capabilityVersions[op.capabilityId] = cap.version;
     }
 
-    // 2. Filter target schools
+    // 2. Compute strict target scope
+    // Formula: (READY & enabled) ∩ targetFilter ∩ targetSchoolCodes - excludeSchoolCodes
     let targetSchools = job.targetSet.schools.filter(s => s.validationStatus === 'READY' && s.enabled);
-    
-    // Apply school type filter from plan
-    if (job.executionPlan.targetFilter?.schoolType === 'ELEMENTARY') {
-      targetSchools = targetSchools.filter(s => !s.schoolName.includes('中学校'));
+
+    // Apply explicit schoolCodes if defined in targetFilter
+    if (job.executionPlan.targetFilter?.schoolCodes && job.executionPlan.targetFilter.schoolCodes.length > 0) {
+      const allowedCodes = new Set(job.executionPlan.targetFilter.schoolCodes);
+      targetSchools = targetSchools.filter(s => allowedCodes.has(s.schoolCode));
     }
 
-    // Apply Canary restriction: Only 1-3 schools (or AI proposed count)
-    if (mode === 'CANARY_VALIDATION') {
-      const canaryCount = job.executionPlan.validationScopeProposal?.count || 1;
-      targetSchools = targetSchools.slice(0, Math.min(canaryCount, targetSchools.length));
+    // Apply explicit excludeSchoolCodes if defined in targetFilter
+    if (job.executionPlan.targetFilter?.excludeSchoolCodes && job.executionPlan.targetFilter.excludeSchoolCodes.length > 0) {
+      const excludedCodes = new Set(job.executionPlan.targetFilter.excludeSchoolCodes);
+      targetSchools = targetSchools.filter(s => !excludedCodes.has(s.schoolCode));
+    }
+
+    // Apply school type filter from plan
+    if (job.executionPlan.targetFilter?.schoolType) {
+      const type = job.executionPlan.targetFilter.schoolType;
+      if (type === 'ELEMENTARY') {
+        targetSchools = targetSchools.filter(s => !s.schoolName.includes('中学校') && !s.schoolName.includes('高校'));
+      } else if (type === 'JUNIOR_HIGH') {
+        targetSchools = targetSchools.filter(s => s.schoolName.includes('中学校') && !s.schoolName.includes('高校'));
+      } else if (type === 'HIGH') {
+        targetSchools = targetSchools.filter(s => s.schoolName.includes('高校'));
+      }
+    }
+
+    // Apply Canary restriction: Policy approved scope ONLY
+    if (validatedMode === 'CANARY_VALIDATION') {
+      const approvedScope = PolicyEngine.getApprovedCanaryScope(
+        job.policy,
+        targetSchools.length,
+        job.executionPlan.validationScopeProposal?.count
+      );
+      targetSchools = targetSchools.slice(0, Math.min(approvedScope, targetSchools.length));
     }
 
     const runId = `run_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
     const startTime = new Date().toISOString();
-    const isDryRun = mode === 'LOGICAL_DRY_RUN';
+    const isDryRun = validatedMode === 'LOGICAL_DRY_RUN';
 
     const summary: JobRunSummary = {
       runId,
-      mode,
+      mode: validatedMode,
       startTime,
       elapsedSeconds: 0,
       totalSchools: targetSchools.length,
@@ -110,7 +181,6 @@ export class PlatformRunner {
     const results: SchoolRunResult[] = [];
     let consecutiveErrors = 0;
     const startTs = Date.now();
-    const registry = CapabilityRegistry.getInstance();
 
     // Loop through target schools
     for (let i = 0; i < targetSchools.length; i++) {
@@ -147,21 +217,35 @@ export class PlatformRunner {
       let targetPage: Page | null = options?.page || null;
 
       try {
-        // A. Create Isolated BrowserContext per School
+        // A. Resolve password from LocalSecretVault
+        let password = LocalSecretVault.getSecret(school.credentialRef) || '';
+        if (!password) {
+          password = LocalSecretVault.getSecretForSchool(school.schoolCode) || '';
+        }
+
+        // Check credential existence: fail closed if missing
+        if (!password && options?.browser) {
+          throw new Error(`MISSING_CREDENTIAL: No password available for school ${school.schoolCode} (${school.schoolName}). Execution blocked.`);
+        }
+
+        // B. Create Isolated BrowserContext per School
         if (options?.browser) {
           schoolContext = await options.browser.newContext({ viewport: { width: 1280, height: 900 } });
+
+          // In Dry-Run mode, block all mutation network requests
+          if (isDryRun) {
+            await setupNetworkBlocker(schoolContext);
+          }
+
           targetPage = await schoolContext.newPage();
 
-          // Resolve password from Vault
-          let password = LocalSecretVault.getSecret(school.credentialRef) || '';
-          if (!password) {
-            password = LocalSecretVault.getSecret(`cred_ref_${school.schoolCode}`) || '';
-          }
-          if (!password && school.schoolCode === 'PRRHC') {
-            password = process.env.MANAPOKE_PASSWORD || '';
-          }
-
           if (password) {
+            // Check halt flag before login
+            if (this.isHalted) {
+              job.status = 'STOPPED';
+              break;
+            }
+
             // Emit progress event: LOGIN_START
             if (onProgress) {
               onProgress(summary, undefined, {
@@ -197,13 +281,18 @@ export class PlatformRunner {
           }
         }
 
-        const guardedPage = targetPage ? new GuardedPage(targetPage, false) : new GuardedPage(null, true);
+        // GuardedPage with physical write block in Dry-Run
+        const guardedPage = targetPage
+          ? new GuardedPage(targetPage, false, isDryRun)
+          : new GuardedPage(null, true, isDryRun);
+
         const context: CapabilityExecutionContext = {
           page: guardedPage,
           schoolCode: school.schoolCode,
           schoolName: school.schoolName,
           credentialRef: school.credentialRef,
           isDryRun,
+          jobId: job.jobId,
           logger: {
             info: (msg) => console.log(`[PlatformRunner][INFO] ${msg}`),
             warn: (msg) => console.warn(`[PlatformRunner][WARN] ${msg}`),
@@ -211,8 +300,14 @@ export class PlatformRunner {
           }
         };
 
-        // B. Execute operations in the plan
+        // C. Execute operations in the plan
         for (const op of job.executionPlan.operations) {
+          // Check emergency stop before operation
+          if (this.isHalted) {
+            job.status = 'STOPPED';
+            break;
+          }
+
           summary.currentOperation = op.capabilityId;
           const cap = registry.get(op.capabilityId);
 
@@ -240,6 +335,12 @@ export class PlatformRunner {
             continue;
           }
 
+          // Check emergency stop immediately before execution
+          if (this.isHalted) {
+            job.status = 'STOPPED';
+            break;
+          }
+
           // 2. Execute
           const execRes = await cap.execute(context, op.inputMapping);
           if (!execRes.success) {
@@ -262,7 +363,7 @@ export class PlatformRunner {
         schoolStatus = 'FAILED';
         schoolError = err.message || String(err);
       } finally {
-        // C. Dispose isolated BrowserContext cleanly
+        // D. Dispose isolated BrowserContext cleanly
         if (schoolContext) {
           try {
             await schoolContext.close();
@@ -270,6 +371,11 @@ export class PlatformRunner {
             // ignore context close error
           }
         }
+      }
+
+      if (this.isHalted) {
+        job.status = 'STOPPED';
+        break;
       }
 
       if (schoolStatus === 'SUCCESS') {
@@ -318,10 +424,42 @@ export class PlatformRunner {
     summary.currentOperation = undefined;
     summary.etaSeconds = 0;
 
+    // Generate strict RunEvidence
+    const allVerified = summary.failedCount === 0 && summary.blockedCount === 0 && results.every(r => r.verificationPassed);
+    const runEvidence: RunEvidence = {
+      evidenceId: `ev_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
+      runId,
+      mode: validatedMode,
+      fingerprint: {
+        planHash: job.policy.planHash || PolicyEngine.computePlanHash(job.executionPlan),
+        targetSetHash: job.policy.targetSetHash || PolicyEngine.computeTargetSetHash(job.targetSet),
+        mode: validatedMode,
+        actualSchoolCodes: results.map(r => r.schoolCode).sort(),
+        capabilityVersions
+      },
+      status: (summary.failedCount === 0 && summary.blockedCount === 0 && results.length > 0) ? 'SUCCESS' : 'FAILED',
+      totalSchools: summary.totalSchools,
+      successCount: summary.successCount,
+      failedCount: summary.failedCount,
+      blockedCount: summary.blockedCount,
+      allVerified,
+      completedAt: new Date().toISOString()
+    };
+
+    if (!job.evidences) {
+      job.evidences = [];
+    }
+    job.evidences.push(runEvidence);
+
+    // Update job status
     if (job.status !== 'HALTED_BY_CIRCUIT_BREAKER' && job.status !== 'STOPPED') {
-      if (mode === 'LOGICAL_DRY_RUN') job.status = 'DRY_RUN_COMPLETED';
-      else if (mode === 'CANARY_VALIDATION') job.status = 'CANARY_COMPLETED';
-      else job.status = 'COMPLETED';
+      if (validatedMode === 'LOGICAL_DRY_RUN') {
+        job.status = runEvidence.status === 'SUCCESS' ? 'DRY_RUN_COMPLETED' : 'FAILED';
+      } else if (validatedMode === 'CANARY_VALIDATION') {
+        job.status = runEvidence.status === 'SUCCESS' ? 'CANARY_COMPLETED' : 'CANARY_FAILED';
+      } else {
+        job.status = runEvidence.status === 'SUCCESS' ? 'COMPLETED' : 'FAILED';
+      }
     }
 
     job.runs[runId] = { summary, results };

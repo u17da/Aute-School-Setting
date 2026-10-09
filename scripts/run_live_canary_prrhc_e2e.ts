@@ -12,11 +12,11 @@ import { PolicyEngine } from '../src/platform/policy/policyEngine';
 import { PlatformRunner } from '../src/platform/runtime/platformRunner';
 import { JobStore } from '../src/platform/runtime/jobStore';
 import { PlatformJob } from '../src/platform/types/job';
+import { ExecutionPlan } from '../src/platform/types/plan';
 import { LocalSecretVault } from '../src/platform/ingestion/documentIngestion';
 import { LoginPage } from '../src/pages/LoginPage';
 import { HomePage } from '../src/pages/HomePage';
 import { calculateOrderHash } from '../src/platform/capabilities/reorderContents';
-import { appendLedgerEntry } from '../src/console/ledger';
 
 dotenv.config();
 
@@ -82,11 +82,20 @@ async function runLiveCanaryE2E() {
   const targetUserId = 'schooladmin';
   const rawPassword = process.env.MANAPOKE_PASSWORD || '';
 
+  // Fail-safe: Require explicit --allow-live-canary flag
+  const hasLiveFlag = process.argv.includes('--allow-live-canary');
+  if (!hasLiveFlag) {
+    console.warn('\n[SAFETY GUARD] --allow-live-canary flag is not set.');
+    console.warn('[SAFETY GUARD] Live write execution is strictly blocked. Exiting safely without touching school.');
+    process.exit(0);
+  }
+
   // -------------------------------------------------------------
   // Credential Boundary: Store password immediately in Vault
   // -------------------------------------------------------------
   assert.ok(rawPassword, 'Password must be provided via environment/vault');
   const secretHandle = LocalSecretVault.storeSecret(rawPassword);
+  LocalSecretVault.storeSecretWithRef(`cred_ref_${targetSchoolCode}`, rawPassword);
   console.log(`[CredentialBoundary] Plaintext password converted to Vault Handle: ${secretHandle}`);
 
   const reportData: CanaryE2EResult = {
@@ -197,13 +206,14 @@ async function runLiveCanaryE2E() {
     console.log('\n--- [Step 2: AI Plan & Logical Dry-run] ---');
     const userInstruction = 'MEXCBTデモ学校のコンテンツ表示順について、AARポータルをMEXCBTより前に配置し、eboardをその後の優先コンテンツとして配置してください。それ以外のコンテンツは現在の相対順序を維持してください。存在しないコンテンツはスキップしてください。';
 
-    const plan = TaskPlanner.generatePlan({
+    const planResult = await TaskPlanner.generatePlanAsync({
       targetSet,
       userInstruction,
       sourceFiles: ['canary_target.csv']
     });
+    const plan = planResult.plan;
 
-    console.log(`  [TaskPlanner] Plan generated. Operations: ${plan.operations.map(o => o.operationType).join(', ')}`);
+    console.log(`  [TaskPlanner] Plan generated. Operations: ${plan.operations.map((o: any) => o.operationType).join(', ')}`);
     assert.strictEqual(plan.operations[0].operationType, 'REORDER_CONTENTS');
     assert.strictEqual(plan.riskLevel, 'REVERSIBLE_WRITE');
     reportData.integrity.aiPlan = true;
@@ -240,7 +250,7 @@ async function runLiveCanaryE2E() {
     const dryRunSchoolResult = dryRunResult.results[0];
 
     assert.ok(dryRunSchoolResult.status === 'SUCCESS' || dryRunSchoolResult.status === 'ALREADY_CONFIGURED', 'Dry run must succeed or detect already configured');
-    const dryRunDiff = dryRunSchoolResult.after['REORDER_CONTENTS'] || {};
+    const dryRunDiff = dryRunSchoolResult.after?.['REORDER_CONTENTS'] || {};
     assert.strictEqual(dryRunDiff.saveAttempts ?? 0, 0, 'Dry-run must execute 0 saves');
     const originalBaselineIds = [616, 621, 622, 800, 573, 727, 728, 835, 368, 570, 1055, 1056, 1057, 1058, 1059, 1060, 1143];
     const originalBaselineHash = calculateOrderHash(originalBaselineIds);
@@ -312,7 +322,7 @@ async function runLiveCanaryE2E() {
       }
 
       canaryExecutionId = canarySchoolRes.executionId;
-      const canaryApplied = canarySchoolRes.after['REORDER_CONTENTS'];
+      const canaryApplied = canarySchoolRes.after?.['REORDER_CONTENTS'] || {};
       canaryAppliedHash = canaryApplied.persistedHash;
       reportData.canary.saveAttempts = canaryApplied.saveAttempts;
       reportData.canary.persistedOrderIds = canaryApplied.persistedOrderIds;
@@ -360,12 +370,13 @@ async function runLiveCanaryE2E() {
     console.log(`  [Restore Setup] Generated new restoreExecutionId: ${restoreExecutionId}`);
 
     // Create distinct Restore Job
-    const restorePlan = {
+    const restorePlan: ExecutionPlan = {
       ...plan,
       operations: [{
+        ...plan.operations[0],
+        operationId: `op_restore_${Date.now()}`,
+        capabilityId: 'REORDER_CONTENTS',
         operationType: 'REORDER_CONTENTS',
-        targetPages: ['https://ed-cl.com/dashboard'],
-        riskClass: 'REVERSIBLE_WRITE' as const,
         inputMapping: { targetOrderIds: originalOrderIds }
       }]
     };
@@ -401,7 +412,7 @@ async function runLiveCanaryE2E() {
       throw new Error(`Restore Apply failed: ${restoreSchoolRes.error}`);
     }
 
-    const restoreApplied = restoreSchoolRes.after['REORDER_CONTENTS'];
+    const restoreApplied = restoreSchoolRes.after?.['REORDER_CONTENTS'] || {};
     reportData.restore.restoreSaveAttempts = restoreApplied.saveAttempts;
     reportData.restore.finalOrderIds = restoreApplied.persistedOrderIds;
     reportData.restore.finalOrderNames = restoreApplied.persistedOrderIds.map((id: number) => idToName.get(id) || String(id));

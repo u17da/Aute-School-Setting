@@ -5,6 +5,7 @@ import { Estimator } from '../../src/platform/ai/estimator';
 import { PolicyEngine } from '../../src/platform/policy/policyEngine';
 import { LocalSecretVault, DocumentIngestion } from '../../src/platform/ingestion/documentIngestion';
 import { LlmClient } from '../../src/platform/ai/llmClient';
+import { CapabilityRegistry } from '../../src/platform/capabilities/registry';
 
 function createDummyTargetSet(count = 5): TargetSet {
   return {
@@ -27,6 +28,12 @@ function createDummyTargetSet(count = 5): TargetSet {
 
 async function runTests() {
   console.log('=== [INTERACTIVE PLANNER & RUNTIME INTEGRITY TESTS START] ===');
+
+  const registry = CapabilityRegistry.getInstance();
+  const origCaps = registry.list().map(c => ({ ...c }));
+  for (const c of registry.list()) {
+    registry.register({ ...c, productionValidated: true, testStatus: 'PRODUCTION_VALIDATED' });
+  }
 
   // Test 1: Estimator 自然な日本語時間表示 (0m～0m バグ防止)
   console.log('--- Test 1: Estimator Natural Japanese Duration Display ---');
@@ -206,6 +213,10 @@ async function runTests() {
   const eval2 = PolicyEngine.evaluateValidationScopeProposal(proposalExceeded, 'REVERSIBLE_WRITE', 5);
   assert(!eval2.approved, 'Proposal of 10 schools out of 5 must be rejected');
   console.log('  [PASS] Test 4: Dynamic Validation Scope Policy evaluates bounds strictly.');
+
+  for (const c of origCaps) {
+    registry.register(c);
+  }
 
   console.log('=== [ALL INTERACTIVE PLANNER & RUNTIME INTEGRITY TESTS PASSED] ===');
 }

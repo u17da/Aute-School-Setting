@@ -78,12 +78,17 @@ export class TargetInterpreter {
 
     const targetSetId = `ts_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
 
+    const rawTextStr = input.rawText?.trim();
     return {
       targetSetId,
       name: `TargetSet_${new Date().toISOString().slice(0, 10)}`,
       createdAt: new Date().toISOString(),
       sourceFiles,
-      rawTextProvided: input.rawText,
+      rawTextProvided: rawTextStr ? true : false,
+      sanitizedRawTextMeta: rawTextStr ? {
+        charCount: rawTextStr.length,
+        lineCount: rawTextStr.split(/\r?\n/).length
+      } : undefined,
       schools,
       summary: {
         total: schools.length,

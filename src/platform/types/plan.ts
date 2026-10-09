@@ -62,6 +62,16 @@ export interface OperationIR {
   estimatedDurationMs?: number;
 }
 
+export const SupportedSchoolTypeSchema = z.enum([
+  'ELEMENTARY',
+  'JUNIOR_HIGH',
+  'HIGH',
+  'COMBINED',
+  'ALL'
+]);
+
+export type SupportedSchoolType = z.infer<typeof SupportedSchoolTypeSchema>;
+
 export const OperationIRSchema = z.object({
   operationId: z.string().min(1, 'operationId is required'),
   operationType: z.string().min(1, 'operationType is required'),
@@ -95,6 +105,9 @@ export function validateOperationIR(op: any): OperationIR {
   if (!result.success) {
     const issues = result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', ');
     throw new Error(`INVALID_OPERATION_IR: Operation fails domain schema validation: ${issues}`);
+  }
+  if (op.targetSelector && typeof op.targetSelector === 'object' && Object.keys(op.targetSelector).length > 0) {
+    throw new Error(`UNSUPPORTED_TARGET_SELECTOR: Operation "${op.operationId}" specified targetSelector which is unsupported in V1.`);
   }
   return result.data as OperationIR;
 }
@@ -149,7 +162,7 @@ export interface ExecutionPlan {
   refinementInstruction?: string;
   sourceFiles: string[];
   targetFilter?: {
-    schoolType?: 'ELEMENTARY' | 'JUNIOR_HIGH' | 'HIGH' | 'ALL';
+    schoolType?: SupportedSchoolType;
     schoolCodes?: string[];
     excludeSchoolCodes?: string[];
   };

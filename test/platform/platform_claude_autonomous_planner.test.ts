@@ -61,19 +61,28 @@ async function runTests() {
   // Test 3: Dynamic Capability Catalog & JSON Schema generation
   console.log('--- Test 3: Dynamic Capability Catalog & JSON Schema ---');
   const registry = CapabilityRegistry.getInstance();
-  const catalog = registry.getCatalogForAi();
-  assert(catalog.length >= 4, 'Catalog contains production validated capabilities');
-  const settingsCap = catalog.find(c => c.capabilityId === 'CHANGE_SCHOOL_SETTINGS');
-  assert(settingsCap, 'CHANGE_SCHOOL_SETTINGS is in catalog');
+  const fullList = registry.list();
+  const settingsCap = fullList.find(c => c.capabilityId === 'CHANGE_SCHOOL_SETTINGS');
+  assert(settingsCap, 'CHANGE_SCHOOL_SETTINGS is in full registry');
   const pwSemantic = settingsCap?.parameterSemantics?.find(p => p.name === 'settings.studentPasswordChange');
   assert(pwSemantic, 'studentPasswordChange semantic definition exists');
   assert(pwSemantic.allowedValues?.some((v: any) => v.value === 'SHOW'), 'SHOW value explained');
   assert(pwSemantic.allowedValues?.some((v: any) => v.value === 'HIDE'), 'HIDE value explained');
 
+  const catalog = registry.getCatalogForAi();
+  assert(catalog.length >= 1, 'Catalog contains production validated capabilities');
+  assert(catalog.every(c => c.capabilityId === 'LOGIN_AND_VERIFY' || c.capabilityId === 'REORDER_CONTENTS'), 'Only production-validated capabilities are exposed to AI');
+
   const jsonSchema = registry.getPlanJsonSchema();
   assert.strictEqual(jsonSchema.type, 'object');
-  assert(jsonSchema.properties.operations.items.anyOf.length >= 4, 'Schema operations anyOf populated');
+  assert(jsonSchema.properties.operations.items.anyOf.length >= 1, 'Schema operations anyOf populated');
   console.log('  [PASS] Test 3: Dynamic Catalog and JSON Schema accurately generated from SSOT.');
+
+  // Temporarily register capabilities as production validated for mock scenario testing
+  const origCaps = registry.list().map(c => ({ ...c }));
+  for (const c of registry.list()) {
+    registry.register({ ...c, productionValidated: true, testStatus: 'PRODUCTION_VALIDATED' });
+  }
 
   // Test 4: Scenario A (Password Change SHOW + Skip if Configured)
   console.log('--- Test 4: Scenario A (Password Change SHOW + Skip) ---');
@@ -393,6 +402,9 @@ async function runTests() {
   LlmClient.callClaudeStructured = originalCall;
   if (originalKey) process.env.ANTHROPIC_API_KEY = originalKey;
   else delete process.env.ANTHROPIC_API_KEY;
+  for (const c of origCaps) {
+    registry.register(c);
+  }
 
   console.log('\n=== [ALL CLAUDE AUTONOMOUS PLANNER TESTS PASSED] ===\n');
 }

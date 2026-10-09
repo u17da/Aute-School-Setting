@@ -44,7 +44,7 @@ export class LlmClient {
 
     // Anthropic Structured Outputs via Tool Use (Guaranteed schema enforcement)
     const toolName = 'submit_plan';
-    const response = await client.messages.create({
+    const requestPayload: any = {
       model,
       max_tokens: 4096,
       system: params.systemPrompt,
@@ -64,8 +64,11 @@ export class LlmClient {
       tool_choice: {
         type: 'tool',
         name: toolName
-      }
-    });
+      },
+      effort
+    };
+
+    const response = await client.messages.create(requestPayload);
 
     const latencyMs = Date.now() - startTime;
 

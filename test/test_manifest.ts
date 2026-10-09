@@ -113,6 +113,13 @@ export const TEST_MANIFEST: Record<string, TestManifestEntry> = {
     description: 'PlanDiff算出、対話的再計画、動的検証スコープ評価の単体テスト',
     runCondition: '毎回実行可能 (モックLLM使用・高速)'
   },
+  'test/platform/platform_safety_invariants.test.ts': {
+    filePath: 'test/platform/platform_safety_invariants.test.ts',
+    category: 'A_DEFAULT_REGRESSION',
+    title: 'Platform 安全性不変条件 & アーキテクチャ検証テスト (19件)',
+    description: 'JobExecutionMode厳密検証、TargetScope、物理遮断、RunEvidence、SecretVault、Capability監査、緊急停止等の不変条件テスト',
+    runCondition: '毎回実行可能 (副作用なし・高速)'
+  },
   'test/platform/platform_e2e_acceptance.test.ts': {
     filePath: 'test/platform/platform_e2e_acceptance.test.ts',
     category: 'A_DEFAULT_REGRESSION',

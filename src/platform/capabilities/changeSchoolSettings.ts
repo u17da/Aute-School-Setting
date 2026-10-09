@@ -61,8 +61,8 @@ export const ChangeSchoolSettingsCapability: CapabilityDefinition = {
     '保存後にページをリロードして変更値が永続化されたことを検証すること'
   ],
   riskClass: 'REVERSIBLE_WRITE',
-  testStatus: 'PRODUCTION_VALIDATED',
-  productionValidated: true,
+  testStatus: 'MOCK_TESTED',
+  productionValidated: false,
   createdBy: 'SYSTEM',
   updatedAt: new Date().toISOString(),
 

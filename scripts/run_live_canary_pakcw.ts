@@ -18,6 +18,14 @@ async function main() {
     fs.mkdirSync(screenshotsDir, { recursive: true });
   }
 
+  // Fail-safe: Require explicit --allow-live-canary flag
+  const hasLiveFlag = process.argv.includes('--allow-live-canary');
+  if (!hasLiveFlag) {
+    console.warn('\n[SAFETY GUARD] --allow-live-canary flag is not set.');
+    console.warn('[SAFETY GUARD] Live write execution is strictly blocked. Exiting safely without touching school.');
+    process.exit(0);
+  }
+
   // 1. Operator Console サーバー起動 (実環境設定)
   const consoleServer = new ConsoleServer({ port: 0 });
   await consoleServer.start();
@@ -26,7 +34,7 @@ async function main() {
   console.log(`[ConsoleServer] Operator Console listening on ${consoleBaseUrl}`);
 
   // 子プロセスの stdout/stderr を中継
-  consoleServer.adapter.on('log', (line) => {
+  (consoleServer as any).adapter?.on('log', (line: string) => {
     console.log(`  [Subprocess] ${line}`);
   });
 

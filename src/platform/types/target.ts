@@ -22,7 +22,8 @@ export interface TargetSet {
   name: string;
   createdAt: string;
   sourceFiles: string[];
-  rawTextProvided?: string;
+  rawTextProvided?: boolean;
+  sanitizedRawTextMeta?: { charCount: number; lineCount: number };
   schools: TargetSchool[];
   summary: {
     total: number;

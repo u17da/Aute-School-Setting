@@ -9,9 +9,11 @@ export const CreateSchoolAdminCapability: CapabilityDefinition = {
     type: 'object',
     properties: {
       userId: { type: 'string', description: '追加する学校管理者ユーザーID' },
+      displayName: { type: 'string', description: '追加する学校管理者表示名' },
       role: { type: 'string', enum: ['school_admin'], description: '割り当てロール' },
       skipIfExists: { type: 'boolean', description: '既存アカウントと重複する場合にスキップするかどうか' }
-    }
+    },
+    required: ['userId']
   },
   parameterSemantics: [
     {
@@ -28,13 +30,16 @@ export const CreateSchoolAdminCapability: CapabilityDefinition = {
   preconditions: ['学校管理画面のアカウント管理に到達可能であること'],
   constraints: ['パスワードは安全な暗号化ストレージからのみ参照し、平文ログ出力禁止'],
   riskClass: 'SENSITIVE_WRITE',
-  testStatus: 'PRODUCTION_VALIDATED',
-  productionValidated: true,
+  testStatus: 'MOCK_TESTED',
+  productionValidated: false,
   createdBy: 'SYSTEM',
   updatedAt: new Date().toISOString(),
 
   async observe(context: CapabilityExecutionContext, input?: any): Promise<CapabilityObservationResult> {
-    const targetUserId = input?.userId || 'admin_user';
+    const targetUserId = input?.userId;
+    if (!targetUserId) {
+      throw new Error('userId is required for CREATE_SCHOOL_ADMIN');
+    }
     context.logger.info(`[CREATE_SCHOOL_ADMIN] Checking if user ${targetUserId} already exists for ${context.schoolCode}`);
     
     // Simulate checking if already exists
@@ -57,7 +62,10 @@ export const CreateSchoolAdminCapability: CapabilityDefinition = {
   },
 
   async execute(context: CapabilityExecutionContext, input?: any): Promise<CapabilityExecutionResult> {
-    const userId = input?.userId || 'admin_user';
+    const userId = input?.userId;
+    if (!userId) {
+      throw new Error('userId is required for CREATE_SCHOOL_ADMIN');
+    }
     const displayName = input?.displayName || '管理者';
 
     // 実ブラウザ操作へのデリゲーション (GuardedPage 経由)

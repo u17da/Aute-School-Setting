@@ -10,7 +10,7 @@ import { CapabilityRegistry } from '../capabilities/registry';
 import { PolicyEngine } from '../policy/policyEngine';
 import { JobStore } from '../runtime/jobStore';
 import { PlatformRunner } from '../runtime/platformRunner';
-import { PlatformJob, JobExecutionMode } from '../types/job';
+import { PlatformJob, JobExecutionMode, JobExecutionModeSchema } from '../types/job';
 import { GateId } from '../types/policy';
 import { LocalSecretVault } from '../ingestion/documentIngestion';
 import { LoginPage } from '../../pages/LoginPage';
@@ -192,16 +192,25 @@ export class PlatformRouter {
         if (s.credentialRef) {
           password = LocalSecretVault.getSecret(s.credentialRef) || '';
         }
-        if (!password && s.schoolCode === 'PRRHC') {
-          password = process.env.MANAPOKE_PASSWORD || '';
+        if (!password) {
+          password = LocalSecretVault.getSecretForSchool(s.schoolCode) || '';
         }
 
         if (!password) {
           results.push({
             schoolCode: s.schoolCode,
             schoolName: s.schoolName,
-            status: 'VALID',
-            message: '認証情報ハンドルを登録しました (パスワード未入力のためスキップ)'
+            status: 'MISSING_CREDENTIAL',
+            message: 'パスワードが設定されていません。認証情報を登録してください。'
+          });
+          broadcastSse?.('platformEvent', {
+            stage: 'LOGIN_FAILED',
+            schoolCode: s.schoolCode,
+            schoolName: s.schoolName,
+            index: currentIndex,
+            total: totalSchools,
+            percent,
+            message: `[${currentIndex}/${totalSchools}校] ${s.schoolName} (${s.schoolCode}): パスワード未設定のためスキップ`
           });
           continue;
         }
@@ -381,7 +390,17 @@ export class PlatformRouter {
 
     // 7. POST /api/platform/policy/approve
     if (method === 'POST' && pathname === '/api/platform/policy/approve') {
-      const { jobId, gateId, approvedBy, notes, autoProceedToFull } = body;
+      const validation = PolicyEngine.validateApproveRequest(body);
+      if (!validation.success) {
+        sendJson(400, {
+          error: 'INVALID_APPROVE_REQUEST',
+          message: 'ポリシー承認リクエストが不正です。schema検証に失敗しました。',
+          details: validation.error.errors
+        });
+        return true;
+      }
+
+      const { jobId, gateId, approvedBy, notes, autoProceedToFull } = validation.data;
       const job = jobStore.getJob(jobId);
       if (!job) {
         sendJson(404, { error: 'JOB_NOT_FOUND' });
@@ -390,7 +409,7 @@ export class PlatformRouter {
 
       PolicyEngine.approveGate(job.policy, gateId as GateId, approvedBy, notes);
       if (autoProceedToFull !== undefined) {
-        job.policy.autoProceedToFullOnCanarySuccess = Boolean(autoProceedToFull);
+        job.policy.autoProceedToFullOnCanarySuccess = autoProceedToFull;
       }
       jobStore.saveJob(job);
 
@@ -400,7 +419,20 @@ export class PlatformRouter {
 
     // 8. POST /api/platform/jobs/run
     if (method === 'POST' && pathname === '/api/platform/jobs/run') {
-      const { jobId, mode } = body;
+      const { jobId, mode } = body || {};
+
+      // Runtime schema validation of JobExecutionMode before launching browser
+      const modeResult = JobExecutionModeSchema.safeParse(mode);
+      if (!modeResult.success) {
+        sendJson(400, {
+          error: 'INVALID_EXECUTION_MODE',
+          message: `無効な実行モード "${mode}" が指定されました。LOGICAL_DRY_RUN, CANARY_VALIDATION, FULL_PRODUCTION のいずれかを指定してください。`,
+          details: modeResult.error.errors
+        });
+        return true;
+      }
+      const validatedMode = modeResult.data;
+
       const job = jobStore.getJob(jobId);
       if (!job) {
         sendJson(404, { error: 'JOB_NOT_FOUND' });
@@ -412,7 +444,7 @@ export class PlatformRouter {
         browser = await chromium.launch({ headless: true });
         const result = await this.runner.runJob(
           job,
-          mode as JobExecutionMode,
+          validatedMode,
           (summary, curRes, event) => {
             if (event) {
               console.log(`[PlatformRunner][EVENT] ${event.stage}: ${event.message}`);
@@ -437,7 +469,6 @@ export class PlatformRouter {
         }
         sendJson(400, { error: 'EXECUTION_REJECTED', message: userMessage, rawError: err.message });
       } finally {
-
         if (browser) await browser.close();
       }
       return true;
