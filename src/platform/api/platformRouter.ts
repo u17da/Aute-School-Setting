@@ -160,27 +160,25 @@ export class PlatformRouter {
         return true;
       }
       jobStore.deleteJob(jobId);
-      LocalSecretVault.cleanupJob(jobId);
       sendJson(200, { success: true, message: `Job ${jobId} and its associated secrets have been deleted.` });
       return true;
     }
 
     // 4. POST /api/platform/targets/parse
     if (method === 'POST' && pathname === '/api/platform/targets/parse') {
-      const { rawText, files, jobId: inputJobId } = body || {};
-      const provisionalJobId = (typeof inputJobId === 'string' && inputJobId.trim().length > 0)
-        ? inputJobId.trim()
-        : `job_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+      const { rawText, files } = body || {};
+      // Server-authoritative jobId generation for new parses
+      const serverJobId = `job_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
 
       broadcastSse?.('platformEvent', {
         stage: 'TARGET_PARSING',
         message: '対象リストの読み取り・整理を開始しました...'
       });
-      const targetSet = TargetInterpreter.parseTargets({ rawText, files, jobId: provisionalJobId });
+      const targetSet = TargetInterpreter.parseTargets({ rawText, files, jobId: serverJobId });
 
-      // Save initial DRAFT / TARGETS_CONFIGURED Job in JobStore so provisional jobId is registered
+      // Save initial DRAFT / TARGETS_CONFIGURED Job in JobStore so serverJobId is registered
       const draftJob: PlatformJob = {
-        jobId: provisionalJobId,
+        jobId: serverJobId,
         title: targetSet.name,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -196,7 +194,7 @@ export class PlatformRouter {
         stage: 'TARGET_PARSED',
         message: `対象リストの読み取り完了: 計 ${targetSet.summary.total} 校（正常: ${targetSet.summary.ready} 校）`
       });
-      sendJson(200, { jobId: provisionalJobId, targetSet });
+      sendJson(200, { jobId: serverJobId, targetSet });
       return true;
     }
 
@@ -327,9 +325,43 @@ export class PlatformRouter {
 
     // 6. POST /api/platform/plan/generate (対話型再計画・無効化対応)
     if (method === 'POST' && pathname === '/api/platform/plan/generate') {
-      const { targetSet, userInstruction, sourceFiles, previousJobId, refinementInstruction } = body;
-      if (!targetSet || (!userInstruction && !refinementInstruction)) {
-        sendJson(400, { error: 'INVALID_INPUT', message: '対象学校一覧および作業指示を入力してください。' });
+      const { jobId: inputJobId, targetSet: inputTargetSet, userInstruction, sourceFiles, previousJobId, refinementInstruction } = body || {};
+
+      // Server-authoritative validation: jobId is mandatory and must refer to an existing valid job
+      const targetJobId = inputJobId || inputTargetSet?.jobId;
+      if (!targetJobId || typeof targetJobId !== 'string' || targetJobId.trim().length === 0) {
+        sendJson(400, { error: 'INVALID_JOB_ID', message: '有効な jobId を指定してください。' });
+        return true;
+      }
+
+      const existingJob = jobStore.getJob(targetJobId.trim());
+      if (!existingJob) {
+        sendJson(404, { error: 'JOB_NOT_FOUND', message: `指定された Job (${targetJobId}) が存在しません。` });
+        return true;
+      }
+
+      // Check job status is eligible for plan generation
+      const allowedStatuses = ['TARGETS_CONFIGURED', 'PLAN_GENERATED', 'DRAFT', 'CREDENTIAL_REQUIRED'];
+      if (!allowedStatuses.includes(existingJob.status)) {
+        sendJson(400, { error: 'INVALID_JOB_STATE', message: `Job状態 "${existingJob.status}" からは計画作成できません。` });
+        return true;
+      }
+
+      // TargetSet SSOT: Use stored targetSet from JobStore as SSOT
+      const authoritativeTargetSet = existingJob.targetSet;
+      if (!authoritativeTargetSet) {
+        sendJson(400, { error: 'TARGET_SET_NOT_FOUND', message: 'Job に対象学校リストが登録されていません。' });
+        return true;
+      }
+
+      // If client supplied inputTargetSet, verify binding
+      if (inputTargetSet && inputTargetSet.jobId && inputTargetSet.jobId !== existingJob.jobId) {
+        sendJson(400, { error: 'TARGET_SET_JOB_MISMATCH', message: '送信された targetSet の jobId が Job と一致しません。' });
+        return true;
+      }
+
+      if (!userInstruction && !refinementInstruction) {
+        sendJson(400, { error: 'INVALID_INPUT', message: '作業指示を入力してください。' });
         return true;
       }
 
@@ -349,7 +381,7 @@ export class PlatformRouter {
       });
 
       const planResult = await TaskPlanner.generatePlanAsync({
-        targetSet,
+        targetSet: authoritativeTargetSet,
         userInstruction: userInstruction || previousPlan?.userInstruction || '',
         sourceFiles,
         previousPlan,
@@ -375,8 +407,8 @@ export class PlatformRouter {
         message: `作業計画の立案完了 (Plan ID: ${executionPlan.planId})`
       });
 
-      const timeEstimate = Estimator.estimateTime(executionPlan, targetSet);
-      const costEstimate = Estimator.estimateCost(executionPlan, targetSet);
+      const timeEstimate = Estimator.estimateTime(executionPlan, authoritativeTargetSet);
+      const costEstimate = Estimator.estimateCost(executionPlan, authoritativeTargetSet);
       costEstimate.estimatedInputTokens = planResult.tokenUsage.inputTokens;
       costEstimate.estimatedOutputTokens = planResult.tokenUsage.outputTokens;
       costEstimate.model = `${planResult.aiProvider} (${planResult.aiModel})`;
@@ -387,33 +419,27 @@ export class PlatformRouter {
         : undefined;
       const policy = PolicyEngine.createDefaultPolicy(executionPlan.riskLevel, initialCanaryScope);
       policy.planHash = PolicyEngine.computePlanHash(executionPlan);
-      policy.targetSetHash = PolicyEngine.computeTargetSetHash(targetSet);
+      policy.targetSetHash = PolicyEngine.computeTargetSetHash(authoritativeTargetSet);
 
-      // Credential Owner 一貫性: Target Parse 時に採番された jobId を最優先で引き継ぐ
-      const jobId = (typeof body.jobId === 'string' && body.jobId.trim().length > 0)
-        ? body.jobId.trim()
-        : (targetSet.jobId || `job_${Date.now()}`);
-
-      const existingJob = jobStore.getJob(jobId);
       const job: PlatformJob = {
-        jobId,
+        jobId: existingJob.jobId,
         title: (executionPlan.userInstruction || '無題の計画').slice(0, 30) + '...',
-        createdAt: existingJob?.createdAt || new Date().toISOString(),
+        createdAt: existingJob.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         status: 'PLAN_GENERATED',
-        targetSet,
+        targetSet: authoritativeTargetSet,
         userInstruction: executionPlan.userInstruction,
-        sourceFiles: sourceFiles || existingJob?.sourceFiles || targetSet.sourceFiles || [],
+        sourceFiles: sourceFiles || existingJob.sourceFiles || authoritativeTargetSet.sourceFiles || [],
         executionPlan,
         policy,
         timeEstimate,
         costEstimate,
-        runs: existingJob?.runs || {}
+        runs: existingJob.runs || {}
       };
       jobStore.saveJob(job);
 
       sendJson(200, {
-        jobId,
+        jobId: job.jobId,
         executionPlan,
         timeEstimate,
         costEstimate,

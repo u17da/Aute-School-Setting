@@ -96,7 +96,7 @@ function createMockJob(overrides: Partial<PlatformJob> = {}): PlatformJob {
 
 async function runTests() {
   console.log('================================================================');
-  console.log('   Platform Safety Invariants & Architecture Tests (43 Cases)   ');
+  console.log('   Platform Safety Invariants & Architecture Tests (44 Cases)   ');
   console.log('================================================================');
 
   let passed = 0;
@@ -1116,13 +1116,28 @@ async function runTests() {
       latencyMs: 10
     });
 
+    // Register job in JobStore before calling plan/generate (server-authoritative model)
+    const testJobId = 'job_case_33_test';
+    const draftJob: PlatformJob = {
+      jobId: testJobId,
+      title: targetSet.name,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      status: 'TARGETS_CONFIGURED',
+      targetSet,
+      policy: PolicyEngine.createDefaultPolicy('READ_ONLY'),
+      sourceFiles: [],
+      runs: {}
+    };
+    JobStore.getInstance().saveJob(draftJob);
+
     try {
       const handled = await router.handle(
         '/api/platform/plan/generate',
         'POST',
         {} as any,
         {
-          targetSet,
+          jobId: testJobId,
           userInstruction: 'コンテンツ順序変更'
         },
         sendJson
@@ -1389,7 +1404,7 @@ async function runTests() {
     assert.strictEqual(auditExact.passed, true, 'Must pass on exact capability match');
   });
 
-  // Case 40: Target parse -> validate-login -> plan/generate retains credential ownership across routes
+  // Case 40: Target parse -> validate-login -> plan/generate -> runtime retains credential ownership across routes
   await test('Case 40: Full lifecycle retains credential ownership from parse to runtime', async () => {
     const router = new PlatformRouter();
     LocalSecretVault.clear();
@@ -1414,12 +1429,16 @@ async function runTests() {
     const credRef = parseBody.targetSet.schools[0].credentialRef;
     assert.ok(credRef.startsWith('cred_ref_'));
 
-    // Verify secret is registered under assignedJobId in LocalSecretVault
+    // 1. Verify secret is registered under assignedJobId in LocalSecretVault
     assert.strictEqual(LocalSecretVault.hasSecret(credRef, assignedJobId), true);
     assert.strictEqual(LocalSecretVault.getSecret(credRef, assignedJobId), 'super_secret_test_pw');
     assert.strictEqual(LocalSecretVault.getSecret(credRef, 'another_job_id'), undefined, 'Isolation between jobs');
 
-    // Simulate /api/platform/plan/generate inheriting the same jobId
+    // 2. Test validate-login resolution with this jobId
+    const resolvedSecretInValidation = LocalSecretVault.getSecret(credRef, assignedJobId);
+    assert.strictEqual(resolvedSecretInValidation, 'super_secret_test_pw', 'validate-login resolves credential correctly');
+
+    // 3. /api/platform/plan/generate using the server-authoritative jobId
     let planStatus = 0;
     let planBody: any = null;
     const originalGeneratePlanAsync = TaskPlanner.generatePlanAsync;
@@ -1439,7 +1458,6 @@ async function runTests() {
         {} as any,
         {
           jobId: assignedJobId,
-          targetSet: parseBody.targetSet,
           userInstruction: '順序変更'
         },
         (st, data) => { planStatus = st; planBody = data; }
@@ -1453,9 +1471,74 @@ async function runTests() {
       assert.ok(storedJob);
       assert.strictEqual(storedJob?.jobId, assignedJobId);
       assert.strictEqual(LocalSecretVault.getSecret(credRef, storedJob!.jobId), 'super_secret_test_pw');
+
+      // 4. Runtime resolution check
+      const runtimeResolvedPw = LocalSecretVault.getSecret(credRef, storedJob!.jobId);
+      assert.strictEqual(runtimeResolvedPw, 'super_secret_test_pw', 'Runtime resolves credential successfully');
     } finally {
       TaskPlanner.generatePlanAsync = originalGeneratePlanAsync;
     }
+  });
+
+  // Case 44: Multi-job credential isolation on identical schoolCode with sequential cleanups
+  await test('Case 44: LocalSecretVault multi-job credential isolation on same schoolCode and independent cleanup', async () => {
+    LocalSecretVault.clear();
+    const router = new PlatformRouter();
+
+    // 1. Parse Job A for SCH_001 with passwordA
+    let parseA: any = null;
+    await router.handle(
+      '/api/platform/targets/parse',
+      'POST',
+      {} as any,
+      { rawText: 'SCH_001,同一学校,admin,passwordA' },
+      (st, data) => { parseA = data; }
+    );
+    const jobA = parseA.jobId;
+    const refA = parseA.targetSet.schools[0].credentialRef;
+
+    // 2. Parse Job B for same SCH_001 with passwordB
+    let parseB: any = null;
+    await router.handle(
+      '/api/platform/targets/parse',
+      'POST',
+      {} as any,
+      { rawText: 'SCH_001,同一学校,admin,passwordB' },
+      (st, data) => { parseB = data; }
+    );
+    const jobB = parseB.jobId;
+    const refB = parseB.targetSet.schools[0].credentialRef;
+
+    // Assert same ref name (e.g. cred_ref_SCH_001)
+    assert.strictEqual(refA, refB);
+
+    // Assert both secrets coexist independently without overwriting
+    assert.strictEqual(LocalSecretVault.getSecret(refA, jobA), 'passwordA');
+    assert.strictEqual(LocalSecretVault.getSecret(refB, jobB), 'passwordB');
+
+    // 3. Cleanup Job A -> Job A secret is deleted, but Job B secret remains intact
+    LocalSecretVault.cleanupJob(jobA);
+    assert.strictEqual(LocalSecretVault.getSecret(refA, jobA), undefined, 'Job A secret must be deleted');
+    assert.strictEqual(LocalSecretVault.getSecret(refB, jobB), 'passwordB', 'Job B secret must remain available');
+
+    // 4. Test reverse scenario: store new Job C and Job D
+    const jobC = 'job_c_rev';
+    const jobD = 'job_d_rev';
+    const sharedRef = 'cred_ref_SCH_001';
+    LocalSecretVault.storeSecretWithRef(sharedRef, 'passwordC', jobC);
+    LocalSecretVault.storeSecretWithRef(sharedRef, 'passwordD', jobD);
+
+    assert.strictEqual(LocalSecretVault.getSecret(sharedRef, jobC), 'passwordC');
+    assert.strictEqual(LocalSecretVault.getSecret(sharedRef, jobD), 'passwordD');
+
+    // Cleanup Job D first (reverse order)
+    LocalSecretVault.cleanupJob(jobD);
+    assert.strictEqual(LocalSecretVault.getSecret(sharedRef, jobD), undefined, 'Job D secret must be deleted');
+    assert.strictEqual(LocalSecretVault.getSecret(sharedRef, jobC), 'passwordC', 'Job C secret must remain available');
+
+    // Cleanup Job C
+    LocalSecretVault.cleanupJob(jobC);
+    assert.strictEqual(LocalSecretVault.getSecret(sharedRef, jobC), undefined, 'Job C secret must be deleted');
   });
 
   // Case 41: Tampering plan or targetSet before Gate 1 approval triggers POLICY_STALE rejection
@@ -1464,7 +1547,21 @@ async function runTests() {
     const targetSet = createMockTargetSet(2);
     const plan = createMockPlan();
 
-    // 1. Generate plan through router
+    // 1. Parse targets first to get server-authoritative jobId and stored Job
+    let parseRes: any = null;
+    await router.handle(
+      '/api/platform/targets/parse',
+      'POST',
+      {} as any,
+      {
+        rawText: 'SCH_001,テスト小1,admin1,pw1\nSCH_002,テスト小2,admin2,pw2'
+      },
+      (st, data) => { parseRes = data; }
+    );
+    assert.ok(parseRes.jobId);
+    const jobId = parseRes.jobId;
+
+    // 2. Generate plan through router with authoritative jobId
     let planRes: any = null;
     const originalGeneratePlanAsync = TaskPlanner.generatePlanAsync;
     TaskPlanner.generatePlanAsync = async () => ({
@@ -1482,19 +1579,18 @@ async function runTests() {
         'POST',
         {} as any,
         {
-          targetSet,
+          jobId,
           userInstruction: 'テスト指示'
         },
         (st, data) => { planRes = data; }
       );
 
-      const jobId = planRes.jobId;
       const job = JobStore.getInstance().getJob(jobId)!;
       assert.ok(job);
       assert.ok(job.policy.planHash);
       assert.ok(job.executionPlan);
 
-      // 2. Tamper the plan in JobStore
+      // 3. Tamper the plan in JobStore
       job.executionPlan!.operations.push({
         operationId: 'op_tampered',
         capabilityId: 'REORDER_CONTENTS',
@@ -1507,7 +1603,7 @@ async function runTests() {
       });
       JobStore.getInstance().saveJob(job);
 
-      // 3. Attempt to approve Gate 1 via router
+      // 4. Attempt to approve Gate 1 via router
       let approveStatus = 0;
       let approveBody: any = null;
       await router.handle(
@@ -1572,6 +1668,7 @@ async function runTests() {
       observe: async () => ({ eligible: true, currentState: { currentOrderIds: [1, 2], desiredOrderIds: [2, 1] } }),
       execute: async () => ({
         success: true,
+        message: 'reorder success',
         appliedChanges: { moved: true },
         beforeState: {},
         afterState: {},

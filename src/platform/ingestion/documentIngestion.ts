@@ -9,20 +9,23 @@ export interface IngestFileInput {
 
 export class LocalSecretVault {
   private static secrets: Map<string, string> = new Map();
-  private static secretToJob: Map<string, string> = new Map();
   private static jobSecrets: Map<string, Set<string>> = new Map();
+
+  private static storageKey(jobId: string, handle: string): string {
+    return `${jobId}\u0000${handle}`;
+  }
 
   static storeSecret(plainSecret: string, jobId: string): string {
     if (!jobId || typeof jobId !== 'string' || jobId.trim().length === 0) {
       throw new Error('JOB_ID_REQUIRED: Storing secrets in LocalSecretVault requires an explicit non-empty jobId');
     }
     const handle = `secret_handle_${crypto.randomUUID()}`;
-    this.secrets.set(handle, plainSecret);
-    this.secretToJob.set(handle, jobId);
+    const key = this.storageKey(jobId, handle);
+    this.secrets.set(key, plainSecret);
     if (!this.jobSecrets.has(jobId)) {
       this.jobSecrets.set(jobId, new Set());
     }
-    this.jobSecrets.get(jobId)!.add(handle);
+    this.jobSecrets.get(jobId)!.add(key);
     return handle;
   }
 
@@ -30,43 +33,35 @@ export class LocalSecretVault {
     if (!jobId || typeof jobId !== 'string' || jobId.trim().length === 0) {
       throw new Error('JOB_ID_REQUIRED: Storing secrets in LocalSecretVault requires an explicit non-empty jobId');
     }
-    this.secrets.set(ref, plainSecret);
-    this.secretToJob.set(ref, jobId);
+    const key = this.storageKey(jobId, ref);
+    this.secrets.set(key, plainSecret);
     if (!this.jobSecrets.has(jobId)) {
       this.jobSecrets.set(jobId, new Set());
     }
-    this.jobSecrets.get(jobId)!.add(ref);
+    this.jobSecrets.get(jobId)!.add(key);
   }
 
   static getSecret(handle: string, jobId: string): string | undefined {
     if (!jobId || typeof jobId !== 'string' || jobId.trim().length === 0) {
       return undefined; // Fail-closed: jobId is mandatory
     }
-    const ownerJobId = this.secretToJob.get(handle);
-    // If handle is not owned by this jobId (or unowned), strictly deny access
-    if (!ownerJobId || ownerJobId !== jobId) {
-      return undefined;
-    }
-    return this.secrets.get(handle);
+    const key = this.storageKey(jobId, handle);
+    return this.secrets.get(key);
   }
 
   static hasSecret(handle: string, jobId: string): boolean {
     if (!jobId || typeof jobId !== 'string' || jobId.trim().length === 0) {
       return false; // Fail-closed: jobId is mandatory
     }
-    const ownerJobId = this.secretToJob.get(handle);
-    if (!ownerJobId || ownerJobId !== jobId) {
-      return false;
-    }
-    return this.secrets.has(handle);
+    const key = this.storageKey(jobId, handle);
+    return this.secrets.has(key);
   }
 
   static cleanupJob(jobId: string): void {
-    const handles = this.jobSecrets.get(jobId);
-    if (handles) {
-      for (const h of handles) {
-        this.secrets.delete(h);
-        this.secretToJob.delete(h);
+    const keys = this.jobSecrets.get(jobId);
+    if (keys) {
+      for (const k of keys) {
+        this.secrets.delete(k);
       }
       this.jobSecrets.delete(jobId);
     }
@@ -74,7 +69,6 @@ export class LocalSecretVault {
 
   static clear(): void {
     this.secrets.clear();
-    this.secretToJob.clear();
     this.jobSecrets.clear();
   }
 }
