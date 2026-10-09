@@ -186,7 +186,7 @@ async function main() {
     assert.strictEqual(res.status, 200);
     const data = await res.json();
     assert.strictEqual(data.preview.length, 1);
-    assert.deepStrictEqual(data.preview[0], { schoolCode: 'PRRHC', schoolName: 'MEXCBT学校' });
+    assert.deepStrictEqual(data.preview[0], { schoolCode: 'PRRHC', schoolName: 'MEXCBT学校', hasCredential: true });
     assert.strictEqual((data.preview[0] as any).userId, undefined);
     assert.strictEqual((data.preview[0] as any).password, undefined);
 
@@ -459,12 +459,16 @@ async function main() {
   await runTest('Test AD: 旧ローカル既定ファイルモード (LOCAL_DEFAULT) が従来通り正常に動作すること', () => {
     const adapter = new BatchProcessAdapter();
     adapter.setInputSource('LOCAL_DEFAULT');
+    const hasLive = fs.existsSync(path.resolve(process.cwd(), 'config/production-profile.live.json'));
+    const profilePath = hasLive ? 'config/production-profile.live.json' : 'config/production-profile.sample.json';
+    const schoolsPath = hasLive ? 'config/schools.live.csv' : 'config/schools.sample.csv';
+    const credsPath = hasLive ? 'config/credentials.json' : 'config/credentials.sample.json';
     const val = adapter.executeValidation({
-      schoolsFilePath: 'config/schools.live.csv',
-      profileFilePath: 'config/production-profile.live.json',
-      credentialsFilePath: 'config/credentials.json'
+      schoolsFilePath: schoolsPath,
+      profileFilePath: profilePath,
+      credentialsFilePath: credsPath
     });
-    assert.strictEqual(val.enabledCount, 3);
+    assert.strictEqual(val.enabledCount, hasLive ? 3 : 2);
     assert.strictEqual(val.snapshot.source, 'LOCAL_DEFAULT');
     assert.ok(adapter.getSnapshot() !== null);
   });

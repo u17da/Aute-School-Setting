@@ -351,6 +351,9 @@ async function main() {
 
       // Console UI へアクセス
       await page.goto(consoleBaseUrl, { waitUntil: 'domcontentloaded' });
+      if (await page.isVisible('#modeLegacyBtn')) {
+        await page.click('#modeLegacyBtn');
+      }
 
       // STEP 1: Target - CSV Upload & Validate
       console.log('  [STEP 1] Target: CSV Upload & Validate...');
@@ -401,6 +404,7 @@ async function main() {
 
       // Profile 確定
       console.log('  [STEP 4b] Profile 確定...');
+      await page.waitForSelector('#profileConfirmBtn:not([disabled])', { timeout: 10000 });
       await page.click('#profileConfirmBtn');
       await page.waitForSelector('#finalPreflightSection:not([style*="display: none"])', { timeout: 10000 });
 

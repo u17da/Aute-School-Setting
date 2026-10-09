@@ -1,6 +1,7 @@
 /**
  * Execution Plan and Operation DSL / IR types
  */
+import { z } from 'zod';
 
 export type RiskClass =
   | 'READ_ONLY'
@@ -59,6 +60,43 @@ export interface OperationIR {
   riskClass: RiskClass;
   reversible: boolean;
   estimatedDurationMs?: number;
+}
+
+export const OperationIRSchema = z.object({
+  operationId: z.string().min(1, 'operationId is required'),
+  operationType: z.string().min(1, 'operationType is required'),
+  capabilityId: z.string().min(1, 'capabilityId is required and cannot be empty'),
+  targetSchoolCodes: z.array(z.string()).optional(),
+  targetSelector: z.record(z.any()).optional(),
+  inputMapping: z.record(z.any()),
+  preconditions: z.array(
+    z.object({
+      description: z.string(),
+      checkType: z.enum(['URL_MATCH', 'ELEMENT_VISIBLE', 'SCHOOL_IDENTITY', 'CURRENT_VALUE']),
+      expected: z.any()
+    })
+  ),
+  actions: z.array(z.any()).optional(),
+  postconditions: z.array(z.string()).optional(),
+  verification: z.array(
+    z.object({
+      description: z.string(),
+      verifyType: z.enum(['RELOAD_AND_CHECK', 'ELEMENT_TEXT', 'ELEMENT_VALUE', 'STATE_HASH']),
+      expected: z.any()
+    })
+  ),
+  riskClass: z.enum(['READ_ONLY', 'REVERSIBLE_WRITE', 'SENSITIVE_WRITE', 'DESTRUCTIVE_WRITE', 'IRREVERSIBLE_WRITE']),
+  reversible: z.boolean(),
+  estimatedDurationMs: z.number().optional()
+});
+
+export function validateOperationIR(op: any): OperationIR {
+  const result = OperationIRSchema.safeParse(op);
+  if (!result.success) {
+    const issues = result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join(', ');
+    throw new Error(`INVALID_OPERATION_IR: Operation fails domain schema validation: ${issues}`);
+  }
+  return result.data as OperationIR;
 }
 
 export interface PlanAssumption {

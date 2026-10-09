@@ -2226,13 +2226,10 @@ SCH002,第二小学校,CRED002,false`;
     assert.strictEqual(schools[1].schoolName, name2, 'name2 が完全一致で保持されること');
   });
 
-  // Test E: BOMなし既存CSV (config/schools.live.csv) の回帰検証
-  await runTest('CSV Excel Compatibility Test E: BOMなし既存CSV (config/schools.live.csv) が今まで通り正常に parse されること', () => {
-    const liveCsvPath = path.resolve(process.cwd(), 'config/schools.live.csv');
-    const liveContent = fs.existsSync(liveCsvPath)
-      ? fs.readFileSync(liveCsvPath, 'utf-8')
-      : 'schoolCode,schoolName,credentialRef,enabled\nPRRHC,テスト1,PRRHC,true\nPAKCW,テスト2,PAKCW,true\nPSD20,テスト3,PSD20,true';
-    const schools = parseSchoolsCsv(liveContent);
+  // Test E: BOMなしCSV (fixture) の回帰検証
+  await runTest('CSV Excel Compatibility Test E: BOMなしCSV (fixture) が今まで通り正常に parse されること', () => {
+    const fixtureContent = 'schoolCode,schoolName,credentialRef,enabled\nPRRHC,テスト1,PRRHC,true\nPAKCW,テスト2,PAKCW,true\nPSD20,テスト3,PSD20,true';
+    const schools = parseSchoolsCsv(fixtureContent);
     assert.strictEqual(schools.length, 3);
     assert.strictEqual(schools[0].schoolCode, 'PRRHC');
     assert.strictEqual(schools[1].schoolCode, 'PAKCW');

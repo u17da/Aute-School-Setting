@@ -3,6 +3,8 @@ import * as path from 'path';
 import { PlatformJob } from '../types/job';
 import { getDataRootDir } from '../../runtime/paths';
 
+import { validateOperationIR } from '../types/plan';
+
 export class JobStore {
   private static instance: JobStore | null = null;
   private jobs: Map<string, PlatformJob> = new Map();
@@ -70,9 +72,12 @@ export class JobStore {
         try {
           const content = fs.readFileSync(path.join(this.storageDir, file), 'utf-8');
           const job: PlatformJob = JSON.parse(content);
+          if (job.executionPlan?.operations) {
+            job.executionPlan.operations.forEach(op => validateOperationIR(op));
+          }
           this.jobs.set(job.jobId, job);
         } catch {
-          // ignore corrupted files
+          // ignore corrupted or schema-invalid files
         }
       }
     } catch {

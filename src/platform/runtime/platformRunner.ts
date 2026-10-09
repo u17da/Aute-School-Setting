@@ -9,6 +9,7 @@ import { LocalSecretVault } from '../ingestion/documentIngestion';
 import { LoginPage } from '../../pages/LoginPage';
 import { HomePage } from '../../pages/HomePage';
 import { JobStore } from './jobStore';
+import { validateOperationIR } from '../types/plan';
 
 export interface ProgressEvent {
   stage:
@@ -60,6 +61,14 @@ export class PlatformRunner {
 
     if (!job.targetSet || !job.executionPlan) {
       throw new Error('TargetSet or ExecutionPlan is missing.');
+    }
+
+    // 1.5. Runtime Schema Validation of Execution Plan & Operations (Fail-Closed Invariant)
+    for (const op of job.executionPlan.operations) {
+      validateOperationIR(op);
+      if (!op.capabilityId || typeof op.capabilityId !== 'string' || op.capabilityId.trim().length === 0) {
+        throw new Error(`INVALID_PLAN: Operation "${op.operationId}" is missing required capabilityId.`);
+      }
     }
 
     // 2. Filter target schools
@@ -204,13 +213,12 @@ export class PlatformRunner {
 
         // B. Execute operations in the plan
         for (const op of job.executionPlan.operations) {
-          const capId = op.capabilityId || op.operationType;
-          summary.currentOperation = capId;
-          const cap = registry.get(capId);
+          summary.currentOperation = op.capabilityId;
+          const cap = registry.get(op.capabilityId);
 
           if (!cap) {
             schoolStatus = 'BLOCKED';
-            schoolError = `操作 "${capId}" はカタログに登録されていません。`;
+            schoolError = `操作 "${op.capabilityId}" はカタログに登録されていません。`;
             break;
           }
 

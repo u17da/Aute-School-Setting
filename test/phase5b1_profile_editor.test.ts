@@ -120,7 +120,7 @@ async function main() {
       });
       assert.strictEqual(res.statusCode, 200);
       assert.strictEqual(res.body.status, 'PASS');
-      assert.ok(res.body.snapshot.enabledSchoolCount >= 2, 'enabledSchoolCount must be >= 2');
+      assert.strictEqual(res.body.snapshot.enabledSchoolCount, 2);
       assert.ok(res.body.snapshot.profileSnapshotId);
     });
 
@@ -158,9 +158,8 @@ async function main() {
       assert.strictEqual(adapter.getJobState(), 'IDLE');
     });
 
-    // Test E: Editor変更で Preflight 開始が拒絶されること
-    await runTest('Test E: Preflight start rejected when validation is stale/invalidated', async () => {
-      // Snapshot が null の状態で Preflight 開始
+    // Test E1: サンプルデータ環境での Preflight 開始が 500 SAMPLE_DATA_BLOCKED で厳格に拒絶されること
+    await runTest('Test E1: Preflight start rejected with SAMPLE_DATA_BLOCKED (500) for sample data', async () => {
       const preflightRes = await httpRequest({
         port: actualPort,
         path: '/api/preflight/start',
@@ -168,11 +167,33 @@ async function main() {
         headers: { 'X-CSRF-Nonce': csrfToken },
         body: {}
       });
-      assert.ok(preflightRes.statusCode === 400 || preflightRes.statusCode === 500, 'Preflight must be rejected');
-      assert.ok(
-        preflightRes.body.error === 'VALIDATION_REQUIRED' || preflightRes.body.error === 'SAMPLE_DATA_BLOCKED',
-        'Error code must indicate safety block'
-      );
+      assert.strictEqual(preflightRes.statusCode, 500);
+      assert.strictEqual(preflightRes.body.error, 'SAMPLE_DATA_BLOCKED');
+    });
+
+    // Test E2: Upload入力環境で Validation 未実行時の Preflight 開始が 400 VALIDATION_REQUIRED で厳格に拒絶されること
+    await runTest('Test E2: Preflight start rejected with VALIDATION_REQUIRED (400) when unvalidated in UPLOAD mode', async () => {
+      // 一時的に UPLOAD モードを設定（ValidationSnapshot は null）
+      adapter.setUploadedBatch({
+        originalFileName: 'test_upload.csv',
+        schools: [{ schoolCode: 'TEST01', schoolName: 'テスト小学校', credentialRef: 'CRED01', enabled: true }],
+        credentials: { CRED01: { userId: 'admin', password: 'pw' } }
+      } as any);
+
+      try {
+        const preflightRes = await httpRequest({
+          port: actualPort,
+          path: '/api/preflight/start',
+          method: 'POST',
+          headers: { 'X-CSRF-Nonce': csrfToken },
+          body: {}
+        });
+        assert.strictEqual(preflightRes.statusCode, 400);
+        assert.strictEqual(preflightRes.body.error, 'VALIDATION_REQUIRED');
+      } finally {
+        // テスト環境のクリーンアップ（LOCAL_DEFAULT へ復元）
+        adapter.setInputSource('LOCAL_DEFAULT');
+      }
     });
 
     // Test F: Preset変更で Invalidation が発生すること

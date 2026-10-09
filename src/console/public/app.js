@@ -875,7 +875,9 @@ async function onCheckDiffClicked() {
     if (success) {
       editorDirty = false;
       previewVerified = true;
-      checkEditorWarnings(isParentOff && (allChannelVal !== 'OFF' || parentChannelVal !== 'OFF'));
+      const hasTimelineConflict = isTimelineOff && (allChannelVal !== 'OFF' || parentChannelVal !== 'OFF');
+      const hasDmConflict = isDmOff && parentDmVal !== 'OFF';
+      checkEditorWarnings(hasTimelineConflict, hasDmConflict);
 
       // 差分確認エリアへスムーズスクロール
       const diffSection = document.getElementById('previewSummaryBox') || document.getElementById('previewComparisonCard');
